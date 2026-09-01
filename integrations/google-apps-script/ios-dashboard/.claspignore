@@ -1,0 +1,13 @@
+# clasp push source filter for this directory (Issue #247).
+#
+# clasp's default file-type detection treats any *.js file as an Apps Script
+# SERVER_JS source file (same as *.gs) -- without this file, clasp push would
+# upload test/dashboard-logic.test.js into the Apps Script project as if it
+# were part of the deployed app. .git/** and node_modules/** are excluded by
+# clasp itself; everything else that isn't actual Apps Script source needs to
+# be listed here explicitly.
+test/**
+demo/**
+README.md
+.clasp.json.example
+.claspignore
