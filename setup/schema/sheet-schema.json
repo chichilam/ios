@@ -1,0 +1,281 @@
+{
+  "schema_version": 3,
+  "description": "Canonical Google Sheets schema for the IOS v2.1 personal deployment layer (Issue #242). Authoritative field names and semantics for the GAS Dashboard (Phase B) and the one-prompt installer (Phase C). See docs/v2.1-architecture.md for the full design rationale.",
+  "tabs": {
+    "当前持仓": {
+      "english_name": "Current Holdings",
+      "purpose": "Source of truth for what the user currently holds. Overrides any stale portfolio data a Scheduled Task or chat memory might otherwise assume.",
+      "fields": [
+        {"name": "代码", "type": "string", "required": true, "notes": "Ticker/security code. Reserved value 'FUND-SLEEVE' (Issue #259): an optional aggregate row representing a fund sleeve as one position -- see the 投资信托明细 tab's own rules for how its 当前市值 total reconciles against this row without double-counting."},
+        {"name": "名称", "type": "string", "required": true},
+        {"name": "市场", "type": "string", "required": true, "notes": "Exchange/market."},
+        {"name": "持有数量", "type": "number", "required": true},
+        {"name": "平均成本", "type": "number", "required": false, "notes": "Blank means unknown -- never reconstructed or defaulted by an automated writer."},
+        {"name": "参考买入价/区间", "type": "string", "required": false, "notes": "User-maintained reference buy price or range for this holding (e.g. 'add more below 38') -- an ongoing decision anchor the user sets, distinct from 平均成本 (the actual historical cost basis). Blank means not set -- never defaulted from 平均成本 or any other field, never computed by a writer."},
+        {"name": "币种", "type": "string", "required": true},
+        {"name": "账户", "type": "string", "required": false},
+        {"name": "状态", "type": "enum", "values": ["持有", "已清仓"], "required": true},
+        {"name": "备注", "type": "string", "required": false},
+        {"name": "最后更新", "type": "date", "required": false}
+      ],
+      "rules": [
+        "Only rows with 状态=持有 AND 持有数量 > 0 count as current holdings.",
+        "A blank 平均成本 is unknown, not zero -- never silently filled in by any writer.",
+        "参考买入价/区间 is user-entered reference data, not a system-computed target -- it must never be inferred from 平均成本 or any other field, and a writer must never fabricate one where the user left it blank.",
+        "A row with 代码=FUND-SLEEVE (Issue #259) represents an entire fund sleeve as one aggregate position. Its own 持有数量/平均成本 are not used to derive the sleeve's current total value -- that comes from summing 投资信托明细.当前市值 across the matching detail rows (matched by 账户 when the FUND-SLEEVE row sets one, otherwise all detail rows). A consumer computing a portfolio total must use either this aggregate row or the 投资信托明细 sum for the same scope, never both additively -- see 投资信托明细's own rules."
+      ]
+    },
+    "交易记录": {
+      "english_name": "Transactions",
+      "purpose": "Transaction history for context only. Never used to override 当前持仓's own state.",
+      "fields": [
+        {"name": "日期", "type": "date", "required": true},
+        {"name": "代码", "type": "string", "required": true},
+        {"name": "操作", "type": "string", "required": true, "notes": "e.g. buy/sell -- not a fixed enum, market-dependent."},
+        {"name": "数量", "type": "number", "required": true},
+        {"name": "成交价格", "type": "number", "required": true},
+        {"name": "币种", "type": "string", "required": true},
+        {"name": "账户", "type": "string", "required": false},
+        {"name": "手续费", "type": "number", "required": false},
+        {"name": "备注", "type": "string", "required": false}
+      ],
+      "rules": [
+        "History/context only -- never authoritative for current holdings state."
+      ]
+    },
+    "观察名单": {
+      "english_name": "Watchlist",
+      "purpose": "Candidates under research, explicitly not holdings.",
+      "fields": [
+        {"name": "代码", "type": "string", "required": true},
+        {"name": "名称", "type": "string", "required": true},
+        {"name": "市场", "type": "string", "required": true},
+        {"name": "主题", "type": "string", "required": false},
+        {"name": "关注理由", "type": "string", "required": false},
+        {"name": "理想买入区间", "type": "string", "required": false},
+        {"name": "当前状态", "type": "string", "required": false},
+        {"name": "优先级", "type": "string", "required": false},
+        {"name": "最近研究日期", "type": "date", "required": false},
+        {"name": "备注", "type": "string", "required": false}
+      ],
+      "rules": [
+        "Never counted as holdings in any view or aggregate, in the Dashboard or in any report."
+      ]
+    },
+    "账户状态": {
+      "english_name": "Account / Capital Facts",
+      "purpose": "Durable account/capital facts (Issue #259) -- current available cash by currency/account, New NISA remaining capacity, and related funding state -- as canonical Sheet facts rather than a Task-embedded chat context. Introduced in schema_version 2; absent entirely on a schema_version 1 installation that has not migrated (see migration_policy).",
+      "fields": [
+        {"name": "账户", "type": "string", "required": true, "notes": "Account/broker label, same vocabulary as 当前持仓.账户."},
+        {"name": "币种", "type": "string", "required": true},
+        {"name": "可用现金", "type": "number", "required": false, "notes": "Current available cash for this 账户/币种. Blank means unknown -- never defaulted to zero. This is the field that satisfies agents/weekly-agent.md's required '当前现金或资金状态' input: at least one row across this tab with a non-blank 可用现金 and a 数据时间 is required for that input to count as supplied from the Sheet."},
+        {"name": "NISA成长投资额度剩余", "type": "number", "required": false, "notes": "New NISA growth-investment (成长投资枠) remaining capacity for this 账户. Blank means unknown/not applicable -- a 建议输入 (agents/weekly-agent.md classifies NISA state as suggested, not required); its absence alone must never trigger 不可执行."},
+        {"name": "NISA积立额度剩余", "type": "number", "required": false, "notes": "New NISA tsumitate (つみたて投资枠) remaining capacity for this 账户. Same blank/建议输入 semantics as NISA成长投资额度剩余."},
+        {"name": "本年计划追加资金", "type": "number", "required": false, "notes": "Optional user-declared planned additional capital for the current year. Never inferred -- blank means not declared, not zero."},
+        {"name": "定期定额扣款", "type": "string", "required": false, "notes": "Free-text description of current recurring tsumitate/DCA instructions where the user has supplied them (e.g. amount, frequency, target fund). Not a fixed enum -- brokerage conventions vary too much to normalize."},
+        {"name": "数据时间", "type": "date", "required": true, "notes": "as_of date this row's facts were current as of. Required whenever a row exists, so staleness can be judged the same way weekly_cash_context's free-text description already was (old but present is a noted gap, not a run-blocker)."},
+        {"name": "来源", "type": "string", "required": false, "notes": "Provenance/source label for this row (e.g. 'brokerage app screenshot 2026-08-01', 'user-reported'). Optional but recommended for anything other than a live brokerage feed this schema does not integrate with."},
+        {"name": "备注", "type": "string", "required": false}
+      ],
+      "rules": [
+        "Multiple rows are expected -- one per (账户, 币种) combination the user wants to track, mirroring 当前持仓's own per-position rows.",
+        "可用现金/NISA成长投资额度剩余/NISA积立额度剩余/本年计划追加资金 blank means unknown, never zero -- never reconstructed or defaulted by any writer or by the Dashboard.",
+        "Only 可用现金 (plus 数据时间) is required for agents/weekly-agent.md's required '当前现金或资金状态' input; NISA/计划追加资金/定期定额扣款 remain 建议输入 (suggested) per that same document -- their absence is a noted information gap, never grounds for 不可执行 on its own.",
+        "Which source is authoritative is decided by the recorded _安装状态.schema_version, never merely by whether this tab happens to exist -- a Sheet whose schema_version already says 2 must never fall back to _安装状态.weekly_cash_context just because 账户状态 was found missing, since that could be a deleted/renamed tab rather than a genuine pre-migration Sheet, and the legacy field is retired (may hold a stale or inert sentinel value) once schema_version reaches 2.",
+        "schema_version >= 2: 账户状态 is the sole authoritative source, full stop. A tab that exists but whose rows all have a blank 可用现金 is equivalent to 'not provided' for the required-input check -- it does NOT fall back to _安装状态.weekly_cash_context. A tab that is missing/unreadable under a recorded schema_version >= 2 is a schema-incompatible state and must be Blocked, not silently treated as a pre-migration Sheet -- consulting the legacy field here would leave two independently stale copies of the same fact, exactly the operational problem Issue #259 was opened to remove.",
+        "schema_version == 1 (or _安装状态 itself is confirmed absent, i.e. a Sheet that predates the _安装状态 mechanism entirely): 账户状态 is expected absent, and the legacy _安装状态.weekly_cash_context mechanism is the sole source -- never treated as 'user declined' on a pre-migration Sheet.",
+        "A read failure on this tab, or on _安装状态 itself (permission/API error, timeout), is never treated the same as either tab being confirmed absent -- same fail-closed distinction sheet-schema.json's own _安装状态 rules already establish for that tab."
+      ]
+    },
+    "投资信托明细": {
+      "english_name": "Fund-Sleeve Detail",
+      "purpose": "Per-fund detail rows (Issue #259) sufficient to reconcile an aggregate 当前持仓 FUND-SLEEVE row and analyze S&P 500 / All Country / concentrated-tech overlap across a user's fund holdings, without requiring fabricated units or cost basis when the brokerage view doesn't expose them. Introduced in schema_version 2.",
+      "fields": [
+        {"name": "基金名称", "type": "string", "required": true, "notes": "Fund name as the user's brokerage displays it. A stable security identifier is preferred when available (see 代码) but never required -- some brokerage views only expose a name."},
+        {"name": "代码", "type": "string", "required": false, "notes": "Stable identifier (ticker/ISIN/local fund code) when available. Blank rather than synthesized when the brokerage view doesn't provide one -- never invented to fill the column."},
+        {"name": "账户", "type": "string", "required": false, "notes": "Which 账户 holds this fund, for matching against a 当前持仓 FUND-SLEEVE row scoped to the same 账户."},
+        {"name": "币种", "type": "string", "required": true},
+        {"name": "NISA分类", "type": "string", "required": false, "notes": "NISA bucket/account classification for this fund (e.g. 成长投资枠/积立投资枠/课税账户) -- free text, not a fixed enum, since exact institutional labels vary."},
+        {"name": "当前市值", "type": "number", "required": true, "notes": "Current market value as the user's brokerage reports it -- never computed/estimated by a writer. This is the field 当前持仓's FUND-SLEEVE aggregate row reconciles against (see that tab's own rules)."},
+        {"name": "未实现盈亏", "type": "number", "required": false, "notes": "Optional unrealized P/L as reported by the brokerage. Blank means not supplied, never computed from 当前市值 minus an assumed cost basis."},
+        {"name": "数据时间", "type": "date", "required": true, "notes": "as_of date this row's facts were current as of."},
+        {"name": "备注", "type": "string", "required": false}
+      ],
+      "rules": [
+        "Multiple rows per fund sleeve are expected -- this tab is the detail a 当前持仓 FUND-SLEEVE aggregate row summarizes, not a duplicate of it.",
+        "The authoritative current total value for a fund sleeve is the sum of this tab's 当前市值 across its matching rows (matched by 账户 when the 当前持仓 FUND-SLEEVE row sets one, otherwise all rows) -- never the FUND-SLEEVE row's own 持有数量/平均成本, which are not meaningful units for a fund sleeve.",
+        "A consumer must never add this tab's summed value AND a separately-derived 当前持仓 FUND-SLEEVE figure together as two portfolio components -- that double-counts the same underlying position. Use one reconciled figure.",
+        "代码/units/cost basis are never fabricated when the brokerage view doesn't expose them -- blank stays blank.",
+        "This tab is entirely absent (not merely empty) on a schema_version 1 installation or on any installation where the user has not chosen to track fund-sleeve detail -- its absence is not an error and 当前持仓 continues to work as a single aggregate row with no reconciliation available in that case."
+      ]
+    },
+    "报告摘要": {
+      "english_name": "Report Summary",
+      "purpose": "One row per generated report (Daily or Weekly); the report id's primary record and the atomic commit point for that report's current generation (see report_write_protocol below).",
+      "fields": [
+        {"name": "报告ID", "type": "string", "required": true, "notes": "daily-YYYY-MM-DD or weekly-YYYY-MM-DD -- the stable business key for this report."},
+        {"name": "生成ID", "type": "string", "required": true, "notes": "Fresh id (e.g. UUID) minted per write attempt, never reused across attempts/retries. The value here is the ONLY 生成ID whose 报告持仓/报告风险/报告待办 rows are considered live for this 报告ID -- see report_write_protocol."},
+        {"name": "报告类型", "type": "enum", "values": ["daily", "weekly"], "required": true},
+        {"name": "报告日期", "type": "date", "required": true},
+        {"name": "周期开始", "type": "date", "required": false},
+        {"name": "周期结束", "type": "date", "required": false},
+        {"name": "一句话结论", "type": "string", "required": true},
+        {"name": "核心状态", "type": "string", "required": true, "notes": "States explicitly when the report is Blocked (a required tab/column was unreadable or schema-incompatible). A tab that was read successfully but is simply empty (e.g. no watchlist rows) is a valid result, never Blocked -- see blocked_vs_empty in docs/v2.1-architecture.md."},
+        {"name": "Review状态", "type": "string", "required": false},
+        {"name": "当前持仓数", "type": "number", "required": false},
+        {"name": "高优先级观察数", "type": "number", "required": false},
+        {"name": "生成时间", "type": "datetime", "required": true},
+        {"name": "备注", "type": "string", "required": false}
+      ],
+      "rules": [
+        "Writing/updating this row for a 报告ID is step 4 (Switch) of report_write_protocol -- it happens only after every 报告持仓/报告风险/报告待办 row for the new 生成ID has been written and verified.",
+        "A single row write to this tab is the only operation this schema treats as atomic; nothing else in the four-tab write is assumed atomic."
+      ]
+    },
+    "报告持仓": {
+      "english_name": "Report Assets",
+      "purpose": "Per-asset detail rows for a given (报告ID, 生成ID), covering both holdings and watchlist candidates discussed in that report.",
+      "fields": [
+        {"name": "报告ID", "type": "string", "required": true},
+        {"name": "生成ID", "type": "string", "required": true, "notes": "Must match the 生成ID currently referenced by this 报告ID's 报告摘要 row to be considered live -- see report_write_protocol."},
+        {"name": "报告类型", "type": "enum", "values": ["daily", "weekly"], "required": true},
+        {"name": "报告日期", "type": "date", "required": true},
+        {"name": "资产类型", "type": "enum", "values": ["holding", "watchlist"], "required": true, "notes": "Must distinguish holdings from watchlist candidates -- watchlist rows are never rendered as holdings."},
+        {"name": "代码", "type": "string", "required": true},
+        {"name": "名称", "type": "string", "required": true},
+        {"name": "数量", "type": "number", "required": false},
+        {"name": "Thesis状态", "type": "string", "required": false},
+        {"name": "IOS状态", "type": "string", "required": false},
+        {"name": "关键变化", "type": "string", "required": false},
+        {"name": "长期逻辑或估值", "type": "string", "required": false},
+        {"name": "下一验证点", "type": "string", "required": false},
+        {"name": "参考买入价/区间", "type": "string", "required": false, "notes": "Snapshot at report-generation time, since a historical report row must stand on its own (see migration_policy). For 资产类型=holding, copied from 当前持仓.参考买入价/区间; for 资产类型=watchlist, derived by the writer from 观察名单.理想买入区间. Blank if the source was blank -- never fabricated."},
+        {"name": "当前价格", "type": "number", "required": false, "notes": "Market price at report-generation time, if the Task's data source provided one. Blank if unavailable -- never fabricated."},
+        {"name": "价格位置", "type": "string", "required": false, "notes": "The writer's qualitative placement of 当前价格 relative to 参考买入价/区间 (e.g. '低于区间'/'区间内'/'高于区间'/'未知') when both are available -- descriptive positioning only, never a buy/sell signal. The Dashboard renders this verbatim and never computes it itself."},
+        {"name": "优先级", "type": "string", "required": false},
+        {"name": "排序", "type": "number", "required": false}
+      ],
+      "rules": [
+        "资产类型=watchlist rows must never be aggregated or rendered as holdings.",
+        "A row whose 生成ID does not match the current 报告摘要 pointer for its 报告ID is stale/orphaned and must never be rendered or aggregated.",
+        "参考买入价/区间, 当前价格, and 价格位置 are informational reference data, not investment advice or an executable target -- see the Book/Prompt Suite's own 'all actual investment actions require human confirmation' boundary. A writer must never fabricate any of the three when its source data is unavailable."
+      ]
+    },
+    "报告风险": {
+      "english_name": "Report Risks",
+      "purpose": "Per-risk detail rows for a given (报告ID, 生成ID).",
+      "fields": [
+        {"name": "报告ID", "type": "string", "required": true},
+        {"name": "生成ID", "type": "string", "required": true, "notes": "Must match the 生成ID currently referenced by this 报告ID's 报告摘要 row to be considered live -- see report_write_protocol."},
+        {"name": "报告类型", "type": "enum", "values": ["daily", "weekly"], "required": true},
+        {"name": "报告日期", "type": "date", "required": true},
+        {"name": "风险类型", "type": "string", "required": false},
+        {"name": "风险", "type": "string", "required": true},
+        {"name": "影响资产", "type": "string", "required": false},
+        {"name": "影响", "type": "string", "required": false},
+        {"name": "本期动作", "type": "string", "required": false},
+        {"name": "严重度", "type": "string", "required": false},
+        {"name": "排序", "type": "number", "required": false}
+      ],
+      "rules": [
+        "A row whose 生成ID does not match the current 报告摘要 pointer for its 报告ID is stale/orphaned and must never be rendered or aggregated."
+      ]
+    },
+    "报告待办": {
+      "english_name": "Report Todos",
+      "purpose": "Per-todo detail rows for a given (报告ID, 生成ID).",
+      "fields": [
+        {"name": "报告ID", "type": "string", "required": true},
+        {"name": "生成ID", "type": "string", "required": true, "notes": "Must match the 生成ID currently referenced by this 报告ID's 报告摘要 row to be considered live -- see report_write_protocol."},
+        {"name": "报告类型", "type": "enum", "values": ["daily", "weekly"], "required": true},
+        {"name": "报告日期", "type": "date", "required": true},
+        {"name": "排序", "type": "number", "required": false},
+        {"name": "分类", "type": "string", "required": false},
+        {"name": "待办", "type": "string", "required": true},
+        {"name": "状态", "type": "string", "required": false, "notes": "Completion state (free text; canonical completed-equivalent values are 已完成/done -- see the GAS Dashboard's own classifier). Orthogonal to 跟进类型 below: a 持续观察/等待证据 row normally stays 待处理 for as long as the condition it describes remains active, and only moves to 已完成 once that follow-up itself is genuinely concluded."},
+        {"name": "备注", "type": "string", "required": false},
+        {"name": "跟进类型", "type": "enum", "values": ["可执行", "持续观察", "等待证据"], "required": false, "notes": "Issue #267, schema_version 3. Distinguishes actionable work the user/Agent can advance now from an ongoing monitoring condition (e.g. 'continue tracking NVIDIA Rubin ramp/margins') and an item genuinely blocked on an external event (e.g. a pending board decision or filing) -- so the Dashboard's todo/backlog view doesn't misrepresent recurring monitoring or an evidence-wait as accumulating unfinished work. Blank or any value outside this enum is treated as 可执行 by any reader (the safe, conservative default -- never silently hidden from the actionable backlog). Canonical machine values are these literal Chinese strings; the GAS Dashboard renders them, it does not translate or reinterpret them. Placed after 备注 (rather than in narrative field order) because this column was added via the additive, append-only schema_version 3 upgrade -- an existing installation's 报告待办 header gets this column appended at the end, so the canonical field order here must match physical append position exactly (see PR #268 review)."}
+      ],
+      "rules": [
+        "A row whose 生成ID does not match the current 报告摘要 pointer for its 报告ID is stale/orphaned and must never be rendered or aggregated.",
+        "跟进类型 only classifies presentation grouping -- it must never be used to infer or imply investment meaning (e.g. it is not a buy/sell signal, urgency score, or thesis judgment). That judgment, if any, belongs in 待办/备注's own text, per the Book/Prompt Suite's existing boundaries."
+      ]
+    },
+    "_安装状态": {
+      "english_name": "Installation State (internal)",
+      "purpose": "Installer-owned metadata tab (Phase C review finding): the concrete, lossless persistence location for every field of setup/schema/installation-state.json's model, so an installer run can detect an existing installation and upgrade it -- using exact recorded identities -- instead of duplicating Tasks or guessing which Sheet a Task should read. Field names follow installation-state.json's own 'flattening_convention' mechanically (see that file) -- this is not a hand-picked subset. Not a user-facing data tab; users should not hand-edit it. Exactly one data row exists per installation.",
+      "fields": [
+        {"name": "schema_version", "type": "integer", "required": true, "notes": "installation-state.json: schema_version."},
+        {"name": "spreadsheet_id", "type": "string", "required": true, "notes": "installation-state.json: spreadsheet_id. Redundant with the Sheet's own id, kept here so a Task/installer run can self-verify it is reading the Sheet it thinks it is."},
+        {"name": "spreadsheet_url", "type": "string", "required": false, "notes": "installation-state.json: spreadsheet_url."},
+        {"name": "dashboard_url", "type": "string", "required": false, "notes": "installation-state.json: dashboard_url. Absent until the user completes the manual authorization/deployment step."},
+        {"name": "daily_task_name", "type": "string", "required": true, "notes": "installation-state.json: daily_task.name. The exact, installer-assigned deterministic name of the Daily Scheduled Task. An installer rerun must match against this exact recorded value, never fuzzy/substring name matching; if it can't find a Task under this exact name, it must stop for explicit user confirmation, never auto-create a replacement."},
+        {"name": "daily_task_id", "type": "string", "required": false, "notes": "installation-state.json: daily_task.id."},
+        {"name": "daily_task_schedule", "type": "string", "required": true, "notes": "installation-state.json: daily_task.schedule."},
+        {"name": "daily_task_enabled", "type": "boolean", "required": true, "notes": "installation-state.json: daily_task.enabled."},
+        {"name": "weekly_task_name", "type": "string", "required": true, "notes": "installation-state.json: weekly_task.name. Same exact-match contract as daily_task_name."},
+        {"name": "weekly_task_id", "type": "string", "required": false, "notes": "installation-state.json: weekly_task.id."},
+        {"name": "weekly_task_schedule", "type": "string", "required": true, "notes": "installation-state.json: weekly_task.schedule."},
+        {"name": "weekly_task_enabled", "type": "boolean", "required": true, "notes": "installation-state.json: weekly_task.enabled."},
+        {"name": "weekly_cash_context", "type": "string", "required": false, "notes": "installation-state.json: weekly_cash_context. ONLY an active input source while schema_version == 1: a free-text current cash/funding-state value the user chose to supply at install time, used to satisfy agents/weekly-agent.md's required '当前现金或资金状态' input. Blank means the user declined to provide it -- the Weekly Task must then follow weekly-agent.md's 不可执行 path for the *entire* run (not just capital-allocation sections), never silently continue with a partial report. Once an installer bumps schema_version to 2, this field is retired: the installer overwrites it with a fixed inert sentinel (never leaves a stale pre-migration value sitting here, and never leaves the raw unsubstituted placeholder marker) and the Weekly Task never reads it again -- 账户状态 is the sole source from that point on, and a schema_version 2 Sheet whose 账户状态 tab is itself missing/unreadable is a schema-incompatible Blocked state, not a reason to fall back to this field."},
+        {"name": "timezone", "type": "string", "required": true, "notes": "installation-state.json: timezone."},
+        {"name": "report_table_names_summary", "type": "string", "required": true, "notes": "installation-state.json: report_table_names.summary. RESERVED for a future schema version -- under schema_version 1, an installer must always write the default '报告摘要' here, since the Daily/Weekly Task templates and the GAS Dashboard all hardcode that name. Custom values are not yet supported by any consumer."},
+        {"name": "report_table_names_assets", "type": "string", "required": true, "notes": "installation-state.json: report_table_names.assets. Same schema_version 1 restriction as report_table_names_summary -- must be '报告持仓'."},
+        {"name": "report_table_names_risks", "type": "string", "required": true, "notes": "installation-state.json: report_table_names.risks. Same schema_version 1 restriction as report_table_names_summary -- must be '报告风险'."},
+        {"name": "report_table_names_todos", "type": "string", "required": true, "notes": "installation-state.json: report_table_names.todos. Same schema_version 1 restriction as report_table_names_summary -- must be '报告待办'."},
+        {"name": "locale", "type": "string", "required": false, "notes": "installation-state.json: locale."},
+        {"name": "last_verified_at", "type": "datetime", "required": true, "notes": "Installer-only bookkeeping, no installation-state.json counterpart: timestamp of the most recent installer run that confirmed this row still matches reality (Sheet readable, Tasks present under the recorded exact names)."}
+      ],
+      "rules": [
+        "Installer-owned -- users should not hand-edit this tab. Exactly one data row per installation.",
+        "This tab's field set is a lossless, mechanical flattening of installation-state.json (see that file's own flattening_convention) -- every field there has a counterpart here, and the only field here without one (last_verified_at) is documented as installer bookkeeping. A future change to installation-state.json's model must update this tab's fields to match, not just a hand-picked subset of them.",
+        "daily_task_name/weekly_task_name are the exact, deterministic identifiers an installer rerun must match against on upgrade -- never fuzzy/substring name matching over the platform's Task list. If a recorded name/id can't be found, the installer must stop for explicit user confirmation rather than auto-creating a replacement Task.",
+        "A rerun where the Sheet was read successfully and this tab is conclusively absent may treat the installation as a pre-_安装状态 legacy install and enter the bootstrap path. A rerun where the Sheet or this tab could not be read at all (permission/API error, timeout) must Block with no schema or Task mutation -- it must never be treated the same as a confirmed-absent tab.",
+        "Under schema_version 1, report_table_names_* must always equal the canonical defaults (报告摘要/报告持仓/报告风险/报告待办) -- no consumer (Task templates, GAS Dashboard) reads a custom value yet. An installer must reject a user's request to rename these tabs rather than writing a non-default value that no reader/writer actually honors."
+      ]
+    }
+  },
+  "report_write_protocol": {
+    "description": "How a writer commits one 报告ID's data across four tabs without a native cross-tab transaction. Full rationale in docs/v2.1-architecture.md's 'Report write protocol' section.",
+    "steps": [
+      "1. Generate: mint a fresh 生成ID for this write attempt (first attempt or retry alike); never reuse a prior attempt's 生成ID.",
+      "2. Stage: write all 报告持仓/报告风险/报告待办 rows for (报告ID, 生成ID). The existing 报告摘要 row, if any, is untouched -- readers still see the last known-good generation.",
+      "3. Verify: read back the staged rows and confirm they match what was intended. On failure, stop -- 报告摘要 stays untouched and the staged rows become orphans.",
+      "4. Switch: only after verification succeeds, create/update the single 报告摘要 row for 报告ID with the new 生成ID. This single-row write is the actual commit point.",
+      "5. Read contract: a reader only trusts 报告持仓/报告风险/报告待办 rows whose 生成ID matches the 生成ID currently in that 报告ID's 报告摘要 row.",
+      "6. Cleanup: rows from superseded/orphaned generations may be deleted at any later point (next successful run, periodic sweep) -- this is never a precondition for correctness, since step 5 already makes them inert.",
+      "7. Failure/retry: a run that fails before step 4 leaves 报告摘要 pointing at the last known-good 生成ID (or absent, for a first attempt); the failure is surfaced via the Task's own run status, never by a partial 报告摘要 write. A retry restarts at step 1 with a new 生成ID."
+    ]
+  },
+  "blocked_vs_empty": {
+    "description": "A report's 核心状态 must distinguish these -- conflating them was a Phase A review finding.",
+    "blocked": "A required tab could not be read at all, a required column is missing, or the Sheet's schema_version is incompatible with what the Task knows how to handle.",
+    "valid_empty_result": "A tab was read successfully and legitimately has zero matching rows (e.g. an empty 观察名单, or a user holding no current positions). This is normal portfolio state and must never be treated as Blocked or degrade the report's status."
+  },
+  "migration_policy": {
+    "direction": "additive-preferred",
+    "rules": [
+      "Applies to every tab, including the four 报告* tabs: a schema_version bump must not delete or rewrite existing rows by default. A historical report row is not necessarily reproducible by re-running the Task that produced it, so 报告* rows are not disposable just because they are system-generated.",
+      "A schema_version bump must never overwrite an existing user-entered cell in 当前持仓, 交易记录, or 观察名单 without explicit user approval.",
+      "The report_write_protocol's atomic replace-by-生成ID mechanism is a normal write-time operation scoped to one 报告ID's own re-run -- it is not a schema migration, and migration logic must not treat it as a general license to rewrite report history.",
+      "A genuinely destructive migration (a change no existing row can be read against additively) must be its own explicit, versioned step: back up first, provide a documented rollback, and require explicit user approval before running against a real installation -- never silently bundled into an ordinary installer upgrade.",
+      "A future breaking schema_version change must be documented with an explicit upgrade path in this file's own changelog (none yet -- this is schema_version 1)."
+    ]
+  },
+  "schema_changelog": [
+    {
+      "version": 2,
+      "issue": 259,
+      "kind": "additive",
+      "summary": "Adds 账户状态 (account/capital facts: cash by currency/account, New NISA remaining capacity, planned additional capital, recurring tsumitate instructions) and 投资信托明细 (fund-sleeve detail sufficient to reconcile an aggregate 当前持仓 FUND-SLEEVE row without double-counting). No existing tab's fields were removed, renamed, or reordered; every schema_version 1 Sheet remains fully readable as-is.",
+      "migration": "Purely additive -- an installer upgrading a schema_version 1 Sheet adds these two tabs (header-only, no example data) and bumps _安装状态.schema_version to 2. A Sheet that has not been upgraded (these tabs entirely absent, not merely empty) continues to work exactly as it did under schema_version 1: the Weekly Task falls back to the legacy _安装状态.weekly_cash_context mechanism for the required '当前现金或资金状态' input, and 当前持仓 continues to work as a single aggregate FUND-SLEEVE row (if any) with no reconciliation available."
+    },
+    {
+      "version": 3,
+      "issue": 267,
+      "kind": "additive",
+      "summary": "Adds 跟进类型 to 报告待办 (可执行/持续观察/等待证据), distinguishing actionable follow-up work from ongoing monitoring and waiting-for-external-evidence items so the Dashboard's todo/backlog view doesn't misrepresent recurring monitoring or an evidence-wait as unfinished work. No existing tab's fields were removed, renamed, or reordered; every schema_version 1 or 2 Sheet remains fully readable as-is, and existing 报告待办 rows without this column are read identically to a row whose 跟进类型 is 可执行 (the safe default) -- no historical row needs rewriting.",
+      "migration": "Purely additive -- an installer upgrading a schema_version 1 or 2 Sheet adds the 跟进类型 header to the existing 报告待办 tab (no backfill of historical rows' cells) and bumps _安装状态.schema_version to 3. A Sheet that has not been upgraded (the column entirely absent) continues to work exactly as it did before: every 报告待办 row reads as 可执行, matching this version's own blank-value default, so nothing about existing Daily/Weekly Task output or Dashboard rendering changes until the column is added and a Task starts populating it."
+    }
+  ]
+}

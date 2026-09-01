@@ -1,0 +1,58 @@
+{
+  "_comment": "Synthetic demo data for the IOS v2.1 personal Dashboard (Issue #242 Phase B). No real company, no real holdings -- every code/name below is fictional. Shape matches setup/schema/sheet-schema.json exactly (same tab and field names) and is used both by test/dashboard-logic.test.js and as the reference dataset a fresh installation can seed itself with. Field values are strings/numbers as they would appear read out of a Google Sheet -- dates as 'YYYY-MM-DD', datetimes as ISO 8601.",
+  "当前持仓": [
+    {"代码": "DEMO1", "名称": "Demo Robotics Co.", "市场": "Demo Exchange", "持有数量": 100, "平均成本": 42.5, "参考买入价/区间": "38-40", "币种": "USD", "账户": "demo-account", "状态": "持有", "备注": "", "最后更新": "2026-08-10"},
+    {"代码": "DEMO2", "名称": "Demo Cloud Systems", "市场": "Demo Exchange", "持有数量": 50, "平均成本": "", "参考买入价/区间": "", "币种": "USD", "账户": "demo-account", "状态": "持有", "备注": "平均成本与参考买入价/区间均未知 -- 演示空白单元格语义（两者互相独立，前者从不由后者推导，反之亦然）", "最后更新": "2026-08-10"},
+    {"代码": "DEMO3", "名称": "Demo Legacy Corp", "市场": "Demo Exchange", "持有数量": 0, "平均成本": 10, "参考买入价/区间": "", "币种": "USD", "账户": "demo-account", "状态": "已清仓", "备注": "已清仓 -- 不计入当前持仓", "最后更新": "2026-07-01"}
+  ],
+  "交易记录": [
+    {"日期": "2026-08-01", "代码": "DEMO1", "操作": "buy", "数量": 100, "成交价格": 42.5, "币种": "USD", "账户": "demo-account", "手续费": 1.5, "备注": ""}
+  ],
+  "观察名单": [
+    {"代码": "DEMOW1", "名称": "Demo Watch Semiconductor", "市场": "Demo Exchange", "主题": "AI Infrastructure", "关注理由": "示例关注理由", "理想买入区间": "20-25", "当前状态": "研究中", "优先级": "high", "最近研究日期": "2026-08-05", "备注": ""}
+  ],
+  "_schema_v2_comment": "账户状态/投资信托明细 below are Issue #259 (schema_version 2) additions -- synthetic examples only, not wired into readAllTabs_/SHEET_TABS_/doGet yet (see Code.gs's own comment on those functions). Used by dashboard-logic.test.js to exercise getAccountFacts_/hasSuppliedCashFacts_/getFundSleeveDetail_/reconcileFundSleeveValue_.",
+  "账户状态": [
+    {"账户": "Demo Broker A", "币种": "JPY", "可用现金": 500000, "NISA成长投资额度剩余": 2400000, "NISA积立额度剩余": 400000, "本年计划追加资金": 1000000, "定期定额扣款": "每月自动扣款 30000 日元买入 Demo All Country 基金", "数据时间": "2026-08-20", "来源": "用户手动填写", "备注": ""},
+    {"账户": "Demo Broker B", "币种": "USD", "可用现金": "", "NISA成长投资额度剩余": "", "NISA积立额度剩余": "", "本年计划追加资金": "", "定期定额扣款": "", "数据时间": "2026-08-20", "来源": "", "备注": "示例：美元账户暂无现金数据，字段留空表示未知，绝不能默认成 0"}
+  ],
+  "投资信托明细": [
+    {"基金名称": "Demo All Country Index Fund", "代码": "DEMOFUND1", "账户": "Demo Broker A", "币种": "JPY", "NISA分类": "积立投资枠", "当前市值": 1200000, "未实现盈亏": 150000, "数据时间": "2026-08-20", "备注": ""},
+    {"基金名称": "Demo S&P 500 Index Fund", "代码": "", "账户": "Demo Broker A", "币种": "JPY", "NISA分类": "成长投资枠", "当前市值": 800000, "未实现盈亏": "", "数据时间": "2026-08-20", "备注": "示例：券商未提供未实现盈亏，留空而非编造；代码也留空，示范不用虚构标识符"}
+  ],
+  "报告摘要": [
+    {
+      "报告ID": "daily-2026-08-15", "生成ID": "gen-daily-0815-b",
+      "报告类型": "daily", "报告日期": "2026-08-15", "周期开始": "2026-08-15", "周期结束": "2026-08-15",
+      "一句话结论": "持仓整体平稳，Demo Cloud Systems 出现关键变化需要关注。",
+      "核心状态": "正常", "Review状态": "未Review",
+      "当前持仓数": 2, "高优先级观察数": 1,
+      "生成时间": "2026-08-15T09:00:12Z", "备注": ""
+    },
+    {
+      "报告ID": "weekly-2026-08-15", "生成ID": "gen-weekly-0815-a",
+      "报告类型": "weekly", "报告日期": "2026-08-15", "周期开始": "2026-08-09", "周期结束": "2026-08-15",
+      "一句话结论": "本周无重大风险事件，观察名单暂无新增待办。",
+      "核心状态": "正常", "Review状态": "未Review",
+      "当前持仓数": 2, "高优先级观察数": 1,
+      "生成时间": "2026-08-15T09:05:47Z", "备注": "本周报告风险与待办均为空集合，属于正常状态，非 Blocked（演示 blocked_vs_empty 语义）。"
+    }
+  ],
+  "报告持仓": [
+    {"报告ID": "daily-2026-08-15", "生成ID": "gen-daily-0815-a", "报告类型": "daily", "报告日期": "2026-08-15", "资产类型": "holding", "代码": "DEMO1", "名称": "Demo Robotics Co.", "数量": 100, "Thesis状态": "unchanged", "IOS状态": "supported", "关键变化": "", "长期逻辑或估值": "", "下一验证点": "", "参考买入价/区间": "38-40", "当前价格": 40.0, "价格位置": "区间内", "优先级": "", "排序": 1, "_comment": "ORPHANED generation (gen-...-a), superseded by gen-daily-0815-b below -- must never be rendered; demonstrates the read contract in report_write_protocol."},
+    {"报告ID": "daily-2026-08-15", "生成ID": "gen-daily-0815-b", "报告类型": "daily", "报告日期": "2026-08-15", "资产类型": "holding", "代码": "DEMO1", "名称": "Demo Robotics Co.", "数量": 100, "Thesis状态": "unchanged", "IOS状态": "supported", "关键变化": "无重大变化", "长期逻辑或估值": "长期逻辑未变", "下一验证点": "下季度财报", "参考买入价/区间": "38-40", "当前价格": 41.2, "价格位置": "高于区间", "优先级": "", "排序": 1},
+    {"报告ID": "daily-2026-08-15", "生成ID": "gen-daily-0815-b", "报告类型": "daily", "报告日期": "2026-08-15", "资产类型": "holding", "代码": "DEMO2", "名称": "Demo Cloud Systems", "数量": 50, "Thesis状态": "weakened", "IOS状态": "supported", "关键变化": "管理层指引下调", "长期逻辑或估值": "维持观察", "下一验证点": "下次电话会议", "参考买入价/区间": "", "当前价格": 31.0, "价格位置": "未知", "优先级": "", "排序": 2, "_comment": "参考买入价/区间 blank -- demonstrates that 当前价格/价格位置 can still be present when only the reference is unset; 价格位置=未知 rather than a fabricated comparison."},
+    {"报告ID": "daily-2026-08-15", "生成ID": "gen-daily-0815-b", "报告类型": "daily", "报告日期": "2026-08-15", "资产类型": "watchlist", "代码": "DEMOW1", "名称": "Demo Watch Semiconductor", "数量": "", "Thesis状态": "", "IOS状态": "insufficient_evidence", "关键变化": "尚在研究阶段", "长期逻辑或估值": "", "下一验证点": "", "参考买入价/区间": "20-25", "当前价格": 23.5, "价格位置": "区间内", "优先级": "high", "排序": 3, "_comment": "参考买入价/区间 derived from 观察名单.理想买入区间 (20-25), per report_write_protocol snapshot semantics for watchlist rows."},
+    {"报告ID": "weekly-2026-08-15", "生成ID": "gen-weekly-0815-a", "报告类型": "weekly", "报告日期": "2026-08-15", "资产类型": "holding", "代码": "DEMO1", "名称": "Demo Robotics Co.", "数量": 100, "Thesis状态": "unchanged", "IOS状态": "supported", "关键变化": "", "长期逻辑或估值": "本周无变化", "下一验证点": "", "参考买入价/区间": "38-40", "当前价格": 41.2, "价格位置": "高于区间", "优先级": "", "排序": 1},
+    {"报告ID": "weekly-2026-08-15", "生成ID": "gen-weekly-0815-a", "报告类型": "weekly", "报告日期": "2026-08-15", "资产类型": "holding", "代码": "DEMO2", "名称": "Demo Cloud Systems", "数量": 50, "Thesis状态": "weakened", "IOS状态": "supported", "关键变化": "延续每日报告中的关键变化", "长期逻辑或估值": "维持观察", "下一验证点": "下次电话会议", "参考买入价/区间": "", "当前价格": 31.0, "价格位置": "未知", "优先级": "", "排序": 2}
+  ],
+  "报告风险": [
+    {"报告ID": "daily-2026-08-15", "生成ID": "gen-daily-0815-b", "报告类型": "daily", "报告日期": "2026-08-15", "风险类型": "基本面", "风险": "Demo Cloud Systems 管理层指引下调", "影响资产": "DEMO2", "影响": "中等", "本期动作": "持续观察，暂不调整", "严重度": "medium", "排序": 1}
+  ],
+  "报告待办": [
+    {"报告ID": "daily-2026-08-15", "生成ID": "gen-daily-0815-b", "报告类型": "daily", "报告日期": "2026-08-15", "排序": 1, "分类": "research", "待办": "跟踪 Demo Cloud Systems 下次电话会议指引", "状态": "open", "跟进类型": "可执行", "备注": ""},
+    {"报告ID": "daily-2026-08-15", "生成ID": "gen-daily-0815-b", "报告类型": "daily", "报告日期": "2026-08-15", "排序": 2, "分类": "", "待办": "持续观察 Demo Robotics Co. 产能爬坡与毛利率变化", "状态": "待处理", "跟进类型": "持续观察", "备注": "", "_comment": "Issue #267 demo row: an ongoing-monitoring item -- must never inflate the 待处理 backlog count."},
+    {"报告ID": "daily-2026-08-15", "生成ID": "gen-daily-0815-b", "报告类型": "daily", "报告日期": "2026-08-15", "排序": 3, "分类": "", "待办": "等待 Demo Watch Semiconductor 下一季度正式财报后再评估", "状态": "待处理", "跟进类型": "等待证据", "备注": "", "_comment": "Issue #267 demo row: waiting on an external event -- no actionable next step until then."}
+  ],
+  "_generation_pointer_note": "报告持仓 for daily-2026-08-15 intentionally includes rows at both gen-daily-0815-a (stale) and gen-daily-0815-b (current, matching 报告摘要). 报告风险/报告待办 for weekly-2026-08-15 are intentionally absent entirely -- a valid empty result per blocked_vs_empty, not a Blocked report."
+}

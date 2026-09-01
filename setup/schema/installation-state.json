@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "description": "Installation-state model for a single user's IOS v2.1 personal deployment (Issue #242). Lets an installer run detect an existing installation and upgrade it rather than duplicating Sheet tabs or Scheduled Tasks. This file is a schema/template -- an actual installation's state lives in the user's own Sheet or Task configuration, never in this repository.",
+  "fields": {
+    "schema_version": {
+      "type": "integer",
+      "required": true,
+      "notes": "Sheet schema version (see sheet-schema.json) this installation was created or last upgraded against."
+    },
+    "spreadsheet_id": {
+      "type": "string",
+      "required": true,
+      "notes": "The user's own Google Sheet id. Never committed to this repository; lives only in the user's own installation."
+    },
+    "spreadsheet_url": {
+      "type": "string",
+      "required": false,
+      "notes": "Convenience copy of the Sheet's URL for the user; derivable from spreadsheet_id."
+    },
+    "dashboard_url": {
+      "type": "string",
+      "required": false,
+      "notes": "The GAS Web App /exec URL. Absent until the user completes the manual Google authorization/deployment step (see docs/v2.1-architecture.md)."
+    },
+    "daily_task": {
+      "type": "object",
+      "required": true,
+      "notes": "Identity/schedule of the Daily Scheduled Task. Field names are chosen so a flat 'daily_task_<field>' mapping (e.g. into the _安装状态 Sheet tab in sheet-schema.json) is mechanical, not a hand-picked abbreviation.",
+      "fields": {
+        "name": {"type": "string", "required": true, "notes": "Exact, installer-assigned deterministic name (e.g. 'IOS Daily -- <spreadsheet id suffix>'). Upgrade detection must match this exact value, never fuzzy/substring matching over the platform's Task list. If a recorded name can't be found on the platform, the installer must stop for explicit user confirmation rather than silently creating a replacement."},
+        "id": {"type": "string", "required": false, "notes": "Identifier if the Task platform exposes one, in addition to name."},
+        "schedule": {"type": "string", "required": true, "notes": "e.g. 'Mon-Fri 09:00' in the installation's own timezone."},
+        "enabled": {"type": "boolean", "required": true}
+      }
+    },
+    "weekly_task": {
+      "type": "object",
+      "required": true,
+      "notes": "Identity/schedule of the Weekly Scheduled Task. Same flat-mapping convention as daily_task.",
+      "fields": {
+        "name": {"type": "string", "required": true, "notes": "Same exact-match contract as daily_task.name."},
+        "id": {"type": "string", "required": false},
+        "schedule": {"type": "string", "required": true, "notes": "e.g. 'Saturday 09:00' in the installation's own timezone."},
+        "enabled": {"type": "boolean", "required": true}
+      }
+    },
+    "weekly_cash_context": {
+      "type": "string",
+      "required": false,
+      "notes": "Free-text current cash/funding-state value the user supplied at install time to satisfy agents/weekly-agent.md's required '当前现金或资金状态' input, which this Sheet schema itself does not carry. Absent/blank means the user declined -- the Weekly Task must then follow weekly-agent.md's 不可执行 path for the entire run: skip the full research flow, write zero 报告持仓/报告风险 rows, and record only the information gap in 报告摘要 (plus an optional 报告待办 follow-up row) -- never a partial report that scopes 不可执行 down to just the capital-allocation-dependent sections while the rest generates normally."
+    },
+    "timezone": {
+      "type": "string",
+      "required": true,
+      "notes": "A concrete IANA timezone name, e.g. 'Asia/Tokyo' -- never a vague description like 'user's local timezone'. Drives report-date computation (including the Daily Task's Monday-covers-weekend research window), schedules, and report timestamp fields; an installer must resolve any city/region the user names down to a specific IANA zone before recording it here."
+    },
+    "report_table_names": {
+      "type": "object",
+      "required": true,
+      "notes": "The four 报告* tab names. RESERVED for a future schema version's rename support -- under schema_version 1, every field here must equal its own default, because the Daily/Weekly Task templates and the GAS Dashboard all hardcode the default Chinese tab names and do not read this field. An installer must reject a user's request to customize these under schema_version 1 rather than recording a value no consumer honors.",
+      "fields": {
+        "summary": {"type": "string", "required": true, "default": "报告摘要"},
+        "assets": {"type": "string", "required": true, "default": "报告持仓"},
+        "risks": {"type": "string", "required": true, "default": "报告风险"},
+        "todos": {"type": "string", "required": true, "default": "报告待办"}
+      }
+    },
+    "locale": {
+      "type": "string",
+      "required": false,
+      "notes": "Optional; drives which language Dashboard/Task-facing copy renders in. Does not affect the schema's own (Chinese) field names."
+    }
+  },
+  "explicitly_excluded": [
+    "No credentials, API keys, or OAuth tokens belong in this state -- it identifies WHERE a user's own resources are, never HOW to authenticate to them.",
+    "No installation's actual state (a real spreadsheet_id, dashboard_url, etc.) is ever committed to this repository -- this file is a schema template only."
+  ],
+  "persistence_note": "Where an installer's own runtime has no durable private file store (e.g. a ChatGPT Task), Phase C persists this model concretely as the single data row of the '_安装状态' tab defined in sheet-schema.json -- an installer-owned, non-user-facing tab the installer itself creates, re-reads on every rerun to detect an existing installation, and updates in place. Verification (Sheet readable, Tasks present under the exact recorded task name) is never skipped just because the runtime itself has no private store. A read failure (permission/API error, timeout) is never treated as 'tab absent' -- only a Sheet that was successfully read and conclusively lacks this tab may be treated as a legacy installation to bootstrap; an unreadable Sheet/tab must Block with no schema or Task mutation.",
+  "flattening_convention": "The mapping from this nested model to '_安装状态's flat Sheet row (sheet-schema.json) is mechanical, not hand-picked: every scalar top-level field keeps its own name; every object-typed field's own sub-fields become '<field>_<subfield>' (e.g. daily_task.name -> daily_task_name, report_table_names.summary -> report_table_names_summary). A field is required in the flat form only if both the object field and its sub-field are required here. The only flat-tab field with no counterpart here is 'last_verified_at' (installer bookkeeping: timestamp of the most recent run that confirmed the row still matches reality) -- every other flat field must trace back to a field in this document, and every required field here must have a required flat counterpart. tests/test_setup_installer_prompt_schema_sync.py enforces this mapping automatically."
+}

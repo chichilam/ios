@@ -1,0 +1,345 @@
+:root {
+  --ios-bg: #f5f6f8;
+  --ios-card-bg: #ffffff;
+  --ios-border: #e2e5ea;
+  --ios-text: #1f2430;
+  --ios-muted: #6b7280;
+  --ios-accent: #2563eb;
+  --ios-accent-soft: #eef2ff;
+  --ios-blocked: #dc2626;
+  --ios-blocked-bg: #fef2f2;
+  --ios-watchlist-bg: #f5f3ff;
+  --ios-severity-high: #dc2626;
+  --ios-severity-medium: #d97706;
+  --ios-severity-low: #16a34a;
+  --ios-radius: 16px;
+  --ios-control-radius: 10px;
+  --ios-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 24px -18px rgba(15, 23, 42, 0.35);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 22px;
+  background: var(--ios-bg);
+  color: var(--ios-text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  line-height: 1.5;
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.ios-topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.ios-brand h1 { font-size: 1.5rem; margin: 0; }
+.ios-subtitle { margin: 2px 0 0; color: var(--ios-muted); font-size: 0.85rem; }
+
+.ios-topbar-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* Buttons, not <a href="?..."> links -- Apps Script Web Apps serve /exec
+   through an internal userCodeAppPanel iframe, so a relative-URL link
+   clicked from inside the rendered page navigates that iframe instead of
+   the top-level document and produces a blank panel. Every in-page control
+   here is therefore a <button>/<select> driven by google.script.run/
+   client-side state (see Script.html), never a navigable href.
+
+   Control family (v1.1): ordinary rounded buttons -- 10px radius, not a
+   999px pill -- with a dark active state (background: var(--ios-text)),
+   not a blue accent pill. Nav buttons, tabs, the history <select>, and
+   the refresh button all share this same control language. */
+.ios-view-toggle button,
+.ios-tab-bar .ios-tab-btn,
+.ios-history-select,
+.ios-refresh-btn {
+  display: inline-block;
+  padding: 6px 14px;
+  border-radius: var(--ios-control-radius);
+  font: inherit;
+  cursor: pointer;
+  color: var(--ios-text);
+  background: var(--ios-card-bg);
+  border: 1px solid var(--ios-border);
+}
+
+.ios-view-toggle button { margin-left: 6px; }
+.ios-view-toggle button:first-child { margin-left: 0; }
+
+.ios-nav-btn.active,
+.ios-tab-bar .ios-tab-btn.active {
+  background: var(--ios-text);
+  color: #fff;
+  border-color: var(--ios-text);
+  font-weight: 600;
+}
+
+.ios-history-select {
+  font-size: 0.85rem;
+  max-width: 220px;
+}
+
+.ios-refresh-btn { color: var(--ios-muted); }
+
+.ios-loading .ios-view-toggle button,
+.ios-loading .ios-history-select,
+.ios-loading .ios-refresh-btn,
+.ios-loading .ios-tab-bar button {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.ios-status-banner {
+  padding: 10px 14px;
+  border-radius: var(--ios-radius);
+  margin-bottom: 12px;
+  font-size: 0.9rem;
+}
+.ios-status-blocked { background: var(--ios-blocked-bg); color: var(--ios-blocked); border: 1px solid var(--ios-blocked); }
+.ios-status-transient { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
+
+.ios-history-banner {
+  padding: 8px 14px;
+  border-radius: var(--ios-radius);
+  margin-bottom: 12px;
+  font-size: 0.85rem;
+  background: var(--ios-accent-soft);
+  color: var(--ios-accent);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.ios-back-to-latest-btn {
+  border: 1px solid var(--ios-accent);
+  background: #fff;
+  color: var(--ios-accent);
+  border-radius: var(--ios-control-radius);
+  padding: 2px 12px;
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+/* v1.1's 4 summary metrics -- 当前持仓/观察名单/核心状态/Review, each with
+   its own explanatory subtitle. Informational only (not a tab shortcut --
+   tab navigation lives only in the separate .ios-tab-bar below), so these
+   are plain cards, not buttons. Responsive to 2 columns on narrow screens. */
+.ios-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.ios-metric-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 14px 16px;
+  background: var(--ios-card-bg);
+  border: 1px solid var(--ios-border);
+  border-radius: var(--ios-radius);
+  box-shadow: var(--ios-shadow);
+}
+.ios-metric-value { font-size: 1.4rem; font-weight: 700; }
+.ios-metric-label { font-size: 0.85rem; font-weight: 600; }
+.ios-metric-subtitle { color: var(--ios-muted); font-size: 0.75rem; }
+
+/* Headline card: v1.1 is intentionally minimal -- an eyebrow label plus
+   the 一句话结论 text, nothing else. Accent left border + soft gradient,
+   distinct from the plain .ios-card treatment used for tab content below. */
+.ios-headline-card {
+  background: linear-gradient(135deg, var(--ios-accent-soft), var(--ios-card-bg) 65%);
+  border: 1px solid var(--ios-border);
+  border-left: 4px solid var(--ios-accent);
+  border-radius: var(--ios-radius);
+  box-shadow: var(--ios-shadow);
+  padding: 18px 20px;
+  margin-bottom: 6px;
+}
+.ios-eyebrow {
+  margin: 0 0 6px;
+  color: var(--ios-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.ios-headline { font-size: 1.15rem; font-weight: 600; margin: 0; }
+
+/* 报告ID/period/generated metadata moved out of the headline card (v1.1
+   parity) into this small muted caption underneath it. */
+.ios-report-caption {
+  margin: 0 0 20px;
+  color: var(--ios-muted);
+  font-size: 0.75rem;
+  font-family: monospace;
+}
+
+.ios-tab-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  overflow-x: auto;
+}
+.ios-tab-bar .ios-tab-btn { white-space: nowrap; }
+
+.ios-card {
+  background: var(--ios-card-bg);
+  border: 1px solid var(--ios-border);
+  border-radius: var(--ios-radius);
+  box-shadow: var(--ios-shadow);
+  padding: 18px 20px;
+  margin-bottom: 16px;
+}
+
+.ios-card h2 { margin-top: 0; font-size: 1rem; }
+
+.ios-blocked { border-color: var(--ios-blocked); background: var(--ios-blocked-bg); }
+.ios-blocked h2 { color: var(--ios-blocked); }
+
+.ios-empty-state { text-align: center; color: var(--ios-muted); }
+
+.ios-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--ios-accent-soft);
+  color: var(--ios-accent);
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ios-badge-watchlist { background: var(--ios-watchlist-bg); color: #6d28d9; }
+
+/* Compact holding/watchlist cards: two columns on desktop, one on narrow
+   screens (v1.1 layout) -- not an auto-fill flexible grid. Card content
+   order is 价格 / 参考(+价格位置) / 变化 / 逻辑 / 验证 (see buildAssetCard
+   in Script.html). */
+.ios-card-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.ios-asset-card {
+  border: 1px solid var(--ios-border);
+  border-radius: var(--ios-radius);
+  padding: 12px 14px;
+}
+
+.ios-watchlist-card { background: var(--ios-watchlist-bg); }
+.ios-asset-head { display: flex; justify-content: space-between; align-items: center; }
+.ios-asset-name { color: var(--ios-muted); font-size: 0.85rem; margin: 4px 0; overflow-wrap: break-word; }
+.ios-asset-line { font-size: 0.85rem; margin: 4px 0; overflow-wrap: break-word; }
+.ios-price-info { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ios-badge-price-position { background: #e0f2fe; color: #0369a1; }
+
+/* Semantic badge tiers (Issue #257) for IOS状态/价格位置 -- declared after
+   .ios-badge-price-position on purpose: same specificity (one class each),
+   so this source order is what lets a tier class actually override that
+   badge's own default blue background/color when one applies, rather than
+   being silently shadowed by it. .ios-severity-high/medium/low are reused
+   as-is from the risks list (Issue #257 review: don't invent parallel
+   red/amber/green classes when these already exist and mean the same
+   thing); .ios-badge-muted/.ios-badge-price-opportunity/.ios-badge-
+   unavailable are new tiers those three don't cover. */
+.ios-severity-high { background: #fee2e2; color: var(--ios-severity-high); }
+.ios-severity-medium { background: #fef3c7; color: var(--ios-severity-medium); }
+.ios-severity-low { background: #dcfce7; color: var(--ios-severity-low); }
+.ios-badge-muted { background: #f1f5f9; color: var(--ios-muted); }
+.ios-badge-price-opportunity { background: #cffafe; color: #0e7490; }
+.ios-badge-unavailable { background: #f1f5f9; color: var(--ios-muted); border: 1px dashed var(--ios-border); }
+
+.ios-muted { color: var(--ios-muted); }
+.ios-hint { color: var(--ios-muted); font-size: 0.8rem; }
+.ios-empty-note { color: var(--ios-muted); font-style: italic; }
+
+.ios-list, .ios-checklist { list-style: none; padding: 0; margin: 0; }
+.ios-list li { padding: 10px 0; border-bottom: 1px solid var(--ios-border); }
+.ios-list li:last-child { border-bottom: none; }
+
+/* Distinct from the plain .ios-severity-low green (Issue #260 review: fast
+   scanning needs the completed tag to stand out on its own, not just share
+   an existing tier color) -- adds a matching border so it reads as its own
+   "done" affordance rather than a generic low-severity tag. */
+.ios-badge-done { background: #dcfce7; color: var(--ios-severity-low); border: 1px solid var(--ios-severity-low); }
+
+/* 跟进类型 tiers (Issue #267): distinct from both the plain open badge and
+   .ios-badge-done, so an ongoing-monitoring or waiting-for-evidence item
+   reads as "not ordinary backlog" at a glance rather than as unfinished
+   actionable work. .ios-badge-monitoring reuses the same blue family as
+   .ios-badge-price-position (a calm "still watching" tone); .ios-badge-
+   waiting reuses the severity-medium amber (a "blocked on something
+   external" tone) without introducing a third unrelated color family. */
+.ios-badge-monitoring { background: #e0f2fe; color: #0369a1; }
+.ios-badge-waiting { background: #fef3c7; color: var(--ios-severity-medium); }
+
+/* Todo checklist (Issue #255): a count summary up top, then an
+   open-first/done-last grouping (每组内部仍按 排序 排列) so the
+   actionable items are the first thing a user scans; completed history
+   stays visible below, struck through, not hidden. */
+.ios-todo-summary { display: flex; gap: 8px; margin: 0 0 12px; flex-wrap: wrap; }
+
+.ios-checklist li {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--ios-border);
+}
+.ios-checklist li:last-child { border-bottom: none; }
+
+.ios-todo-head { display: flex; align-items: flex-start; gap: 8px; }
+.ios-todo-indicator { flex-shrink: 0; color: var(--ios-muted); line-height: 1.4; }
+.ios-todo-done .ios-todo-indicator { color: var(--ios-severity-low); }
+.ios-todo-text { flex: 1; min-width: 0; overflow-wrap: break-word; }
+.ios-todo-done .ios-todo-text { text-decoration: line-through; color: var(--ios-muted); }
+.ios-todo-meta { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 0 26px; }
+.ios-todo-note { margin: 4px 0 0 26px; color: var(--ios-muted); font-size: 0.8rem; overflow-wrap: break-word; }
+
+/* Ongoing-monitoring/waiting-for-evidence open items (Issue #267): only the
+   indicator dot is tinted -- same restrained treatment .ios-todo-done gives
+   its own indicator -- so the distinction reads at a glance without a full
+   card background tint fighting the badge color in .ios-todo-meta. */
+.ios-todo-monitoring .ios-todo-indicator { color: #0369a1; }
+.ios-todo-waiting .ios-todo-indicator { color: var(--ios-severity-medium); }
+
+.ios-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.ios-table th, .ios-table td { text-align: left; padding: 8px; border-bottom: 1px solid var(--ios-border); overflow-wrap: break-word; }
+.ios-table tbody tr:hover { background: var(--ios-accent-soft); }
+
+/* Capital allocation (Issue #255): the same `allocation` array renders
+   both a desktop table and a mobile card list; only one is ever visible
+   at a given width, chosen by this breakpoint alone -- Script.html does
+   no viewport branching. overflow-x on the wrapper is a belt-and-braces
+   fallback (a table that's still visible at an in-between width scrolls
+   inside its own box rather than the whole page overflowing), not the
+   primary mobile fix, which is switching to cards entirely. */
+.ios-table-wrap { overflow-x: auto; }
+.ios-allocation-cards { display: none; }
+
+@media (max-width: 900px) {
+  .ios-summary-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 720px) {
+  .ios-card-grid { grid-template-columns: 1fr; }
+  .ios-allocation-table { display: none; }
+  .ios-allocation-cards { display: grid; grid-template-columns: 1fr; gap: 10px; }
+}
+
+@media (max-width: 600px) {
+  body { padding: 12px; }
+  .ios-summary-grid { grid-template-columns: repeat(2, 1fr); }
+}

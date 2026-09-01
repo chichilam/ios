@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <style><?!= include('Styles') ?></style>
+</head>
+<body>
+  <header class="ios-topbar">
+    <div class="ios-brand">
+      <h1>IOS Investment Dashboard</h1>
+      <p class="ios-subtitle">Investment Operating System</p>
+    </div>
+    <div class="ios-topbar-controls">
+      <nav class="ios-view-toggle" id="ios-view-toggle">
+        <button type="button" class="ios-nav-btn" id="ios-nav-daily" onclick="switchView('daily')">日报</button>
+        <button type="button" class="ios-nav-btn" id="ios-nav-weekly" onclick="switchView('weekly')">周报</button>
+      </nav>
+      <select class="ios-history-select" id="ios-history-select" onchange="onHistorySelectChange(this.value)" title="跳转到历史报告"></select>
+      <button type="button" class="ios-refresh-btn" id="ios-refresh-btn" onclick="refresh()" title="重新读取 Sheet，无需刷新页面">&#8635; 刷新</button>
+    </div>
+  </header>
+
+  <div id="ios-status-banner" class="ios-status-banner" hidden></div>
+  <div id="ios-history-banner" class="ios-history-banner" hidden></div>
+
+  <div id="ios-summary-content"></div>
+
+  <nav class="ios-tab-bar" id="ios-tab-bar">
+    <button type="button" class="ios-tab-btn" id="ios-tab-portfolio" onclick="selectTab('portfolio')">组合</button>
+    <button type="button" class="ios-tab-btn" id="ios-tab-allocation" onclick="selectTab('allocation')">资本配置</button>
+    <button type="button" class="ios-tab-btn" id="ios-tab-risks" onclick="selectTab('risks')">风险</button>
+    <button type="button" class="ios-tab-btn" id="ios-tab-todos" onclick="selectTab('todos')">待办</button>
+  </nav>
+
+  <main id="ios-tab-content"></main>
+
+  <script>
+    // Everything the client needs for its first paint, computed once by
+    // doGet (see Code.gs) and embedded here so the page never shows a
+    // blank/loading state on initial load -- only a later manual refresh
+    // or history selection needs an actual google.script.run round trip.
+    var IOS_BOOTSTRAP = <?!= bootstrapJson ?>;
+    var IOS_ACTIVE_VIEW = <?!= JSON.stringify(activeView) ?>;
+  </script>
+  <script><?!= include('Script') ?></script>
+</body>
+</html>

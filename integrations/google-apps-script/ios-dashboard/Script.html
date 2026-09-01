@@ -1,0 +1,771 @@
+// Client-side interaction and rendering for the IOS Personal Dashboard
+// (Issue #250). Presentation only -- every value rendered here comes
+// straight from IOS_BOOTSTRAP (embedded by doGet, see Code.gs) or a
+// google.script.run call into Code.gs's own read-only server functions
+// (getDashboardBootstrap/getReport); this file makes no investment
+// judgments, computes no research conclusions, and performs no writes.
+//
+// Why this file exists instead of the old server-rendered-per-request
+// page: Apps Script Web Apps serve /exec through an internal
+// userCodeAppPanel iframe. A plain <a href="?view=weekly"> clicked from
+// inside the rendered page navigates that iframe, not the top-level
+// document, producing a blank panel instead of the next view. Daily/
+// Weekly switching, tab switching, and history selection therefore all
+// happen entirely client-side against data already fetched via
+// google.script.run -- no in-page link ever points at a relative
+// ?view=/&report= URL again.
+//
+// Layout ports the v1.1 Dashboard's visual structure (Issue #250 reopen,
+// PR #252 review): a topbar with 日报/周报 controls and a compact history
+// <select>, a 4-metric summary grid (当前持仓/观察名单/核心状态/Review,
+// each with its v1.1 explanatory subtitle -- informational only, not a
+// tab shortcut), a minimal headline card (eyebrow + 一句话结论 only), and
+// 组合 (portfolio) / 资本配置 (capital allocation) / 风险 (risks) / 待办
+// (to-dos) tabs as ordinary rounded buttons with a two-column compact
+// card grid -- rather than a single long scrolling flow or a generic
+// underline-tab/blue-pill utility layout.
+
+(function () {
+  'use strict';
+
+  var TABS = ['portfolio', 'allocation', 'risks', 'todos'];
+
+  var STATE = {
+    bootstrap: IOS_BOOTSTRAP,
+    activeView: IOS_ACTIVE_VIEW === 'weekly' ? 'weekly' : 'daily',
+    activeTab: 'portfolio',
+    viewingReportId: null, // non-null while pinned to a specific history entry
+    displayedViewModel: null, // the viewModel for viewingReportId, once fetched
+    loading: false
+  };
+
+  // -- Small DOM-construction helpers (no innerHTML with Sheet-derived
+  // strings anywhere in this file -- every value from the Sheet reaches
+  // the page only via textContent/attribute assignment). --
+
+  function el(tag, opts, children) {
+    var node = document.createElement(tag);
+    opts = opts || {};
+    if (opts.className) node.className = opts.className;
+    if (opts.text != null) node.textContent = opts.text;
+    if (opts.attrs) {
+      Object.keys(opts.attrs).forEach(function (key) { node.setAttribute(key, opts.attrs[key]); });
+    }
+    if (opts.onclick) node.addEventListener('click', opts.onclick);
+    (children || []).forEach(function (child) { if (child) node.appendChild(child); });
+    return node;
+  }
+
+  function text(tag, className, value) {
+    return el(tag, { className: className, text: value });
+  }
+
+  function clear(node) {
+    while (node.firstChild) node.removeChild(node.firstChild);
+  }
+
+  /** Blank/null/undefined both mean "not set" for a Sheet-derived cell -- never distinguished from each other, and never backfilled from another field. */
+  function isBlank(value) {
+    return value === '' || value == null;
+  }
+
+  // -- Top-level render orchestration --
+
+  function currentViewModel() {
+    if (STATE.viewingReportId && STATE.displayedViewModel) return STATE.displayedViewModel;
+    return STATE.activeView === 'weekly' ? STATE.bootstrap.weekly : STATE.bootstrap.daily;
+  }
+
+  function activeViewHistory() {
+    return (STATE.activeView === 'weekly' ? STATE.bootstrap.weeklyHistory : STATE.bootstrap.dailyHistory) || [];
+  }
+
+  function render() {
+    updateNavActive();
+    updateTabActive();
+    renderStatusBanner();
+    renderHistoryBanner();
+    renderHistorySelect();
+    renderSummarySection();
+    renderTabContent();
+  }
+
+  function updateNavActive() {
+    ['daily', 'weekly'].forEach(function (view) {
+      var btn = document.getElementById('ios-nav-' + view);
+      if (!btn) return;
+      var isActive = view === STATE.activeView;
+      btn.classList.toggle('active', isActive);
+      if (isActive) {
+        btn.setAttribute('aria-current', 'page');
+      } else {
+        btn.removeAttribute('aria-current');
+      }
+    });
+    var refreshBtn = document.getElementById('ios-refresh-btn');
+    if (refreshBtn) refreshBtn.disabled = STATE.loading;
+    var historySelect = document.getElementById('ios-history-select');
+    if (historySelect) historySelect.disabled = STATE.loading;
+  }
+
+  function updateTabActive() {
+    TABS.forEach(function (tab) {
+      var btn = document.getElementById('ios-tab-' + tab);
+      if (!btn) return;
+      var isActive = tab === STATE.activeTab;
+      btn.classList.toggle('active', isActive);
+      if (isActive) {
+        btn.setAttribute('aria-current', 'page');
+      } else {
+        btn.removeAttribute('aria-current');
+      }
+    });
+  }
+
+  function renderStatusBanner() {
+    var banner = document.getElementById('ios-status-banner');
+    if (STATE.bootstrap.error) {
+      banner.hidden = false;
+      banner.className = 'ios-status-banner ios-status-blocked';
+      clear(banner);
+      banner.appendChild(text('strong', null, '无法加载: '));
+      banner.appendChild(document.createTextNode(STATE.bootstrap.error));
+    } else {
+      banner.hidden = true;
+      clear(banner);
+    }
+  }
+
+  function showTransientError(message) {
+    var banner = document.getElementById('ios-status-banner');
+    // A transient (single-call) failure never overwrites a persistent
+    // Blocked bootstrap state -- the underlying read problem the Blocked
+    // banner already names takes priority over a one-off failed refresh.
+    if (STATE.bootstrap.error) return;
+    banner.hidden = false;
+    banner.className = 'ios-status-banner ios-status-transient';
+    clear(banner);
+    banner.appendChild(document.createTextNode(message));
+  }
+
+  function renderHistoryBanner() {
+    var banner = document.getElementById('ios-history-banner');
+    if (!STATE.viewingReportId) {
+      banner.hidden = true;
+      clear(banner);
+      return;
+    }
+    banner.hidden = false;
+    clear(banner);
+    banner.appendChild(document.createTextNode('正在查看历史报告（' + STATE.viewingReportId + '）。'));
+    banner.appendChild(el('button', {
+      className: 'ios-back-to-latest-btn',
+      text: '返回最新报告',
+      onclick: function () { switchView(STATE.activeView); }
+    }));
+  }
+
+  // -- Compact history control (topbar <select>, replacing the old
+  // bottom-of-page two-column link list -- Issue #250 v1.1 visual parity) --
+
+  function renderHistorySelect() {
+    var select = document.getElementById('ios-history-select');
+    if (!select) return;
+    clear(select);
+    select.appendChild(el('option', { text: '最新', attrs: { value: '' } }));
+    activeViewHistory().forEach(function (entry) {
+      select.appendChild(el('option', {
+        text: entry.reportDate + ' — ' + entry.headline,
+        attrs: { value: entry.reportId }
+      }));
+    });
+    select.value = STATE.viewingReportId || '';
+  }
+
+  // -- Summary area: a 4-metric grid tied to the tab bar, plus a headline
+  // card (accent left border / gradient), always visible above the tabs --
+
+  function renderSummarySection() {
+    var container = document.getElementById('ios-summary-content');
+    clear(container);
+
+    if (STATE.bootstrap.error) {
+      // The persistent status banner above already explains the Blocked
+      // state in detail -- this area just stays empty rather than
+      // duplicating the message in a second card.
+      return;
+    }
+
+    var vm = currentViewModel();
+    if (!vm || !vm.found) {
+      container.appendChild(buildEmptyStateCard(STATE.activeView));
+      return;
+    }
+
+    container.appendChild(buildSummaryGrid(vm));
+    container.appendChild(buildHeadlineCard(vm));
+    container.appendChild(buildReportCaption(vm));
+  }
+
+  function buildEmptyStateCard(view) {
+    var label = view === 'daily' ? '日报' : '周报';
+    return el('section', { className: 'ios-card ios-empty-state' }, [
+      text('h2', null, '暂无' + label),
+      text('p', null, '对应的 Scheduled Task 还没有生成报告，或者本视图下没有存储的报告。这是全新安装的正常状态，不是错误。'),
+      text('p', 'ios-empty-note', '如果这是全新安装，还没有录入任何持仓，可以在 ChatGPT 中使用 setup/onboarding-prompt.md 引导录入已有持仓或从零开始建立研究起点——完成后下一次 Task 运行会生成第一份报告。')
+    ]);
+  }
+
+  /**
+   * The 4 v1.1 summary metrics -- 当前持仓/观察名单/核心状态/Review, each
+   * with its own explanatory subtitle. All four are presentation-only
+   * reads straight from the selected report's own 报告摘要 row (当前持仓数/
+   * 高优先级观察数/核心状态/Review状态) -- never recomputed client-side
+   * from live/report-detail data, so a historical report's summary always
+   * matches the snapshot the writer recorded at generation time, exactly
+   * like 核心状态/Review状态 already did (PR #252 review round 2).
+   * Deliberately NOT tab shortcuts: tab navigation lives only in the
+   * separate tab row below (review round 1) -- these are plain
+   * informational cards, not buttons.
+   */
+  function buildSummaryGrid(vm) {
+    var summary = vm.summary;
+    var metrics = [
+      { label: '当前持仓', subtitle: '实时组合事实', value: isBlank(summary['当前持仓数']) ? '未知' : String(summary['当前持仓数']) },
+      { label: '观察名单', subtitle: '高优先级', value: isBlank(summary['高优先级观察数']) ? '未知' : String(summary['高优先级观察数']) },
+      { label: '核心状态', subtitle: 'IOS判断', value: summary['核心状态'] || '未知' },
+      { label: '数据检查', subtitle: '数据完整性', value: summary['Review状态'] || '未知' }
+    ];
+    var grid = el('div', { className: 'ios-summary-grid' });
+    metrics.forEach(function (metric) {
+      grid.appendChild(el('div', { className: 'ios-metric-card' }, [
+        text('span', 'ios-metric-value', metric.value),
+        text('span', 'ios-metric-label', metric.label),
+        text('span', 'ios-metric-subtitle', metric.subtitle)
+      ]));
+    });
+    return grid;
+  }
+
+  /**
+   * v1.1's headline card is intentionally minimal: an eyebrow label plus
+   * the 一句话结论 text, nothing else (PR #252 review point 2). 报告ID/
+   * 生成时间 -- no longer shown here -- move to a small muted caption
+   * below the card rather than disappearing entirely.
+   */
+  function buildHeadlineCard(vm) {
+    var summary = vm.summary;
+    return el('section', { className: 'ios-headline-card' }, [
+      text('p', 'ios-eyebrow', '一句话结论'),
+      text('p', 'ios-headline', summary['一句话结论'])
+    ]);
+  }
+
+  function buildReportCaption(vm) {
+    var summary = vm.summary;
+    return text('p', 'ios-report-caption',
+      summary['报告ID'] + ' · ' + (summary['周期开始'] || summary['报告日期']) + ' – ' +
+      (summary['周期结束'] || summary['报告日期']) + ' · ' + summary['生成时间']);
+  }
+
+  // -- Tab content (组合 portfolio / 资本配置 capital allocation / 风险 risks / 待办 todos) --
+
+  function renderTabContent() {
+    var container = document.getElementById('ios-tab-content');
+    clear(container);
+
+    if (STATE.bootstrap.error) return;
+
+    if (STATE.activeTab === 'allocation') {
+      // Capital allocation is the live 当前持仓 view -- independent of
+      // which Daily/Weekly report (or history entry) is selected, so it
+      // renders even when the selected report itself is empty/missing.
+      container.appendChild(buildAllocationSection());
+      return;
+    }
+
+    var vm = currentViewModel();
+    if (!vm || !vm.found) {
+      // The summary section above already shows the "no report yet" card
+      // -- the tab area just stays empty rather than duplicating it.
+      return;
+    }
+
+    if (STATE.activeTab === 'portfolio') {
+      container.appendChild(buildAssetSection('当前持仓', vm.holdings, false));
+      container.appendChild(buildAssetSection('本期观察候选', vm.watchlistCandidates, true));
+    } else if (STATE.activeTab === 'risks') {
+      container.appendChild(buildRisksSection(vm.risks));
+    } else if (STATE.activeTab === 'todos') {
+      container.appendChild(buildTodosSection(vm.todos));
+    }
+  }
+
+  /**
+   * Semantic badge color mapping (Issue #257) -- pure lookups, exact
+   * match only (never a substring/prefix heuristic, so a value that
+   * merely contains a canonical word never gets miscolored). Both maps
+   * cover the vocabulary actually documented for these fields:
+   * IOS状态's from the Weekly report's own "建议状态" action language
+   * (prompts/weekly-portfolio-report.md, frozen at prompts-v1.0.0); 价格
+   * 位置's from the exact wording setup/schema/sheet-schema.json and both
+   * Task prompts document the writer using ("低于区间"/"区间内"/"高于
+   * 区间"/"未知"), UNIONED with Issue #257's own "参考"-worded list
+   * ("低于参考"/"接近参考"/"高于参考"/"无参考"/"无可靠价格") so whichever
+   * wording a report actually contains still gets colored correctly --
+   * see the PR description for why both vocabularies are covered rather
+   * than only the issue's literal list.
+   *
+   * Any value not present in a map (including blank) returns '' --
+   * callers combine that with the plain '.ios-badge' base class, which
+   * is exactly the safe neutral fallback the acceptance criteria require:
+   * the raw text still renders, just with no semantic color attached.
+   */
+  var IOS_STATUS_BADGE_CLASS_ = {
+    '可研究加仓': 'ios-severity-low',
+    '继续持有': '',
+    '等待': 'ios-severity-medium',
+    '降低研究优先级': 'ios-badge-muted',
+    '更新假设': 'ios-severity-medium',
+    '监控风险': 'ios-severity-high',
+    '延后动作': 'ios-badge-muted'
+  };
+
+  var PRICE_POSITION_BADGE_CLASS_ = {
+    '区间内': 'ios-severity-low',
+    '低于区间': 'ios-badge-price-opportunity',
+    '低于参考': 'ios-badge-price-opportunity',
+    '接近参考': 'ios-severity-medium',
+    '高于区间': 'ios-severity-high',
+    '高于参考': 'ios-severity-high',
+    '未知': '',
+    '无参考': '',
+    '无可靠价格': 'ios-badge-unavailable'
+  };
+
+  function iosStatusBadgeClass(value) {
+    return Object.prototype.hasOwnProperty.call(IOS_STATUS_BADGE_CLASS_, value) ? IOS_STATUS_BADGE_CLASS_[value] : '';
+  }
+
+  function pricePositionBadgeClass(value) {
+    return Object.prototype.hasOwnProperty.call(PRICE_POSITION_BADGE_CLASS_, value) ? PRICE_POSITION_BADGE_CLASS_[value] : '';
+  }
+
+  /** Joins a base badge class with an optional semantic tier class ('' means no tier -- the plain badge is already the safe neutral look). */
+  function badgeClass(base, tier) {
+    return tier ? base + ' ' + tier : base;
+  }
+
+  function buildPriceLine(asset) {
+    return text('p', 'ios-asset-line',
+      '价格: ' + (isBlank(asset['当前价格']) ? '未知' : String(asset['当前价格'])));
+  }
+
+  function buildReferenceLine(asset) {
+    var children = [
+      document.createTextNode('参考: ' + (isBlank(asset['参考买入价/区间']) ? '未设定' : asset['参考买入价/区间']))
+    ];
+    if (asset['价格位置']) {
+      children.push(text('span', badgeClass('ios-badge ios-badge-price-position', pricePositionBadgeClass(asset['价格位置'])), asset['价格位置']));
+    }
+    return el('p', { className: 'ios-asset-line ios-price-info' }, children);
+  }
+
+  /**
+   * v1.1 compact card content order: 价格 / 参考(+价格位置) / 变化 / 逻辑 /
+   * 验证 (PR #252 review point 4). 价格/参考 are always shown explicitly
+   * (missing-value text, never omitted -- these are the fields the
+   * reference-price/price-position acceptance criterion covers); 变化/
+   * 逻辑/验证 are free-text narrative fields shown only when present, same
+   * as before, to keep the card compact.
+   */
+  function buildAssetCard(asset, isWatchlist) {
+    var headChildren = [text('strong', null, asset['代码'])];
+    if (isWatchlist) {
+      headChildren.push(text('span', 'ios-badge ios-badge-watchlist', '观察名单'));
+    } else {
+      headChildren.push(text('span', badgeClass('ios-badge', iosStatusBadgeClass(asset['IOS状态'])), asset['IOS状态'] || '未知'));
+    }
+    var lines = [
+      el('div', { className: 'ios-asset-head' }, headChildren),
+      text('p', 'ios-asset-name', asset['名称']),
+      buildPriceLine(asset),
+      buildReferenceLine(asset)
+    ];
+    if (asset['关键变化']) {
+      lines.push(text('p', 'ios-asset-line', '变化: ' + asset['关键变化']));
+    }
+    if (asset['长期逻辑或估值']) {
+      lines.push(text('p', 'ios-asset-line', '逻辑: ' + asset['长期逻辑或估值']));
+    }
+    if (asset['下一验证点']) {
+      lines.push(text('p', 'ios-asset-line ios-muted', '验证: ' + asset['下一验证点']));
+    }
+    return el('div', { className: isWatchlist ? 'ios-asset-card ios-watchlist-card' : 'ios-asset-card' }, lines);
+  }
+
+  function buildAssetSection(title, assets, isWatchlist) {
+    var heading = text('h2', null, title + ' (' + assets.length + ')');
+    var children = [heading];
+    if (isWatchlist) {
+      children.push(text('p', 'ios-hint', '非当前持仓，仅因本期报告涉及而展示。'));
+    }
+    if (assets.length === 0) {
+      children.push(text('p', 'ios-empty-note',
+        (isWatchlist ? '本期报告未涉及任何观察候选' : '本期报告未涉及任何持仓') +
+        '——这是合法的空结果，不是错误。'));
+    } else {
+      var grid = el('div', { className: 'ios-card-grid' });
+      assets.forEach(function (asset) { grid.appendChild(buildAssetCard(asset, isWatchlist)); });
+      children.push(grid);
+    }
+    return el('section', { className: 'ios-card' }, children);
+  }
+
+  function buildRisksSection(risks) {
+    var children = [text('h2', null, '风险 (' + risks.length + ')')];
+    if (risks.length === 0) {
+      children.push(text('p', 'ios-empty-note', '本期报告未标记任何风险——这是合法的空结果，不是错误。'));
+    } else {
+      var list = el('ul', { className: 'ios-list' });
+      risks.forEach(function (risk) {
+        var severity = risk['严重度'] || 'unknown';
+        var itemChildren = [
+          text('span', 'ios-badge ios-severity-' + severity, risk['严重度'] || '未知'),
+          text('strong', null, risk['风险'])
+        ];
+        if (risk['影响资产']) {
+          itemChildren.push(text('span', 'ios-muted', ' — ' + risk['影响资产']));
+        }
+        if (risk['本期动作']) {
+          itemChildren.push(text('p', 'ios-muted', '本期动作: ' + risk['本期动作']));
+        }
+        list.appendChild(el('li', null, itemChildren));
+      });
+      children.push(list);
+    }
+    return el('section', { className: 'ios-card' }, children);
+  }
+
+  /**
+   * Canonical completed-equivalent 状态 values (Issue #260). sheet-schema.json
+   * declares 状态 as a free-text string with no enum. A repo-wide static
+   * search (agents/*.md, prompts/*.md, both Task prompts, this package's own
+   * demo/test fixtures) only ever turned up `done` -- but real production
+   * Weekly report data (Issue #260 reopened, post-merge evidence on
+   * weekly-2026-08-31) writes the Chinese canonical values `已完成`
+   * (completed) and `待处理` (actionable/open) instead. `待处理` needs no
+   * entry here -- any value not in this list already classifies as
+   * 'actionable' by default, which is the correct outcome for it; it's
+   * covered by regression tests instead. The comparison below is
+   * normalized (trimmed, case-folded -- a no-op for Chinese, harmless) before
+   * the exact match, so a real report's 'Done'/'DONE'/trailing-whitespace
+   * variant, or `已完成`, all classify as completed without resorting to a
+   * substring/prefix heuristic on arbitrary status text.
+   */
+  var TODO_COMPLETED_STATUSES_ = ['done', '已完成'];
+
+  /**
+   * The single source of truth for todo completion semantics. Counts,
+   * open/done grouping, card styling, and the status badge class all
+   * derive from this one classifier so none of them can disagree with
+   * each other (the defect this issue exists to close). Unknown/blank
+   * statuses are never guessed as completed -- they classify as
+   * 'actionable', per Issue #255's technical notes ("display unrecognized
+   * statuses explicitly rather than assuming completed"); the raw status
+   * text is still always shown verbatim by the caller either way -- this
+   * function only decides the semantic bucket, never what text renders.
+   */
+  function classifyTodoStatus_(rawStatus) {
+    var normalized = (rawStatus || '').trim().toLowerCase();
+    return TODO_COMPLETED_STATUSES_.indexOf(normalized) !== -1 ? 'completed' : 'actionable';
+  }
+
+  function isTodoCompleted(status) {
+    return classifyTodoStatus_(status) === 'completed';
+  }
+
+  /** Badge tier for a todo's raw 状态 text -- 'ios-badge-done' when the classifier says completed, '' (plain neutral badge) otherwise. */
+  function todoStatusBadgeClass(status) {
+    return classifyTodoStatus_(status) === 'completed' ? 'ios-badge-done' : '';
+  }
+
+  /**
+   * Canonical 跟进类型 values (Issue #267). sheet-schema.json declares this
+   * as an enum of these exact Chinese literals -- the writer (Daily/Weekly
+   * Task) and this Dashboard reader share the same machine vocabulary, no
+   * separate English/Chinese mapping needed. A blank or unrecognized value
+   * (including every pre-#267 report row, which has no 跟进类型 column at
+   * all) classifies as 'actionable' -- the same safe, conservative default
+   * classifyTodoStatus_ uses for an unrecognized 状态: never silently
+   * hidden from the actionable backlog just because the classifier didn't
+   * recognize it.
+   */
+  var TODO_KIND_MONITORING_ = '持续观察';
+  var TODO_KIND_WAITING_ = '等待证据';
+
+  function classifyTodoKind_(rawKind) {
+    // String(...) first -- a malformed Sheet cell (a pasted number/boolean
+    // in this optional column) is truthy and has no .trim() of its own, so
+    // `(rawKind || '').trim()` would throw instead of applying the
+    // documented safe fallback below (PR #268 review: one malformed cell
+    // must never crash the whole todo section's grouping/rendering).
+    var normalized = String(rawKind == null ? '' : rawKind).trim();
+    if (normalized === TODO_KIND_MONITORING_) return 'monitoring';
+    if (normalized === TODO_KIND_WAITING_) return 'waiting_evidence';
+    return 'actionable';
+  }
+
+  var TODO_KIND_BADGE_ = {
+    monitoring: { className: 'ios-badge ios-badge-monitoring', label: TODO_KIND_MONITORING_ },
+    waiting_evidence: { className: 'ios-badge ios-badge-waiting', label: TODO_KIND_WAITING_ }
+  };
+
+  var TODO_KIND_ITEM_CLASS_ = {
+    monitoring: ' ios-todo-monitoring',
+    waiting_evidence: ' ios-todo-waiting'
+  };
+
+  function buildTodoItem(todo) {
+    var status = todo['状态'] || '待处理';
+    var completed = isTodoCompleted(status);
+    var kind = classifyTodoKind_(todo['跟进类型']);
+    var head = el('div', { className: 'ios-todo-head' }, [
+      text('span', 'ios-todo-indicator', completed ? '✓' : '○'),
+      text('span', 'ios-todo-text', todo['待办'])
+    ]);
+    // Completed always shows the plain 状态 badge regardless of 跟进类型
+    // (Issue #267 AC: completed items stay distinguishable from every
+    // unresolved category). Otherwise a monitoring/waiting-for-evidence
+    // item shows its kind badge instead of the usual 待处理 badge, so it
+    // reads as "still open, but not backlog" rather than as ordinary
+    // unfinished work -- an actionable open item is unchanged from before.
+    var metaChildren;
+    if (!completed && TODO_KIND_BADGE_[kind]) {
+      var kindBadge = TODO_KIND_BADGE_[kind];
+      metaChildren = [text('span', kindBadge.className, kindBadge.label)];
+    } else {
+      metaChildren = [text('span', badgeClass('ios-badge', todoStatusBadgeClass(status)), status)];
+    }
+    if (todo['分类']) {
+      metaChildren.push(text('span', 'ios-badge', todo['分类']));
+    }
+    var children = [head, el('div', { className: 'ios-todo-meta' }, metaChildren)];
+    if (todo['备注']) {
+      children.push(text('p', 'ios-todo-note', todo['备注']));
+    }
+    var kindItemClass = !completed && TODO_KIND_ITEM_CLASS_[kind] ? TODO_KIND_ITEM_CLASS_[kind] : '';
+    return el('li', { className: 'ios-todo-item' + (completed ? ' ios-todo-done' : ' ios-todo-open') + kindItemClass }, children);
+  }
+
+  /**
+   * At-a-glance count summary, then actionable-open items, then ongoing
+   * monitoring / waiting-for-evidence items, then completed ones last --
+   * completed history stays visible, just not first (Issue #255). Ongoing
+   * monitoring and waiting-for-evidence items are deliberately grouped
+   * after actionable-open but before completed: they remain visible and
+   * scannable, but never inflate the "待处理" backlog count or bury
+   * genuinely actionable work behind them (Issue #267). `todos` arrives
+   * already sorted by 排序 (buildReportViewModel_ -> sortByOrder_);
+   * Array#filter preserves relative order, so splitting it into groups and
+   * concatenating keeps deterministic 排序 order within each group without
+   * re-sorting anything client-side. The 持续观察/等待证据 summary badges
+   * only render when that group is non-empty, so a Sheet that has never
+   * used 跟进类型 (every row classifies as actionable) renders identically
+   * to the pre-#267 two-badge summary.
+   */
+  function buildTodosSection(todos) {
+    var children = [text('h2', null, '待办事项 (' + todos.length + ')')];
+    if (todos.length === 0) {
+      children.push(text('p', 'ios-empty-note', '本期报告没有待办事项——这是合法的空结果，不是错误。'));
+      return el('section', { className: 'ios-card' }, children);
+    }
+    var actionableOpen = [];
+    var monitoringOpen = [];
+    var waitingOpen = [];
+    var doneTodos = [];
+    todos.forEach(function (todo) {
+      var status = todo['状态'] || '待处理';
+      if (isTodoCompleted(status)) {
+        doneTodos.push(todo);
+        return;
+      }
+      var kind = classifyTodoKind_(todo['跟进类型']);
+      if (kind === 'monitoring') {
+        monitoringOpen.push(todo);
+      } else if (kind === 'waiting_evidence') {
+        waitingOpen.push(todo);
+      } else {
+        actionableOpen.push(todo);
+      }
+    });
+    var summaryBadges = [text('span', 'ios-badge', actionableOpen.length + ' 待处理')];
+    if (monitoringOpen.length > 0) {
+      summaryBadges.push(text('span', 'ios-badge ios-badge-monitoring', monitoringOpen.length + ' 持续观察'));
+    }
+    if (waitingOpen.length > 0) {
+      summaryBadges.push(text('span', 'ios-badge ios-badge-waiting', waitingOpen.length + ' 等待证据'));
+    }
+    summaryBadges.push(text('span', 'ios-badge ios-badge-done', doneTodos.length + ' 已完成'));
+    children.push(el('div', { className: 'ios-todo-summary' }, summaryBadges));
+    var list = el('ul', { className: 'ios-checklist' });
+    actionableOpen.concat(monitoringOpen, waitingOpen, doneTodos).forEach(function (todo) { list.appendChild(buildTodoItem(todo)); });
+    children.push(list);
+    return el('section', { className: 'ios-card' }, children);
+  }
+
+  // -- Current-holdings allocation view (live, view-independent -- the
+  // 资本配置 tab). Renders both a desktop table and a mobile card list from
+  // the exact same `allocation` array -- CSS breakpoints (not JS viewport
+  // branching) decide which one is visible, so there is only one place
+  // that selects/normalizes the data (Issue #255: the wide table alone
+  // caused horizontal page overflow on mobile). --
+
+  function buildAllocationSection() {
+    var children = [
+      text('h2', null, '当前持仓（实时，仅含数量/平均成本/参考价）'),
+      text('p', 'ios-hint', '这里不显示市值权重——本 schema 不携带实时价格，本 Dashboard 也绝不会凭空编造。参考买入价/区间直接读取自当前持仓，绝不从平均成本推算。')
+    ];
+    var allocation = STATE.bootstrap.allocation || [];
+    if (allocation.length === 0) {
+      children.push(text('p', 'ios-empty-note', '当前没有持仓——这是合法状态，不是错误。'));
+      return el('section', { className: 'ios-card' }, children);
+    }
+    children.push(buildAllocationTable(allocation));
+    children.push(buildAllocationCards(allocation));
+    return el('section', { className: 'ios-card' }, children);
+  }
+
+  /** Desktop representation -- hidden below the mobile breakpoint (see .ios-allocation-table in Styles.html), never the mobile rendering path. */
+  function buildAllocationTable(allocation) {
+    var table = el('table', { className: 'ios-table' });
+    var thead = el('thead', null, [
+      el('tr', null, ['代码', '名称', '数量', '平均成本', '参考买入价/区间', '币种'].map(function (label) {
+        return text('th', null, label);
+      }))
+    ]);
+    var tbody = el('tbody');
+    allocation.forEach(function (entry) {
+      tbody.appendChild(el('tr', null, [
+        text('td', null, entry.code),
+        text('td', null, entry.name),
+        text('td', null, String(entry.quantity)),
+        text('td', null, entry.avgCost === null ? '未知' : String(entry.avgCost)),
+        text('td', null, entry.referenceRange === null ? '未设定' : entry.referenceRange),
+        text('td', null, entry.currency)
+      ]));
+    });
+    table.appendChild(thead);
+    table.appendChild(tbody);
+    return el('div', { className: 'ios-table-wrap ios-allocation-table' }, [table]);
+  }
+
+  /** Mobile representation -- hidden at/above the breakpoint (see .ios-allocation-cards in Styles.html). One card per entry, decision-relevant fields first: code/name, quantity, avg cost, then the reference range. */
+  function buildAllocationCards(allocation) {
+    var grid = el('div', { className: 'ios-allocation-cards' });
+    allocation.forEach(function (entry) {
+      grid.appendChild(el('div', { className: 'ios-asset-card' }, [
+        el('div', { className: 'ios-asset-head' }, [
+          text('strong', null, entry.code),
+          text('span', 'ios-muted', entry.currency)
+        ]),
+        text('p', 'ios-asset-name', entry.name),
+        text('p', 'ios-asset-line', '数量: ' + entry.quantity),
+        text('p', 'ios-asset-line', '平均成本: ' + (entry.avgCost === null ? '未知' : String(entry.avgCost))),
+        text('p', 'ios-asset-line', '参考: ' + (entry.referenceRange === null ? '未设定' : entry.referenceRange))
+      ]));
+    });
+    return grid;
+  }
+
+  // -- Interaction entry points. Defined as local functions and called
+  // directly from elsewhere in this file (e.g. renderHistoryBanner's
+  // "back to latest" button, onHistorySelectChange below) -- only the
+  // window.* assignments at the bottom expose them to Index.html's inline
+  // onclick/onchange handlers. Calling through `window.foo(...)` from
+  // inside this file would only resolve in a real browser, where `window`
+  // happens to be the realm's global object; relying on that aliasing
+  // here would be fragile (and untestable outside a real browser), so
+  // internal callers always use the local function name instead. --
+
+  function setLoading(loading) {
+    STATE.loading = loading;
+    document.body.classList.toggle('ios-loading', loading);
+    updateNavActive();
+  }
+
+  function switchView(view) {
+    if (STATE.loading) return;
+    STATE.activeView = view === 'weekly' ? 'weekly' : 'daily';
+    STATE.viewingReportId = null;
+    STATE.displayedViewModel = null;
+    render();
+  }
+
+  function selectTab(tab) {
+    if (STATE.loading) return;
+    if (TABS.indexOf(tab) === -1) return;
+    STATE.activeTab = tab;
+    updateTabActive();
+    renderTabContent();
+  }
+
+  function selectHistoryReport(reportId) {
+    if (STATE.loading) return;
+    setLoading(true);
+    google.script.run
+      .withSuccessHandler(function (result) {
+        setLoading(false);
+        if (result && result.error) {
+          showTransientError('加载报告失败 (' + reportId + '): ' + result.error);
+          return;
+        }
+        if (result && result.reportType) {
+          STATE.activeView = result.reportType;
+        }
+        STATE.viewingReportId = reportId;
+        STATE.displayedViewModel = result;
+        render();
+      })
+      .withFailureHandler(function (err) {
+        setLoading(false);
+        showTransientError('加载报告失败 (' + reportId + '): ' + (err && err.message ? err.message : err));
+      })
+      .getReport(reportId);
+  }
+
+  /** The topbar history <select>'s onchange -- '' means "back to latest". */
+  function onHistorySelectChange(reportId) {
+    if (!reportId) {
+      switchView(STATE.activeView);
+      return;
+    }
+    selectHistoryReport(reportId);
+  }
+
+  function refresh() {
+    if (STATE.loading) return;
+    setLoading(true);
+    google.script.run
+      .withSuccessHandler(function (bootstrap) {
+        setLoading(false);
+        STATE.bootstrap = bootstrap;
+        STATE.viewingReportId = null;
+        STATE.displayedViewModel = null;
+        render();
+      })
+      .withFailureHandler(function (err) {
+        setLoading(false);
+        showTransientError('刷新失败: ' + (err && err.message ? err.message : err));
+      })
+      .getDashboardBootstrap();
+  }
+
+  window.switchView = switchView;
+  window.selectTab = selectTab;
+  window.selectHistoryReport = selectHistoryReport;
+  window.onHistorySelectChange = onHistorySelectChange;
+  window.refresh = refresh;
+
+  render();
+})();
