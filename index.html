@@ -26,6 +26,12 @@
     --green-dark: #17573f;
     --green-tint: #f4f8f6;
     --green-tint-border: #dbe5e0;
+    /* Canonical horizontal gutter, consumed only by .wrap -- every section
+       inherits its mobile rhythm from this single value (Issue #282). */
+    --gutter: 22px;
+  }
+  @media (max-width: 599px) {
+    :root { --gutter: clamp(24px, 5vw + 14px, 32px); }
   }
   html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
   body {
@@ -40,7 +46,7 @@
   a { color: inherit; text-decoration: none; }
   img, svg { max-width: 100%; }
 
-  .wrap { max-width: 1120px; margin: 0 auto; padding-left: 22px; padding-right: 22px; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding-left: var(--gutter); padding-right: var(--gutter); }
 
   /* ---- header ---- */
   header.site {
@@ -49,7 +55,7 @@
     backdrop-filter: blur(12px);
     border-bottom: 1px solid var(--border);
   }
-  header.site .bar { display: flex; align-items: center; gap: 20px; padding: 14px 0; }
+  header.site .bar { display: flex; align-items: center; gap: 20px; padding-top: 14px; padding-bottom: 14px; }
   .brand { display: flex; align-items: center; gap: 10px; margin-right: auto; }
   .brand-mark { width: 26px; height: 26px; border-radius: 8px; background: var(--ink); color: #fff; font-size: 11px; font-weight: 700; letter-spacing: .02em; display: flex; align-items: center; justify-content: center; }
   .brand-name { font-size: 14.5px; font-weight: 600; letter-spacing: -.01em; }
@@ -66,7 +72,7 @@
 
   /* ---- hero ---- */
   section.hero { background: linear-gradient(180deg, #fbfbfc 0%, #ffffff 78%); border-bottom: 1px solid #f0f0f2; }
-  .hero-grid { padding: 72px 0 84px; display: grid; grid-template-columns: 1fr; gap: 52px; align-items: center; }
+  .hero-grid { padding-top: 72px; padding-bottom: 84px; display: grid; grid-template-columns: 1fr; gap: 52px; align-items: center; }
   .eyebrow { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border: 1px solid #e4e4e8; border-radius: 999px; background: #fff; font-size: 12.5px; font-weight: 500; color: #5b6069; letter-spacing: .04em; text-transform: uppercase; }
   .eyebrow .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
   h1.hero-h1 { margin: 22px 0 0; font-size: 34px; line-height: 1.22; letter-spacing: -.025em; font-weight: 700; text-wrap: pretty; }
@@ -123,7 +129,7 @@
   .feat-desc { margin: 8px 0 0; font-size: 15px; line-height: 1.7; color: #6a6f78; }
 
   section.limits { margin-top: 92px; background: #f6f7f9; border-top: 1px solid #edeef1; border-bottom: 1px solid #edeef1; }
-  section.limits .inner { padding: 82px 0; }
+  section.limits .inner { padding-top: 82px; padding-bottom: 82px; }
   .limits-line { margin: 30px 0 0; font-size: 18px; line-height: 1.65; color: var(--ink-soft); font-weight: 600; letter-spacing: -.012em; text-wrap: pretty; }
   .limit-card { padding: 26px; border: 1px solid var(--border-soft); border-radius: 16px; background: #fff; }
 
@@ -164,7 +170,7 @@
   .route-chips span { padding: 6px 12px; border: 1px solid #e4e4e8; border-radius: 9px; background: #fff; font-size: 13.5px; color: var(--text-muted); }
 
   section.use { margin-top: 92px; background: #fbfbfc; border-top: 1px solid #f0f0f2; }
-  section.use .inner { padding: 82px 0; }
+  section.use .inner { padding-top: 82px; padding-bottom: 82px; }
   .use-h2 { text-wrap: pretty; }
   .say-card { display: flex; gap: 13px; align-items: flex-start; padding: 18px 20px; border: 1px solid var(--border); border-radius: 14px; background: #fff; box-shadow: 0 1px 2px rgba(16,24,40,.04); transition: transform .2s, box-shadow .2s; }
   .say-card:hover { transform: translateY(-2px); box-shadow: 0 12px 26px -18px rgba(16,24,40,.3); }
@@ -181,7 +187,7 @@
   .gh-link:hover { color: var(--ink); }
 
   footer.site { border-top: 1px solid var(--border); background: #fff; }
-  footer.site .inner { padding: 40px 0 52px; display: flex; flex-wrap: wrap; gap: 22px 32px; align-items: center; }
+  footer.site .inner { padding-top: 40px; padding-bottom: 52px; display: flex; flex-wrap: wrap; gap: 22px 32px; align-items: center; }
   .foot-brand { display: flex; align-items: center; gap: 10px; margin-right: auto; }
   .foot-brand .mark { width: 22px; height: 22px; border-radius: 7px; background: var(--ink); color: #fff; font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
   .foot-brand span { font-size: 14px; color: var(--text-muted); }
