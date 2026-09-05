@@ -159,10 +159,13 @@ lookups (never a substring/prefix heuristic), shared by every render path (Daily
 pinned history report all call the same `buildAssetCard`), so there's exactly one mapping to keep
 correct.
 
-- **`IOS状态`** maps the Weekly report's own "建议状态" action language
-  (`prompts/weekly-portfolio-report.md`, frozen at `prompts-v1.0.0`): `可研究加仓` → opportunity
-  (green), `继续持有` → neutral (plain badge), `监控风险` → risk (red), `等待`/`更新假设` →
-  caution (amber), `降低研究优先级`/`延后动作` → muted (low-emphasis gray).
+- **`IOS状态`** is report-owned semantics. New `资产类型=watchlist` rows use the canonical action
+  vocabulary `研究建仓` → opportunity (green), `等待估值`/`等待价格` → caution (amber), `继续观察` →
+  neutral (plain badge), and `降低优先级` → muted (low-emphasis gray). The section already identifies
+  a watchlist candidate, so the top-right card badge renders this stored action rather than a
+  redundant `观察名单` tag. `优先级` and `价格位置` remain independent data dimensions. Legacy stored
+  values (`可研究加仓`, `继续持有`, `监控风险`, etc.) retain their documented mappings for historical
+  preservation; the renderer never recomputes an action from price, reference range, priority, or CSS.
 - **`价格位置`** maps *both* vocabularies that actually appear in this codebase for this field:
   the wording `setup/schema/sheet-schema.json` and both Task prompts document the writer using
   (`低于区间`/`区间内`/`高于区间`/`未知`) and Issue #257's own `参考`-worded list

@@ -582,11 +582,12 @@ test('semantic badge mapping is the same function regardless of Daily/Weekly/his
   assert.ok(pricePositionBadge(document).classList.contains('ios-severity-high'));
 });
 
-test('watchlist candidates render separately from holdings and are labeled as watchlist, not holdings', () => {
+test('watchlist candidates render separately from holdings and show their report-provided action', () => {
   const { document } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
   const text = tabText(document);
   assert.match(text, /DEMOW1/);
-  assert.match(text, /观察名单/);
+  assert.match(text, /insufficient_evidence/);
+  assert.doesNotMatch(text, /观察名单/, 'the section provides asset type; cards must not repeat the redundant badge');
 });
 
 // -- Todo checklist (Issue #255): count summary, open-before-done grouping
@@ -1057,4 +1058,57 @@ test('refresh() re-fetches the whole bootstrap via google.script.run.getDashboar
   window.refresh();
   assert.equal(refreshCalls, 1);
   assert.match(summaryText(document), /updated after refresh/);
+});
+
+
+function buildBootstrapWithWatchlistAction(action, reportType) {
+  const candidate = { '代码': 'WATCH1', '名称': 'Watch Co.', 'IOS状态': action, 'Thesis状态': '', '关键变化': '', '长期逻辑或估值': '', '下一验证点': '', '参考买入价/区间': '', '当前价格': '', '价格位置': '未知', '优先级': '高', '排序': 1 };
+  const report = { found: true, reportType, summary: { 报告ID: reportType + '-2026-09-05', 报告日期: '2026-09-05', 周期开始: '', 周期结束: '', 一句话结论: 'test headline', 核心状态: '正常', Review状态: '未Review', 当前持仓数: 0, 高优先级观察数: 1, 生成时间: '2026-09-05T09:00:00+09:00' }, holdings: [], watchlistCandidates: [candidate], risks: [], todos: [] };
+  return { error: null, daily: reportType === 'daily' ? report : { found: false, reportType: 'daily' }, weekly: reportType === 'weekly' ? report : { found: false, reportType: 'weekly' }, dailyHistory: [], weeklyHistory: [], allocation: [] };
+}
+
+function watchlistActionBadge(document) {
+  const section = document.getElementById('ios-tab-content').children[1];
+  const card = section.children[2].children[0];
+  return card.children[0].children[1];
+}
+
+test('watchlist cards use the stored canonical IOS action instead of a redundant 观察名单 badge', () => {
+  const { document } = loadDashboard(buildBootstrapWithWatchlistAction('研究建仓', 'daily'), 'daily', {});
+  const badge = watchlistActionBadge(document);
+  assert.equal(badge.textContent, '研究建仓');
+  assert.ok(badge.classList.contains('ios-severity-low'));
+  assert.ok(!badge.classList.contains('ios-badge-watchlist'));
+});
+
+test('canonical watchlist action badges keep action, priority, and price position separate', () => {
+  const { document } = loadDashboard(buildBootstrapWithWatchlistAction('等待价格', 'daily'), 'daily', {});
+  const badge = watchlistActionBadge(document);
+  assert.equal(badge.textContent, '等待价格');
+  assert.ok(badge.classList.contains('ios-severity-medium'));
+  const cardText = document.getElementById('ios-tab-content').children[1].children[2].children[0].textContent;
+  assert.match(cardText, /未知/, 'price-position snapshot stays separately visible');
+  assert.doesNotMatch(cardText, /观察名单/, 'the candidate section supplies asset type; the card does not repeat it');
+});
+
+test('the same renderer preserves stored canonical watchlist actions for Weekly and history reports', () => {
+  const bootstrap = buildBootstrapWithWatchlistAction('降低优先级', 'weekly');
+  const { document, window } = loadDashboard(bootstrap, 'weekly', { getReport: () => { const result = JSON.parse(JSON.stringify(bootstrap.weekly)); result.error = null; return result; } });
+  assert.equal(watchlistActionBadge(document).textContent, '降低优先级');
+  assert.ok(watchlistActionBadge(document).classList.contains('ios-badge-muted'));
+  window.selectHistoryReport('weekly-2026-09-05');
+  assert.equal(watchlistActionBadge(document).textContent, '降低优先级');
+});
+
+test('every canonical watchlist action has a deterministic mapping and unknown legacy values remain neutral', () => {
+  const expected = { '研究建仓': 'ios-severity-low', '等待估值': 'ios-severity-medium', '等待价格': 'ios-severity-medium', '继续观察': '', '降低优先级': 'ios-badge-muted' };
+  for (const [action, className] of Object.entries(expected)) {
+    const { document } = loadDashboard(buildBootstrapWithWatchlistAction(action, 'daily'), 'daily', {});
+    const badge = watchlistActionBadge(document);
+    assert.equal(badge.textContent, action);
+    if (className) assert.ok(badge.classList.contains(className)); else assert.equal(badge.className, 'ios-badge');
+  }
+  const { document } = loadDashboard(buildBootstrapWithWatchlistAction('历史自定义动作', 'daily'), 'daily', {});
+  assert.equal(watchlistActionBadge(document).className, 'ios-badge');
+  assert.equal(watchlistActionBadge(document).textContent, '历史自定义动作');
 });

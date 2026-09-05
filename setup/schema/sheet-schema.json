@@ -145,7 +145,7 @@
         {"name": "名称", "type": "string", "required": true},
         {"name": "数量", "type": "number", "required": false},
         {"name": "Thesis状态", "type": "string", "required": false},
-        {"name": "IOS状态", "type": "string", "required": false},
+        {"name": "IOS状态", "type": "string", "required": false, "notes": "For newly written 资产类型=watchlist rows, canonical recommended-next-action vocabulary is exactly 研究建仓 / 等待估值 / 等待价格 / 继续观察 / 降低优先级. It is report-generation-owned research semantics, not a Dashboard-derived value. 研究建仓 means research whether to establish an initial position, never an immediate buy. Legacy non-empty values remain readable for historical preservation and readers must show unknown legacy values neutrally."},
         {"name": "关键变化", "type": "string", "required": false},
         {"name": "长期逻辑或估值", "type": "string", "required": false},
         {"name": "下一验证点", "type": "string", "required": false},
@@ -157,6 +157,7 @@
       ],
       "rules": [
         "资产类型=watchlist rows must never be aggregated or rendered as holdings.",
+        "For newly written 资产类型=watchlist rows, IOS状态 is the report-provided canonical recommended next action: exactly 研究建仓 / 等待估值 / 等待价格 / 继续观察 / 降低优先级. 优先级 and 价格位置 are independent fields; no Dashboard or other reader may infer IOS状态 from them, prices, or styling. Historical rows retain their stored IOS状态 verbatim; blank/unrecognized legacy values use a neutral presentation fallback rather than being recomputed.",
         "A row whose 生成ID does not match the current 报告摘要 pointer for its 报告ID is stale/orphaned and must never be rendered or aggregated.",
         "参考买入价/区间, 当前价格, and 价格位置 are informational reference data, not investment advice or an executable target -- see the Book/Prompt Suite's own 'all actual investment actions require human confirmation' boundary. A writer must never fabricate any of the three when its source data is unavailable."
       ]

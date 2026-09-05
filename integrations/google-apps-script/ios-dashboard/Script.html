@@ -322,6 +322,15 @@
    * the raw text still renders, just with no semantic color attached.
    */
   var IOS_STATUS_BADGE_CLASS_ = {
+    // Canonical watchlist recommended-next-action vocabulary (Issue #293).
+    // These values arrive precomputed in 报告持仓.IOS状态; the renderer only
+    // maps presentation tiers and never derives an action from price/priority.
+    '研究建仓': 'ios-severity-low',
+    '等待估值': 'ios-severity-medium',
+    '等待价格': 'ios-severity-medium',
+    '继续观察': '',
+    '降低优先级': 'ios-badge-muted',
+    // Legacy holding/report values remain readable for history preservation.
     '可研究加仓': 'ios-severity-low',
     '继续持有': '',
     '等待': 'ios-severity-medium',
@@ -381,11 +390,14 @@
    */
   function buildAssetCard(asset, isWatchlist) {
     var headChildren = [text('strong', null, asset['代码'])];
-    if (isWatchlist) {
-      headChildren.push(text('span', 'ios-badge ios-badge-watchlist', '观察名单'));
-    } else {
-      headChildren.push(text('span', badgeClass('ios-badge', iosStatusBadgeClass(asset['IOS状态'])), asset['IOS状态'] || '未知'));
-    }
+    // Both holdings and watchlist cards render the report-stored IOS status
+    // through this one shared mapping. A watchlist section already supplies
+    // asset type, so it must not spend this badge on redundant 观察名单 text.
+    headChildren.push(text(
+      'span',
+      badgeClass('ios-badge', iosStatusBadgeClass(asset['IOS状态'])),
+      asset['IOS状态'] || '未提供动作'
+    ));
     var lines = [
       el('div', { className: 'ios-asset-head' }, headChildren),
       text('p', 'ios-asset-name', asset['名称']),

@@ -98,6 +98,8 @@ Daily Agent 可以在 prompt 输出之外增加元数据。
 
 Daily Agent 不得改写 prompt 输出本身。
 
+当 Daily 输出写入 报告持仓 时，所有 资产类型=watchlist 行必须由 Prompt 输出的研究状态写入 canonical IOS状态：研究建仓、等待估值、等待价格、继续观察 或 降低优先级。这只是当前下一步研究动作；不构成买入、卖出、加仓、减仓、仓位大小或完整组合配置判断。优先级 与 价格位置 保持为独立字段，Daily Agent 不得以它们推导 IOS状态。
+
 ---
 
 ## 输入要求
