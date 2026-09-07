@@ -55,6 +55,50 @@ test('filterLiveDetailRows_ excludes an orphaned generation and keeps only the c
   assert.ok(!live.some((r) => r['生成ID'] === 'gen-daily-0815-a'), 'the orphaned generation must never appear');
 });
 
+// Reproduces the real 2026-09-05 production incident (Issue #293): a
+// Weekly rerun re-staged only the watchlist rows under a fresh 生成ID
+// (gen-weekly-20260905-0934-watchlist) and switched 报告摘要 to it, while
+// holdings and risks were left tagged with the previous generation
+// (gen-weekly-20260905-0901-jst) -- a partial generation, which the
+// report_write_protocol explicitly forbids (setup/schema/sheet-schema.json,
+// docs/v2.1-architecture.md). This locks in that the Dashboard's read side
+// behaves exactly as designed when handed a partial generation -- it never
+// mixes generations, so the missing holdings/risks render as a correct
+// (if unwelcome) empty result rather than silently pulling in stale-
+// generation rows. The actual fix for Issue #293 is in the writer/Task
+// contract (report_write_protocol step 2, and both Task prompts), not
+// here -- this test exists so a future Dashboard change can't
+// accidentally start papering over a partial generation by matching on
+// something looser than the exact (报告ID, 生成ID) pair.
+test('buildReportViewModel_ never mixes generations across tables -- reproduces the 2026-09-05 incident at the Dashboard read layer', () => {
+  const CURRENT_GEN = 'gen-weekly-20260905-0934-watchlist';
+  const STALE_GEN = 'gen-weekly-20260905-0901-jst';
+  const tabs = {
+    报告摘要: [{
+      报告ID: 'weekly-2026-09-05', 生成ID: CURRENT_GEN, 报告类型: 'weekly', 报告日期: '2026-09-05',
+      周期开始: '2026-08-30', 周期结束: '2026-09-05', 一句话结论: '本周聚焦观察名单重新排序',
+      核心状态: '正常', Review状态: '未Review', 当前持仓数: 1, 高优先级观察数: 1, 生成时间: '2026-09-05T09:34:00+09:00'
+    }],
+    报告持仓: [
+      // Holding row never migrated off the previous generation -- exactly
+      // the incident's actual defect.
+      { 报告ID: 'weekly-2026-09-05', 生成ID: STALE_GEN, 报告类型: 'weekly', 报告日期: '2026-09-05', 资产类型: 'holding', 代码: 'DEMO1', 名称: 'Demo Co', 排序: 1 },
+      // Watchlist row correctly staged under the new generation.
+      { 报告ID: 'weekly-2026-09-05', 生成ID: CURRENT_GEN, 报告类型: 'weekly', 报告日期: '2026-09-05', 资产类型: 'watchlist', 代码: 'DEMOW1', 名称: 'Watch Co', 排序: 1 }
+    ],
+    报告风险: [
+      { 报告ID: 'weekly-2026-09-05', 生成ID: STALE_GEN, 报告类型: 'weekly', 报告日期: '2026-09-05', 风险: '旧一代风险', 排序: 1 }
+    ],
+    报告待办: []
+  };
+
+  const vm = logic.buildReportViewModel_(tabs, 'weekly', null);
+  assert.equal(vm.found, true);
+  assert.deepEqual(vm.holdings, [], 'a holding row bound to a superseded generation must never be rendered, reproducing the observed 当前持仓 (0)');
+  assert.equal(vm.watchlistCandidates.length, 1, 'the watchlist row bound to the current generation still renders correctly');
+  assert.deepEqual(vm.risks, [], 'a risk row bound to a superseded generation must never be rendered');
+});
+
 test('buildReportViewModel_ carries the report-time price snapshot (参考买入价/区间, 当前价格, 价格位置) through for holdings and watchlist rows alike', () => {
   const vm = logic.buildReportViewModel_(demoSheet, 'daily', null);
   const demo1 = vm.holdings.find((r) => r['代码'] === 'DEMO1');
