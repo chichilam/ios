@@ -54,7 +54,8 @@ not just the two Task-prompt files.
         v
 创建/更新 Daily + Weekly Scheduled Task：
   - 绑定具体 Sheet ID/URL（替换占位符）
-  - 嵌入 agents/*.md + prompts/*.md 的完整原文（替换占位符，不只是路径引用）
+  - 嵌入 agents/*.md + prompts/*.md 按固定跳过表生成的运行时精简摘录（替换占位符，不只是路径
+    引用；不是完整原文，也不是随意概括——判断规则逐字保留，只跳过说明性/示例/版本历史小节）
   - 询问并写入 Weekly 现金/资金状态（或明确记录"未提供"）
   - 使用精确、确定性的 Task 名称，写入 _安装状态（不使用模糊名称匹配）
         |
@@ -216,17 +217,44 @@ Task 指令内容（每次创建或更新都要重新执行下面的替换，不
    步确定的具体 Sheet ID 或完整 URL，把 `<TIMEZONE_PLACEHOLDER：...>` 整行替换成本步骤开头确定的
    具体 IANA 时区名称（两个 Task 模板都要替换；Daily 模板还依赖这个时区计算"研究窗口"一节的周一/
    非周一分支，不能留空或写成模糊描述）——这一步现在就能做，不用等到第 6 步。
-3. **嵌入内容权威（不是路径引用）**：获取以下四个文件的完整原文——
+3. **嵌入内容权威（不是路径引用，也不是完整原文，而是运行时精简摘录）**：获取以下四个文件的完整
+   原文——
    [`agents/daily-agent.md`](https://github.com/chichilam/ios/blob/main/agents/daily-agent.md)、
    [`prompts/daily-investment-report.md`](https://github.com/chichilam/ios/blob/main/prompts/daily-investment-report.md)、
    [`agents/weekly-agent.md`](https://github.com/chichilam/ios/blob/main/agents/weekly-agent.md)、
    [`prompts/weekly-portfolio-report.md`](https://github.com/chichilam/ios/blob/main/prompts/weekly-portfolio-report.md)——
    如果你能直接读取仓库文件就逐字获取；如果不能，明确请用户把这四个文件的内容分别粘贴给你（不要
    跳过这一步、也不要只保留文件路径了事——本仓库是私有仓库，Scheduled Task 运行时通常没有 GitHub
-   访问权限，无法在运行时临时抓取，指令里只有路径的话到时候会直接 Blocked）。把对应文件的完整原文
-   替换进各自 Task 模板里的 `<AGENT_SPEC_PLACEHOLDER：...>`/`<PROMPT_SPEC_PLACEHOLDER：...>`，并把
-   "内容版本"两个占位符也填上（快照来源可以写这几个文件在你读取时看到的仓库 commit/日期，快照
-   时间写你执行这一步的时间）。
+   访问权限，无法在运行时临时抓取，指令里只有路径的话到时候会直接 Blocked）。
+
+   第 296 号 issue 记录的运行时不稳定观察表明，每次运行都完整嵌入这四个文件的全文会让 Task 的
+   运行时 context 明显偏大。因此嵌入时按下面固定的、逐节机械跳过规则生成一份**运行时精简摘录**，
+   而不是逐字复制全文——除下面列出的小节外，其余每一个 `##` 级小节（含其下所有内容、表格、代码块）
+   必须逐字原样保留，不得改写、概括或省略任何一条判断规则；跳过的小节要留下清楚的占位说明，不能
+   直接消失让读者以为遗漏：
+
+   | 文件 | 跳过的 `##` 小节（原样保留其余全部小节） |
+   | --- | --- |
+   | `agents/daily-agent.md` | 目的、架构位置、示例流程、Review Checklist、版本策略 |
+   | `prompts/daily-investment-report.md` | Purpose、Version History |
+   | `agents/weekly-agent.md` | 目的、架构位置、示例流程、Review Checklist、版本策略 |
+   | `prompts/weekly-portfolio-report.md` | Purpose、Version History |
+
+   这些小节要么是面向人类维护者的叙述性前言/架构说明（目的、架构位置、Purpose），要么是示例/版本
+   历史/规格审阅清单（示例流程、Review Checklist、版本策略、Version History）——不包含任何 Task
+   执行时需要遵守的判断规则或输出契约，因此可以在运行时快照里跳过。表中未列出的每一个小节（包括
+   单 prompt 边界、输入要求、任务识别、禁止事项、Rules、Sheet Write Contract、Quality Checklist
+   等）都必须完整保留，一字不改。
+
+   跳过一个小节时，在嵌入内容里该小节标题原位置写一行占位说明，格式固定为：
+
+   > （本节为面向人类维护者的说明性内容，运行时快照已省略；完整原文见仓库 `<文件路径>` 的对应
+   > 小节，第 296 号 issue。）
+
+   把生成好的运行时精简摘录替换进各自 Task 模板里的
+   `<AGENT_SPEC_PLACEHOLDER：...>`/`<PROMPT_SPEC_PLACEHOLDER：...>`，并把"内容版本"两个占位符也
+   填上（快照来源写这几个文件在你读取时看到的仓库 commit/日期，快照时间写你执行这一步的时间）——
+   版本信息追溯的是完整原文所在的 commit，即使嵌入的是精简摘录，出问题时仍能定位到权威原文核对。
 4. **Weekly 现金/资金状态（仅 Weekly Task）**：这项必要输入只有一个权威来源，由 Sheet 当前的
    schema 版本决定，绝不允许两个来源同时生效——安装时写入的固定描述和 Sheet 里的 `账户状态`
    数据各自独立维护，一旦升级到 schema_version 2 却还允许读取前者，会制造两份互相可能矛盾、
@@ -336,7 +364,8 @@ schema、Daily/Weekly Task 模板、GAS Dashboard 全部硬编码使用 `报告�
 - [ ] 两个 Task 的指令中，Sheet 绑定占位符（`<SHEET_ID_OR_URL_PLACEHOLDER...>`）已替换为具体
       Sheet ID/URL，`<你的 GAS Web App URL>` 占位符已替换为真实链接。
 - [ ] 两个 Task 的指令中，`<AGENT_SPEC_PLACEHOLDER...>`/`<PROMPT_SPEC_PLACEHOLDER...>` 已替换为
-      对应文件的完整原文（不再是占位符或纯路径引用），"内容版本"两个占位符也已填写。
+      对应文件按第 3 步固定跳过表生成的运行时精简摘录（不再是占位符或纯路径引用；跳过的小节留有
+      清楚的占位说明，其余小节逐字保留，不是被随意概括或改写），"内容版本"两个占位符也已填写。
 - [ ] `账户状态` tab 已创建（空表头，安装过程没有替用户填入任何编造的具体数值）。**如果**本次
       运行创建/保持了 `账户状态` tab（即 Sheet 达到 schema_version ≥ 2 的等价结构——现在起每一次
       全新安装或增量升级都是如此，最终记录的 `_安装状态.schema_version` 是当前最新版本 `3`）：
