@@ -352,12 +352,33 @@
     '无可靠价格': 'ios-badge-unavailable'
   };
 
+  /**
+   * 报告持仓.执行状态 semantic tiers (Issue #298, schema_version 4) -- exact
+   * match only, same convention as IOS_STATUS_BADGE_CLASS_/
+   * PRICE_POSITION_BADGE_CLASS_ above. The five canonical values are defined
+   * identically in prompts/daily-investment-report.md and
+   * prompts/weekly-portfolio-report.md's "入场计划" sections; an unrecognized
+   * or legacy value (including blank) falls back to '' -- the plain neutral
+   * badge look, never an uncolored crash or a miscolored guess.
+   */
+  var ENTRY_PLAN_BADGE_CLASS_ = {
+    '可小额开始': 'ios-severity-low',
+    '接近区间': 'ios-severity-medium',
+    '等待价格': '',
+    '等待确认': 'ios-badge-price-position',
+    '暂停复核': 'ios-severity-high'
+  };
+
   function iosStatusBadgeClass(value) {
     return Object.prototype.hasOwnProperty.call(IOS_STATUS_BADGE_CLASS_, value) ? IOS_STATUS_BADGE_CLASS_[value] : '';
   }
 
   function pricePositionBadgeClass(value) {
     return Object.prototype.hasOwnProperty.call(PRICE_POSITION_BADGE_CLASS_, value) ? PRICE_POSITION_BADGE_CLASS_[value] : '';
+  }
+
+  function entryPlanBadgeClass(value) {
+    return Object.prototype.hasOwnProperty.call(ENTRY_PLAN_BADGE_CLASS_, value) ? ENTRY_PLAN_BADGE_CLASS_[value] : '';
   }
 
   /** Joins a base badge class with an optional semantic tier class ('' means no tier -- the plain badge is already the safe neutral look). */
@@ -370,14 +391,51 @@
       '价格: ' + (isBlank(asset['当前价格']) ? '未知' : String(asset['当前价格'])));
   }
 
+  /**
+   * Entry Plan (Issue #298, schema_version 4) is a second, independent
+   * presentation track on top of the legacy 参考买入价/区间 + 价格位置 badge
+   * -- the two are never shown together as competing recommendations for
+   * the same row (see docs/v2.1-architecture.md's Entry Plan section).
+   *
+   * The branch is selected by whether **入场计划ID** is populated, not by
+   * whether 执行状态 is populated: an active plan can exist while 执行状态
+   * is blank because the source data needed to evaluate it wasn't
+   * available that run -- a different state from "no plan exists" that
+   * needs its own explicit neutral "status unavailable" badge, never a
+   * silent fall-through to the legacy 价格位置 badge (that fall-through
+   * was PR #299 review finding #2 -- rendering a stale/unrelated legacy
+   * signal in place of a genuinely-just-unevaluated plan state is exactly
+   * the two-competing-badges problem this feature exists to prevent).
+   *
+   * When a plan is active, 入场计划估值锚点 (a report-time snapshot of the
+   * plan's own 长期估值锚点, never a live join back into 入场计划) is the
+   * primary text, replacing 参考买入价/区间 -- the plan's anchor is what's
+   * now authoritative for this row, not the pre-plan legacy reference.
+   * A row with no active plan (入场计划ID blank) renders exactly as it did
+   * before this feature existed.
+   */
   function buildReferenceLine(asset) {
-    var children = [
+    if (!isBlank(asset['入场计划ID'])) {
+      var children = [
+        document.createTextNode('锚点: ' + (isBlank(asset['入场计划估值锚点']) ? '未知' : asset['入场计划估值锚点']))
+      ];
+      if (!isBlank(asset['执行状态'])) {
+        children.push(text('span', badgeClass('ios-badge ios-badge-entry-plan', entryPlanBadgeClass(asset['执行状态'])), asset['执行状态']));
+      } else {
+        children.push(text('span', badgeClass('ios-badge ios-badge-entry-plan', 'ios-badge-unavailable'), '状态不可用'));
+      }
+      if (!isBlank(asset['当前区间'])) {
+        children.push(text('span', 'ios-asset-line ios-muted ios-entry-plan-zone', asset['当前区间']));
+      }
+      return el('p', { className: 'ios-asset-line ios-price-info' }, children);
+    }
+    var legacyChildren = [
       document.createTextNode('参考: ' + (isBlank(asset['参考买入价/区间']) ? '未设定' : asset['参考买入价/区间']))
     ];
     if (asset['价格位置']) {
-      children.push(text('span', badgeClass('ios-badge ios-badge-price-position', pricePositionBadgeClass(asset['价格位置'])), asset['价格位置']));
+      legacyChildren.push(text('span', badgeClass('ios-badge ios-badge-price-position', pricePositionBadgeClass(asset['价格位置'])), asset['价格位置']));
     }
-    return el('p', { className: 'ios-asset-line ios-price-info' }, children);
+    return el('p', { className: 'ios-asset-line ios-price-info' }, legacyChildren);
   }
 
   /**

@@ -116,7 +116,12 @@ function buildBootstrapWithHolding(overrides) {
     '当前价格': '',
     '价格位置': '',
     '优先级': '',
-    '排序': 1
+    '排序': 1,
+    '入场计划ID': '',
+    '执行状态': '',
+    '当前区间': '',
+    '需要复核': '',
+    '入场计划估值锚点': ''
   }, overrides);
   return {
     error: null,
@@ -157,6 +162,24 @@ function iosStatusBadge(document) {
 function pricePositionBadge(document) {
   const card = document.getElementById('ios-tab-content').children[0].children[1].children[0];
   return card.children[3].children[1];
+}
+
+/** Locates the rendered holding card's 执行状态 (Entry Plan) badge -- same slot as pricePositionBadge, since the two are mutually exclusive (Issue #298). */
+function entryPlanBadge(document) {
+  const card = document.getElementById('ios-tab-content').children[0].children[1].children[0];
+  return card.children[3].children[1];
+}
+
+/** Locates the rendered holding card's 当前区间 label (3rd child of the 参考 line), or undefined if absent. */
+function entryPlanZone(document) {
+  const card = document.getElementById('ios-tab-content').children[0].children[1].children[0];
+  return card.children[3].children[2];
+}
+
+/** The 参考 line's own child count -- used to assert no extra/duplicate badge is rendered alongside the one expected. */
+function referenceLineChildCount(document) {
+  const card = document.getElementById('ios-tab-content').children[0].children[1].children[0];
+  return card.children[3].children.length;
 }
 
 test('initial render shows the Daily summary grid + headline and marks the Daily nav button + 组合 tab active', () => {
@@ -453,12 +476,16 @@ test('the "no report yet" empty state points to the onboarding prompt as a next 
 test('reference-price/price-position mapping renders explicit missing-value text, never a blank or shifted column, on the 组合 tab', () => {
   const { document } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
   const portfolioText = tabText(document);
-  // DEMO1 has both a reference range and a price position.
-  assert.match(portfolioText, /38-40/);
-  assert.match(portfolioText, /高于区间/);
-  // DEMO2's reference range is blank in the report-time snapshot -- must
-  // render as the explicit marker, never as an empty string or omitted
-  // entirely (which would look like a column-shift artifact).
+  // DEMO1 has an active 入场计划 (since Issue #298), so its primary display
+  // is the plan's snapshotted anchor + 执行状态, not its legacy 参考买入价/
+  // 区间 (still present in the underlying data, but no longer the row's
+  // primary rendered text -- see the dedicated Entry Plan tests below).
+  assert.match(portfolioText, /锚点: \$40/);
+  assert.match(portfolioText, /等待价格/);
+  // DEMO2's reference range is blank in the report-time snapshot, and it has
+  // no 入场计划 -- must still render the explicit missing-value marker and
+  // legacy 价格位置, never an empty string or omitted entirely (which would
+  // look like a column-shift artifact).
   assert.match(portfolioText, /未设定/);
   assert.match(portfolioText, /价格位置[\s\S]*未知|未知/);
 });
@@ -467,7 +494,10 @@ test('holding cards render the v1.1 content order -- 价格/参考(+价格位置
   const { document } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
   const portfolioText = tabText(document);
   assert.match(portfolioText, /价格: 41\.2/);
-  assert.match(portfolioText, /参考: 38-40/);
+  // DEMO1 has an active plan, so its second line is the plan anchor, not
+  // the legacy 参考 line -- see the dedicated Entry Plan tests below for
+  // that a plan-free row (e.g. DEMO2) still renders 参考(+价格位置).
+  assert.match(portfolioText, /锚点: \$40 附近/);
   assert.match(portfolioText, /变化: 无重大变化/);
   assert.match(portfolioText, /逻辑: 长期逻辑未变/, '长期逻辑或估值 must render under the 逻辑 label, replacing the old Thesis line');
   assert.match(portfolioText, /验证: 下季度财报/);
@@ -563,6 +593,99 @@ test('价格位置: an unrecognized value keeps its raw text and falls back to t
   const badge = pricePositionBadge(document);
   assert.equal(badge.textContent, '从没见过的位置描述');
   assert.equal(badge.className, 'ios-badge ios-badge-price-position');
+});
+
+// -- Entry Plan display (Issue #298, schema_version 4; PR #299 review) --
+//
+// The branch is selected by whether 入场计划ID is populated, NOT by
+// whether 执行状态 is populated (PR #299 review finding #2): an active
+// plan can exist with 执行状态 blank because this run's source data was
+// insufficient to evaluate it, which must render an explicit neutral
+// "status unavailable" badge, never a silent fall-through to the legacy
+// 价格位置 badge. A row with no active plan (入场计划ID blank) must render
+// exactly as it did before this feature -- 参考买入价/区间 + 价格位置.
+
+test('入场计划ID present: the five canonical 执行状态 values map to distinct, sensible badge classes', () => {
+  const start = loadDashboard(buildBootstrapWithHolding({ '入场计划ID': 'plan-1', '执行状态': '可小额开始' }), 'daily', {});
+  const near = loadDashboard(buildBootstrapWithHolding({ '入场计划ID': 'plan-1', '执行状态': '接近区间' }), 'daily', {});
+  const waitPrice = loadDashboard(buildBootstrapWithHolding({ '入场计划ID': 'plan-1', '执行状态': '等待价格' }), 'daily', {});
+  const waitConfirm = loadDashboard(buildBootstrapWithHolding({ '入场计划ID': 'plan-1', '执行状态': '等待确认' }), 'daily', {});
+  const pause = loadDashboard(buildBootstrapWithHolding({ '入场计划ID': 'plan-1', '执行状态': '暂停复核' }), 'daily', {});
+
+  assert.ok(entryPlanBadge(start.document).classList.contains('ios-severity-low'));
+  assert.ok(entryPlanBadge(near.document).classList.contains('ios-severity-medium'));
+  assert.equal(entryPlanBadge(waitPrice.document).className, 'ios-badge ios-badge-entry-plan', '等待价格 is neutral -- the plain plan-badge look, no extra tier class');
+  assert.ok(entryPlanBadge(waitConfirm.document).classList.contains('ios-badge-price-position'));
+  assert.ok(entryPlanBadge(pause.document).classList.contains('ios-severity-high'), '暂停复核 is the highest-attention tier -- a signal to stop and re-evaluate');
+
+  assert.equal(entryPlanBadge(start.document).textContent, '可小额开始');
+  assert.equal(entryPlanBadge(pause.document).textContent, '暂停复核');
+});
+
+test('入场计划ID present: an unrecognized or legacy 执行状态 value keeps its raw text and falls back to the plain neutral entry-plan badge', () => {
+  const { document } = loadDashboard(buildBootstrapWithHolding({ '入场计划ID': 'plan-1', '执行状态': '一个从没见过的执行状态' }), 'daily', {});
+  const badge = entryPlanBadge(document);
+  assert.equal(badge.textContent, '一个从没见过的执行状态');
+  assert.equal(badge.className, 'ios-badge ios-badge-entry-plan');
+});
+
+test('入场计划ID present but 执行状态 blank: renders an explicit neutral "status unavailable" badge, never the legacy 价格位置 badge (PR #299 review finding #2)', () => {
+  const { document } = loadDashboard(buildBootstrapWithHolding({ '入场计划ID': 'plan-1', '执行状态': '', '价格位置': '低于区间' }), 'daily', {});
+  const badge = entryPlanBadge(document);
+  assert.equal(badge.textContent, '状态不可用');
+  assert.equal(badge.className, 'ios-badge ios-badge-entry-plan ios-badge-unavailable');
+  assert.equal(referenceLineChildCount(document), 2, '锚点文本 + 不可用徽章 only -- 价格位置 must never appear alongside an active plan');
+});
+
+test('入场计划ID present: 入场计划估值锚点 renders as "锚点: ..." replacing the legacy "参考: ..." text', () => {
+  const { document } = loadDashboard(buildBootstrapWithHolding({ '入场计划ID': 'plan-1', '执行状态': '等待价格', '入场计划估值锚点': '$100 附近' }), 'daily', {});
+  const card = document.getElementById('ios-tab-content').children[0].children[1].children[0];
+  assert.equal(card.children[3].children[0].textContent, '锚点: $100 附近');
+});
+
+test('入场计划ID present but 入场计划估值锚点 blank: anchor text falls back to an explicit "未知", never fabricated or omitted', () => {
+  const { document } = loadDashboard(buildBootstrapWithHolding({ '入场计划ID': 'plan-1', '执行状态': '等待价格', '入场计划估值锚点': '' }), 'daily', {});
+  const card = document.getElementById('ios-tab-content').children[0].children[1].children[0];
+  assert.equal(card.children[3].children[0].textContent, '锚点: 未知');
+});
+
+test('入场计划ID present: 当前区间 renders as an additional label alongside the badge when present', () => {
+  const { document } = loadDashboard(buildBootstrapWithHolding({ '入场计划ID': 'plan-1', '执行状态': '接近区间', '当前区间': '区间1' }), 'daily', {});
+  assert.equal(entryPlanZone(document).textContent, '区间1');
+  assert.equal(referenceLineChildCount(document), 3, '锚点文本 + 执行状态徽章 + 当前区间标签，且没有额外的价格位置徽章');
+});
+
+test('入场计划ID present: blank 当前区间 does not render an empty zone label', () => {
+  const { document } = loadDashboard(buildBootstrapWithHolding({ '入场计划ID': 'plan-1', '执行状态': '等待价格', '当前区间': '' }), 'daily', {});
+  assert.equal(referenceLineChildCount(document), 2, '锚点文本 + 执行状态徽章 only, no empty 当前区间 slot');
+});
+
+test('入场计划ID present supersedes 价格位置 -- the two never render as competing badges on the same row', () => {
+  const { document } = loadDashboard(buildBootstrapWithHolding({ '入场计划ID': 'plan-1', '执行状态': '暂停复核', '当前区间': '低于全部区间', '价格位置': '低于区间' }), 'daily', {});
+  assert.equal(entryPlanBadge(document).textContent, '暂停复核', 'the plan-based badge wins the one badge slot');
+  assert.equal(referenceLineChildCount(document), 3, '只有执行状态徽章 + 当前区间，价格位置徽章被压制，不会同时出现两个徽章');
+});
+
+test('入场计划ID blank (no active plan) falls back to the legacy 参考买入价/区间 + 价格位置 rendering, unchanged from before this feature -- even if 执行状态 is somehow non-blank', () => {
+  const { document } = loadDashboard(buildBootstrapWithHolding({ '入场计划ID': '', '执行状态': '', '当前区间': '', '价格位置': '区间内' }), 'daily', {});
+  assert.ok(pricePositionBadge(document).classList.contains('ios-severity-low'));
+  assert.equal(referenceLineChildCount(document), 2, '参考文本 + 价格位置徽章 only, matching the pre-Issue-#298 shape');
+  const card = document.getElementById('ios-tab-content').children[0].children[1].children[0];
+  assert.match(card.children[3].children[0].textContent, /^参考: /);
+});
+
+test('demo dataset: DEMO1 (has an active 入场计划) renders its snapshotted anchor + 执行状态 badge; DEMO2 (no plan) still falls back to 价格位置', () => {
+  const { document } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
+  const cards = document.getElementById('ios-tab-content').children[0].children[1].children;
+  const demo1Card = cards.find((card) => card.children[0].children[0].textContent === 'DEMO1');
+  const demo2Card = cards.find((card) => card.children[0].children[0].textContent === 'DEMO2');
+  const demo1Badge = demo1Card.children[3].children[1];
+  const demo2Badge = demo2Card.children[3].children[1];
+  assert.equal(demo1Card.children[3].children[0].textContent, '锚点: $40 附近（示例，Deep Dive 更新后的锚点）');
+  assert.equal(demo1Badge.textContent, '等待价格', 'DEMO1 has an active plan-demo1-v2 in the demo fixture');
+  assert.equal(demo1Card.children[3].children[2].textContent, '高于全部区间');
+  assert.match(demo2Card.children[3].children[0].textContent, /^参考: /, 'DEMO2 has no 入场计划 row -- falls back to the legacy 参考 text');
+  assert.equal(demo2Badge.textContent, '未知', 'DEMO2 has no 入场计划 row -- falls back to its legacy 价格位置');
 });
 
 test('semantic badge mapping is the same function regardless of Daily/Weekly/history rendering path', () => {

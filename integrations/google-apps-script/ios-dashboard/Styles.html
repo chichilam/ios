@@ -248,6 +248,23 @@ body {
 .ios-price-info { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .ios-badge-price-position { background: #e0f2fe; color: #0369a1; }
 
+/* Entry Plan display (Issue #298, schema_version 4): the same blue default
+   as .ios-badge-price-position on purpose -- it's the plan-based
+   replacement for that badge, shown instead of it (never alongside it) for
+   a row with an active plan (入场计划ID populated), so an unrecognized/
+   legacy 执行状态 value falls back to the same neutral-but-branded look
+   rather than a jarring plain grey. The same base class also carries the
+   explicit "状态不可用" state (via the shared .ios-badge-unavailable tier)
+   for a row whose plan exists but whose 执行状态 is blank because this
+   run's source data was insufficient to evaluate it -- a different state
+   from "no active plan" that must never silently fall back to the legacy
+   .ios-badge-price-position badge instead. .ios-entry-plan-zone is a small
+   inline muted label for 当前区间, not a badge -- it rides on font-size
+   only so it composes with the flex layout in .ios-price-info without
+   adding a second row height. */
+.ios-badge-entry-plan { background: #e0f2fe; color: #0369a1; }
+.ios-entry-plan-zone { font-size: 0.8rem; }
+
 /* Semantic badge tiers (Issue #257) for IOS状态/价格位置 -- declared after
    .ios-badge-price-position on purpose: same specificity (one class each),
    so this source order is what lets a tier class actually override that
