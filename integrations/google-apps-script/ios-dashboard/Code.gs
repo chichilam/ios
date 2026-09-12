@@ -55,9 +55,32 @@ function selectReportSummary_(summaryRows, reportType, explicitReportId) {
   }
   var candidates = rows.filter(function (row) { return row['报告类型'] === reportType; });
   if (candidates.length === 0) return null;
-  // 报告日期 is YYYY-MM-DD -- lexicographic order is chronological order.
-  candidates.sort(function (a, b) { return String(b['报告日期']).localeCompare(String(a['报告日期'])); });
+  candidates.sort(function (a, b) {
+    return reportDateKey_(b).localeCompare(reportDateKey_(a));
+  });
   return candidates[0];
+}
+
+/**
+ * Canonical calendar key for report ordering and history labels.
+ *
+ * Apps Script reads a Google Sheets date cell as a native Date. String(Date)
+ * starts with a weekday name, so lexical sorting it can place a Sunday report
+ * ahead of a later Saturday report; JSON serialization also leaks a UTC
+ * timestamp into the client. A valid report ID is the stable report contract,
+ * so use its YYYY-MM-DD suffix first. The raw cell is only a legacy fallback.
+ */
+function reportDateKey_(row) {
+  var reportId = String(row && row['报告ID'] != null ? row['报告ID'] : '');
+  var idDate = /^(?:daily|weekly)-(\d{4}-\d{2}-\d{2})$/.exec(reportId);
+  if (idDate) return idDate[1];
+
+  var rawDate = row && row['报告日期'];
+  if (typeof rawDate === 'string') return rawDate;
+  if (Object.prototype.toString.call(rawDate) === '[object Date]' && !isNaN(rawDate.getTime())) {
+    return rawDate.toISOString().slice(0, 10);
+  }
+  return rawDate == null ? '' : String(rawDate);
 }
 
 /**
@@ -118,9 +141,15 @@ function buildHistoryList_(summaryRows, reportType) {
   return (summaryRows || [])
     .filter(function (row) { return row['报告类型'] === reportType; })
     .slice()
-    .sort(function (a, b) { return String(b['报告日期']).localeCompare(String(a['报告日期'])); })
+    .sort(function (a, b) {
+      return reportDateKey_(b).localeCompare(reportDateKey_(a));
+    })
     .map(function (row) {
-      return { reportId: row['报告ID'], reportDate: row['报告日期'], headline: row['一句话结论'] };
+      return {
+        reportId: row['报告ID'],
+        reportDate: reportDateKey_(row),
+        headline: row['一句话结论']
+      };
     });
 }
 

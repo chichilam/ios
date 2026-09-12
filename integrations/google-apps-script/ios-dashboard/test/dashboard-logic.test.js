@@ -49,6 +49,37 @@ test('selectReportSummary_ honors an explicit 报告ID for history browsing', ()
   assert.equal(summary['生成ID'], 'gen-daily-0815-b');
 });
 
+
+test('report-date selection and history use the canonical date in 报告ID when Sheets returns native Date values', () => {
+  // JST date cells arrive in Apps Script as native Date objects and then
+  // serialize as the preceding UTC date/time. Sorting String(Date) would
+  // compare weekday names and put the 9/7 report before 9/12.
+  const summaries = [
+    {
+      报告ID: 'weekly-2026-09-07', 报告类型: 'weekly',
+      报告日期: new Date('2026-09-06T15:00:00.000Z'),
+      一句话结论: '旧周报'
+    },
+    {
+      报告ID: 'weekly-2026-09-12', 报告类型: 'weekly',
+      报告日期: new Date('2026-09-11T15:00:00.000Z'),
+      一句话结论: '最新周报'
+    }
+  ];
+
+  assert.equal(
+    logic.selectReportSummary_(summaries, 'weekly', null)['报告ID'],
+    'weekly-2026-09-12'
+  );
+  assert.deepEqual(
+    logic.buildHistoryList_(summaries, 'weekly').map((entry) => [entry.reportId, entry.reportDate]),
+    [
+      ['weekly-2026-09-12', '2026-09-12'],
+      ['weekly-2026-09-07', '2026-09-07']
+    ]
+  );
+});
+
 test('filterLiveDetailRows_ excludes an orphaned generation and keeps only the current one (report_write_protocol read contract)', () => {
   const live = logic.filterLiveDetailRows_(demoSheet['报告持仓'], 'daily-2026-08-15', 'gen-daily-0815-b');
   assert.equal(live.length, 3, 'exactly the 3 rows tagged with the current generation');
