@@ -265,6 +265,24 @@ body {
 .ios-badge-entry-plan { background: #e0f2fe; color: #0369a1; }
 .ios-entry-plan-zone { font-size: 0.8rem; }
 
+/* Entry Plan execution-explanation lines (Issue #303 Phase 1, schema_version
+   5) -- layered under the Entry Plan reference line above, never a
+   replacement. .ios-entry-plan-freshness is a plain muted line (计划版本/
+   数据时间/行情截至时间), same look as .ios-muted elsewhere. A normal
+   explanation line (当前阻碍/下次检查/停止条件说明/较上次变化说明) is plain
+   text; .ios-entry-plan-incomplete marks the specific case where the field's
+   value is a "计划未完善：..." message (the active plan itself doesn't say
+   enough to answer it) with a distinct dashed/muted treatment borrowed from
+   .ios-badge-unavailable's own look, so a viewer never mistakes "the plan
+   needs more detail" for an ordinary explanatory line. */
+.ios-entry-plan-freshness { font-size: 0.8rem; }
+.ios-entry-plan-incomplete {
+  color: var(--ios-muted);
+  font-style: italic;
+  border-left: 2px dashed var(--ios-border);
+  padding-left: 6px;
+}
+
 /* Semantic badge tiers (Issue #257) for IOS状态/价格位置 -- declared after
    .ios-badge-price-position on purpose: same specificity (one class each),
    so this source order is what lets a tier class actually override that

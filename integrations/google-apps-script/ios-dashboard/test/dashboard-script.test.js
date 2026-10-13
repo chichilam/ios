@@ -121,7 +121,14 @@ function buildBootstrapWithHolding(overrides) {
     '执行状态': '',
     '当前区间': '',
     '需要复核': '',
-    '入场计划估值锚点': ''
+    '入场计划估值锚点': '',
+    '入场计划版本': '',
+    '入场计划数据时间': '',
+    '行情截至时间': '',
+    '当前阻碍': '',
+    '下次检查': '',
+    '停止条件说明': '',
+    '较上次变化说明': ''
   }, overrides);
   return {
     error: null,
@@ -686,6 +693,163 @@ test('demo dataset: DEMO1 (has an active 入场计划) renders its snapshotted a
   assert.equal(demo1Card.children[3].children[2].textContent, '高于全部区间');
   assert.match(demo2Card.children[3].children[0].textContent, /^参考: /, 'DEMO2 has no 入场计划 row -- falls back to the legacy 参考 text');
   assert.equal(demo2Badge.textContent, '未知', 'DEMO2 has no 入场计划 row -- falls back to its legacy 价格位置');
+});
+
+// -- Entry Plan execution-explanation lines (Issue #303 Phase 1, schema_version 5) --
+//
+// Layered strictly after the schema_version 4 reference line (card.children[3])
+// above -- these render at card.children[4] onward, in the fixed order:
+// freshness line (入场计划版本/入场计划数据时间/行情截至时间, combined), then
+// 当前阻碍, 下次检查, 停止条件说明, 较上次变化说明, each shown only when
+// present. A Sheet without these columns (all seven blank, the default in
+// buildBootstrapWithHolding) must render identically to the pre-Phase-1 card
+// shape -- card.children.length stays 4, no extra lines at all.
+
+/** Returns the holding card's children beyond the reference line (index 4+), i.e. the Phase 1 explanation lines actually rendered. */
+function entryPlanExplanationLines(document) {
+  const card = document.getElementById('ios-tab-content').children[0].children[1].children[0];
+  return card.children.slice(4);
+}
+
+test('schema_version 5 columns all blank: renders exactly the same card shape as before Issue #303 Phase 1 existed -- no extra lines', () => {
+  const { document } = loadDashboard(buildBootstrapWithHolding({ '入场计划ID': 'plan-1', '执行状态': '等待价格' }), 'daily', {});
+  assert.equal(entryPlanExplanationLines(document).length, 0);
+});
+
+test('入场计划版本/入场计划数据时间/行情截至时间 render together as one muted freshness line, in that order', () => {
+  const { document } = loadDashboard(buildBootstrapWithHolding({
+    '入场计划ID': 'plan-1', '执行状态': '等待价格',
+    '入场计划版本': 2, '入场计划数据时间': '2026-08-10', '行情截至时间': '2026-10-13 收盘'
+  }), 'daily', {});
+  const lines = entryPlanExplanationLines(document);
+  assert.equal(lines.length, 1);
+  assert.ok(lines[0].classList.contains('ios-entry-plan-freshness'));
+  assert.equal(lines[0].textContent, '计划 v2 · 计划更新: 2026-08-10 · 行情截至: 2026-10-13 收盘');
+});
+
+test('freshness line omits whichever of the three parts is blank, rather than rendering an empty segment', () => {
+  const { document } = loadDashboard(buildBootstrapWithHolding({
+    '入场计划ID': 'plan-1', '执行状态': '等待价格',
+    '入场计划版本': 2, '入场计划数据时间': '', '行情截至时间': ''
+  }), 'daily', {});
+  const lines = entryPlanExplanationLines(document);
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].textContent, '计划 v2');
+});
+
+test('当前阻碍/下次检查/停止条件说明/较上次变化说明 each render as their own labeled line, in that fixed order', () => {
+  const { document } = loadDashboard(buildBootstrapWithHolding({
+    '入场计划ID': 'plan-1', '执行状态': '等待确认',
+    '当前阻碍': '技术确认条件尚未满足', '下次检查': '等待下一次正式收盘确认',
+    '停止条件说明': '不追高条件：单周涨幅超过 15%', '较上次变化说明': '继续等待，无变化'
+  }), 'daily', {});
+  const lines = entryPlanExplanationLines(document);
+  assert.deepEqual(lines.map((line) => line.textContent), [
+    '阻碍: 技术确认条件尚未满足',
+    '下次检查: 等待下一次正式收盘确认',
+    '停止条件: 不追高条件：单周涨幅超过 15%',
+    '较上次变化: 继续等待，无变化'
+  ]);
+  lines.forEach((line) => assert.ok(!line.classList.contains('ios-entry-plan-incomplete'), '普通说明文字不应带有"计划未完善"样式'));
+});
+
+test('a "计划未完善：..." value gets the distinct incomplete-plan style, never the same look as a normal explanation line', () => {
+  const { document } = loadDashboard(buildBootstrapWithHolding({
+    '入场计划ID': 'plan-1', '执行状态': '等待确认',
+    '当前阻碍': '计划未完善：未设置技术确认条件，暂无法说明阻碍'
+  }), 'daily', {});
+  const lines = entryPlanExplanationLines(document);
+  assert.equal(lines.length, 1);
+  assert.ok(lines[0].classList.contains('ios-entry-plan-incomplete'));
+  assert.equal(lines[0].textContent, '阻碍: 计划未完善：未设置技术确认条件，暂无法说明阻碍');
+});
+
+test('round 2 review correction: no active plan still renders 当前阻碍/下次检查 as a required safety explanation (Issue #303 scenario 1), never silently blank, alongside the unchanged legacy reference display', () => {
+  const { document } = loadDashboard(buildBootstrapWithHolding({
+    '入场计划ID': '', '执行状态': '', '价格位置': '区间内',
+    '当前阻碍': '无可靠 active 入场计划，研究或估值尚未完成',
+    '下次检查': '建议先完成研究/估值，由 Deep Dive 制定入场计划；在此之前，参考价/区间不构成下单授权'
+  }), 'daily', {});
+  const lines = entryPlanExplanationLines(document);
+  assert.equal(lines.length, 2, '当前阻碍/下次检查 render even though 入场计划ID is blank');
+  assert.equal(lines[0].textContent, '阻碍: 无可靠 active 入场计划，研究或估值尚未完成');
+  assert.ok(lines[0].classList.contains('ios-entry-plan-incomplete'), '"无可靠" 前缀也应触发醒目样式');
+  assert.equal(lines[1].textContent, '下次检查: 建议先完成研究/估值，由 Deep Dive 制定入场计划；在此之前，参考价/区间不构成下单授权');
+  assert.equal(referenceLineChildCount(document), 2, '仍然只渲染参考文本 + 价格位置徽章——两种显示并存，不是互斥');
+});
+
+test('round 2 review correction: no active plan leaves 入场计划版本/行情截至时间/停止条件说明/较上次变化说明 blank even when 当前阻碍/下次检查 are populated -- not all seven fields share one shape', () => {
+  const { document } = loadDashboard(buildBootstrapWithHolding({
+    '入场计划ID': '', '执行状态': '',
+    '当前阻碍': '无可靠 active 入场计划，研究或估值尚未完成',
+    '下次检查': '建议先完成研究/估值'
+  }), 'daily', {});
+  const lines = entryPlanExplanationLines(document);
+  assert.equal(lines.length, 2, '只有 当前阻碍/下次检查 两行，没有新鲜度行或停止条件/较上次变化行');
+});
+
+test('round 2 review correction: "无法确认：..." (evaluation data missing) gets the same distinct incomplete-plan style as "计划未完善：..."', () => {
+  const { document } = loadDashboard(buildBootstrapWithHolding({
+    '入场计划ID': 'plan-1', '执行状态': '',
+    '当前阻碍': '无法确认：当前价格缺失',
+    '下次检查': '无法确认：等待下次价格数据可用后重新评估',
+    '停止条件说明': '示例：不追高条件触发暂停加仓',
+    '较上次变化说明': '无法确认：本次评估数据缺失，暂无法确定执行状态较上次的变化'
+  }), 'daily', {});
+  const lines = entryPlanExplanationLines(document);
+  assert.equal(lines.length, 4);
+  assert.ok(lines[0].classList.contains('ios-entry-plan-incomplete'), '阻碍: 无法确认 应触发醒目样式');
+  assert.ok(lines[1].classList.contains('ios-entry-plan-incomplete'), '下次检查: 无法确认 应触发醒目样式');
+  assert.ok(!lines[2].classList.contains('ios-entry-plan-incomplete'), '停止条件说明 来自计划自身条件，评估数据缺失不影响它');
+  assert.ok(lines[3].classList.contains('ios-entry-plan-incomplete'), '较上次变化: 无法确认 应触发醒目样式');
+});
+
+test('round 2 review correction: 执行状态=可小额开始 lets 当前阻碍 stay blank while 下次检查 still carries content (下次检查 has no blank case of its own)', () => {
+  const { document } = loadDashboard(buildBootstrapWithHolding({
+    '入场计划ID': 'plan-1', '执行状态': '可小额开始',
+    '当前阻碍': '', '下次检查': '按计划区间执行后，等待下一次财报验证自由现金流'
+  }), 'daily', {});
+  const lines = entryPlanExplanationLines(document);
+  assert.equal(lines.length, 1);
+  assert.match(lines[0].textContent, /^下次检查: /);
+});
+
+test('round 2 review correction: 行情截至时间 blank without a distinct as-of label is not an incomplete-plan case -- no warning style, no fabricated time', () => {
+  const { document } = loadDashboard(buildBootstrapWithHolding({
+    '入场计划ID': 'plan-1', '执行状态': '等待价格', '入场计划版本': 2, '行情截至时间': ''
+  }), 'daily', {});
+  const lines = entryPlanExplanationLines(document);
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].textContent, '计划 v2');
+  assert.ok(!lines[0].classList.contains('ios-entry-plan-incomplete'));
+});
+
+test('round 2 review correction: 停止条件说明/较上次变化说明 stay populated when 执行状态 is blank but the plan was reliably selected (price missing), not blanked alongside 执行状态', () => {
+  const { document } = loadDashboard(buildBootstrapWithHolding({
+    '入场计划ID': 'plan-1', '执行状态': '', '当前区间': '',
+    '入场计划版本': 2, '入场计划数据时间': '2026-08-10',
+    '当前阻碍': '无法确认：当前价格缺失', '下次检查': '无法确认：等待下次价格数据可用后重新评估',
+    '停止条件说明': '示例：不追高条件触发暂停加仓',
+    '较上次变化说明': '无法确认：本次评估数据缺失，暂无法确定执行状态较上次的变化'
+  }), 'daily', {});
+  const lines = entryPlanExplanationLines(document);
+  assert.equal(lines.length, 5, '1 条新鲜度行 + 当前阻碍/下次检查/停止条件/较上次变化 四行，没有因为执行状态留空而跟着清空');
+});
+
+test('demo dataset: DEMO1 renders its Issue #303 Phase 1 freshness line and all four explanation lines', () => {
+  const { document } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
+  const cards = document.getElementById('ios-tab-content').children[0].children[1].children;
+  const demo1Card = cards.find((card) => card.children[0].children[0].textContent === 'DEMO1');
+  // slice(4, 9), not slice(4) -- DEMO1's demo row also has 关键变化/长期逻辑或估值/
+  // 下一验证点 populated, which render as three further narrative lines right
+  // after these five Phase 1 lines; this test only asserts the Phase 1 slice.
+  const lines = demo1Card.children.slice(4, 9);
+  assert.equal(lines.length, 5, '1 条新鲜度行 + 4 条说明行');
+  assert.equal(lines[0].textContent, '计划 v2 · 计划更新: 2026-08-10 · 行情截至: 2026-08-15 收盘');
+  assert.match(lines[1].textContent, /^阻碍: /);
+  assert.match(lines[2].textContent, /^下次检查: /);
+  assert.match(lines[3].textContent, /^停止条件: /);
+  assert.equal(lines[4].textContent, '较上次变化: 示例：首次评估，无可比历史');
 });
 
 test('semantic badge mapping is the same function regardless of Daily/Weekly/history rendering path', () => {

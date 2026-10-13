@@ -439,6 +439,63 @@
   }
 
   /**
+   * Issue #303 Phase 1 round 2 review correction: a diagnostic/needs-
+   * attention message now comes in three kinds, not one -- "计划未完善："
+   * (the active plan itself doesn't specify a needed condition), "无法确认："
+   * (this run's price/evaluation data was unavailable), and the fixed
+   * no-active-plan/tied-version-anomaly wording ("无可靠" prefix). All three
+   * get the same distinct neutral-warning treatment; a reader never needs
+   * to tell them apart visually, only by reading the text.
+   */
+  function isIncompletePlanNote_(value) {
+    if (typeof value !== 'string') { return false; }
+    return value.indexOf('计划未完善') === 0 || value.indexOf('无法确认') === 0 || value.indexOf('无可靠') === 0;
+  }
+
+  function entryPlanExplanationLine_(label, value) {
+    if (isBlank(value)) { return null; }
+    var cls = 'ios-asset-line ios-entry-plan-note' + (isIncompletePlanNote_(value) ? ' ios-entry-plan-incomplete' : '');
+    return text('p', cls, label + ': ' + value);
+  }
+
+  /**
+   * Issue #303 Phase 1 (schema_version 5) -- seven further report-snapshot
+   * columns layered on top of the schema_version 4 入场计划 evaluation
+   * above (buildReferenceLine), never replacing it. Each of the seven
+   * fields renders its own line purely based on whether the writer left
+   * that specific field non-blank -- the Dashboard does not re-derive or
+   * gate on 入场计划ID itself, because the writer-side contract already
+   * encodes exactly when each field should carry content (see
+   * setup/schema/sheet-schema.json's own field notes). In particular (round
+   * 2 review correction): 当前阻碍/下次检查 are written even when there is
+   * no active plan at all (a fixed explanation that research/valuation is
+   * incomplete and the legacy reference price is not order authorization --
+   * Issue #303 acceptance scenario 1), so this function must NOT early-
+   * return an empty array just because 入场计划ID is blank; it renders
+   * whatever the writer actually populated, nothing more and nothing less.
+   */
+  function buildEntryPlanExplanationLines(asset) {
+    var lines = [];
+    var freshnessParts = [];
+    if (!isBlank(asset['入场计划版本'])) { freshnessParts.push('计划 v' + asset['入场计划版本']); }
+    if (!isBlank(asset['入场计划数据时间'])) { freshnessParts.push('计划更新: ' + asset['入场计划数据时间']); }
+    if (!isBlank(asset['行情截至时间'])) { freshnessParts.push('行情截至: ' + asset['行情截至时间']); }
+    if (freshnessParts.length > 0) {
+      lines.push(text('p', 'ios-asset-line ios-muted ios-entry-plan-freshness', freshnessParts.join(' · ')));
+    }
+    [
+      ['阻碍', asset['当前阻碍']],
+      ['下次检查', asset['下次检查']],
+      ['停止条件', asset['停止条件说明']],
+      ['较上次变化', asset['较上次变化说明']]
+    ].forEach(function (pair) {
+      var line = entryPlanExplanationLine_(pair[0], pair[1]);
+      if (line) { lines.push(line); }
+    });
+    return lines;
+  }
+
+  /**
    * v1.1 compact card content order: 价格 / 参考(+价格位置) / 变化 / 逻辑 /
    * 验证 (PR #252 review point 4). 价格/参考 are always shown explicitly
    * (missing-value text, never omitted -- these are the fields the
@@ -462,6 +519,7 @@
       buildPriceLine(asset),
       buildReferenceLine(asset)
     ];
+    buildEntryPlanExplanationLines(asset).forEach(function (line) { lines.push(line); });
     if (asset['关键变化']) {
       lines.push(text('p', 'ios-asset-line', '变化: ' + asset['关键变化']));
     }
