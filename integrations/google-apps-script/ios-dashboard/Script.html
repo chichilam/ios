@@ -381,6 +381,24 @@
     return Object.prototype.hasOwnProperty.call(ENTRY_PLAN_BADGE_CLASS_, value) ? ENTRY_PLAN_BADGE_CLASS_[value] : '';
   }
 
+  /**
+   * 报告持仓.准备状态 semantic tiers (Issue #303 Phase 2, schema_version 6) --
+   * exact match only, same convention as ENTRY_PLAN_BADGE_CLASS_ above. An
+   * unrecognized or legacy value (including blank) falls back to '' -- the
+   * plain neutral badge look.
+   */
+  var ORDER_PREP_BADGE_CLASS_ = {
+    '可准备订单': 'ios-severity-low',
+    '计划未完善停在核对': 'ios-badge-unavailable',
+    '已有有效订单不重复建议': 'ios-badge-muted',
+    '无需准备': 'ios-badge-muted',
+    '无法确认': 'ios-badge-unavailable'
+  };
+
+  function orderPrepBadgeClass(value) {
+    return Object.prototype.hasOwnProperty.call(ORDER_PREP_BADGE_CLASS_, value) ? ORDER_PREP_BADGE_CLASS_[value] : '';
+  }
+
   /** Joins a base badge class with an optional semantic tier class ('' means no tier -- the plain badge is already the safe neutral look). */
   function badgeClass(base, tier) {
     return tier ? base + ' ' + tier : base;
@@ -496,6 +514,39 @@
   }
 
   /**
+   * Issue #303 Phase 2 (schema_version 6) -- six further report-snapshot
+   * columns layered under the Phase 1 explanation lines above
+   * (buildEntryPlanExplanationLines), never replacing them. 准备状态 renders
+   * as a badge (same convention as 执行状态 in buildReferenceLine); the
+   * other five render as plain lines via the same entryPlanExplanationLine_
+   * helper used for Phase 1, each gated purely on whether the writer left
+   * that specific field non-blank. The Dashboard never re-derives readiness,
+   * a limit price, or an order size itself -- it only displays the writer's
+   * already-computed mechanical snapshot (see docs/v2.1-architecture.md's
+   * order-preparation section and the narrowed Daily boundary it documents).
+   */
+  function buildOrderPrepLines(asset) {
+    var lines = [];
+    if (!isBlank(asset['准备状态'])) {
+      lines.push(el('p', { className: 'ios-asset-line ios-order-prep' }, [
+        document.createTextNode('订单准备: '),
+        text('span', badgeClass('ios-badge ios-badge-order-prep', orderPrepBadgeClass(asset['准备状态'])), asset['准备状态'])
+      ]));
+    }
+    [
+      ['建议限价', asset['建议限价']],
+      ['建议规模', asset['建议订单规模说明']],
+      ['计划订单有效期', asset['计划订单有效期']],
+      ['最近订单状态', asset['最近订单状态']],
+      ['跳空处理提示', asset['跳空处理提示']]
+    ].forEach(function (pair) {
+      var line = entryPlanExplanationLine_(pair[0], pair[1]);
+      if (line) { lines.push(line); }
+    });
+    return lines;
+  }
+
+  /**
    * v1.1 compact card content order: 价格 / 参考(+价格位置) / 变化 / 逻辑 /
    * 验证 (PR #252 review point 4). 价格/参考 are always shown explicitly
    * (missing-value text, never omitted -- these are the fields the
@@ -520,6 +571,7 @@
       buildReferenceLine(asset)
     ];
     buildEntryPlanExplanationLines(asset).forEach(function (line) { lines.push(line); });
+    buildOrderPrepLines(asset).forEach(function (line) { lines.push(line); });
     if (asset['关键变化']) {
       lines.push(text('p', 'ios-asset-line', '变化: ' + asset['关键变化']));
     }

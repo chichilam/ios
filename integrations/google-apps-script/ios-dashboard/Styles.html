@@ -283,6 +283,18 @@ body {
   padding-left: 6px;
 }
 
+/* Order preparation (Issue #303 Phase 2, schema_version 6) -- layered under
+   the Phase 1 explanation lines above, never a replacement. .ios-badge-
+   order-prep is the same "neutral branded default, tier overrides on top"
+   convention as .ios-badge-entry-plan: an unrecognized/legacy 准备状态
+   value falls back to this plain branded look instead of an uncolored
+   badge. The five remaining fields (建议限价/建议订单规模说明/计划订单
+   有效期/最近订单状态/跳空处理提示) reuse .ios-asset-line/.ios-entry-plan-
+   note as plain text -- they are a mechanical snapshot of an already-
+   confirmed plan, not a new decision, so they get no distinct visual
+   weight of their own. */
+.ios-badge-order-prep { background: #ede9fe; color: #6d28d9; }
+
 /* Semantic badge tiers (Issue #257) for IOS状态/价格位置 -- declared after
    .ios-badge-price-position on purpose: same specificity (one class each),
    so this source order is what lets a tier class actually override that

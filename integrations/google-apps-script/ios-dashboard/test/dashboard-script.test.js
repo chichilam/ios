@@ -128,7 +128,13 @@ function buildBootstrapWithHolding(overrides) {
     '当前阻碍': '',
     '下次检查': '',
     '停止条件说明': '',
-    '较上次变化说明': ''
+    '较上次变化说明': '',
+    '准备状态': '',
+    '建议限价': '',
+    '建议订单规模说明': '',
+    '计划订单有效期': '',
+    '跳空处理提示': '',
+    '最近订单状态': ''
   }, overrides);
   return {
     error: null,
@@ -850,6 +856,108 @@ test('demo dataset: DEMO1 renders its Issue #303 Phase 1 freshness line and all 
   assert.match(lines[2].textContent, /^下次检查: /);
   assert.match(lines[3].textContent, /^停止条件: /);
   assert.equal(lines[4].textContent, '较上次变化: 示例：首次评估，无可比历史');
+});
+
+// -- Order preparation lines (Issue #303 Phase 2, schema_version 6) --
+//
+// Layered strictly after the schema_version 5 explanation lines above
+// (entryPlanExplanationLines) -- these render immediately following
+// whatever Phase 1 lines were produced. A Sheet without these six columns
+// (all blank, the default in buildBootstrapWithHolding) must render
+// identically to the pre-Phase-2 card shape -- no extra lines at all.
+
+/**
+ * Returns the holding card's children beyond the reference line, i.e. the
+ * Phase 2 order-prep lines actually rendered. Every fixture below
+ * deliberately leaves the Phase 1 explanation fields (当前阻碍/下次检查/
+ * 停止条件说明/较上次变化说明/freshness) blank, so index 4 is exactly where
+ * Phase 2 lines begin -- this must NOT be computed by subtracting
+ * entryPlanExplanationLines(document).length, because that helper's own
+ * card.children.slice(4) would already include these same Phase 2 lines
+ * whenever Phase 1 contributes nothing, double-counting them away.
+ */
+function orderPrepLines(document) {
+  const card = document.getElementById('ios-tab-content').children[0].children[1].children[0];
+  return card.children.slice(4);
+}
+
+test('schema_version 6 order-prep columns all blank: renders exactly the same card shape as before Issue #303 Phase 2 existed -- no extra lines', () => {
+  const { document } = loadDashboard(buildBootstrapWithHolding({ '入场计划ID': 'plan-1', '执行状态': '可小额开始' }), 'daily', {});
+  assert.equal(orderPrepLines(document).length, 0);
+});
+
+test('准备状态 renders as its own labeled badge line, distinct from the 执行状态 badge in the reference line', () => {
+  const { document } = loadDashboard(buildBootstrapWithHolding({
+    '入场计划ID': 'plan-1', '执行状态': '可小额开始', '准备状态': '可准备订单'
+  }), 'daily', {});
+  const lines = orderPrepLines(document);
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].textContent, '订单准备: 可准备订单');
+  const badge = lines[0].children[1];
+  assert.ok(badge.classList.contains('ios-badge-order-prep'));
+  assert.ok(badge.classList.contains('ios-severity-low'), '可准备订单 应映射到低严重度（正面）徽章样式');
+});
+
+test('计划未完善停在核对 maps to the unavailable/needs-attention badge tier', () => {
+  const { document } = loadDashboard(buildBootstrapWithHolding({
+    '入场计划ID': 'plan-1', '执行状态': '可小额开始', '准备状态': '计划未完善停在核对'
+  }), 'daily', {});
+  const lines = orderPrepLines(document);
+  const badge = lines[0].children[1];
+  assert.ok(badge.classList.contains('ios-badge-unavailable'));
+});
+
+test('已有有效订单不重复建议/无需准备 both map to the muted badge tier', () => {
+  ['已有有效订单不重复建议', '无需准备'].forEach((value) => {
+    const { document } = loadDashboard(buildBootstrapWithHolding({
+      '入场计划ID': 'plan-1', '执行状态': '可小额开始', '准备状态': value
+    }), 'daily', {});
+    const lines = orderPrepLines(document);
+    assert.ok(lines[0].children[1].classList.contains('ios-badge-muted'), value + ' 应映射到静音徽章样式');
+  });
+});
+
+test('建议限价/建议订单规模说明/计划订单有效期/最近订单状态/跳空处理提示 each render as their own labeled line, in that fixed order', () => {
+  const { document } = loadDashboard(buildBootstrapWithHolding({
+    '入场计划ID': 'plan-1', '执行状态': '可小额开始', '准备状态': '可准备订单',
+    '建议限价': '区间1价格 $38', '建议订单规模说明': '区间1占比 40% x 计划新增仓位金额 $1000 = $400',
+    '计划订单有效期': '当日有效', '最近订单状态': '未下单',
+    '跳空处理提示': '跳空处理规则：跳空超过区间1限价时暂停，等待回落或人工复核'
+  }), 'daily', {});
+  const lines = orderPrepLines(document);
+  assert.deepEqual(lines.map((line) => line.textContent), [
+    '订单准备: 可准备订单',
+    '建议限价: 区间1价格 $38',
+    '建议规模: 区间1占比 40% x 计划新增仓位金额 $1000 = $400',
+    '计划订单有效期: 当日有效',
+    '最近订单状态: 未下单',
+    '跳空处理提示: 跳空处理规则：跳空超过区间1限价时暂停，等待回落或人工复核'
+  ]);
+});
+
+test('建议限价/建议订单规模说明 stay blank when 准备状态 is not 可准备订单 -- the Dashboard never fabricates a price/size the writer did not populate', () => {
+  const { document } = loadDashboard(buildBootstrapWithHolding({
+    '入场计划ID': 'plan-1', '执行状态': '可小额开始', '准备状态': '计划未完善停在核对',
+    '计划订单有效期': '当日有效', '最近订单状态': '未知'
+  }), 'daily', {});
+  const lines = orderPrepLines(document);
+  assert.deepEqual(lines.map((line) => line.textContent), [
+    '订单准备: 计划未完善停在核对',
+    '计划订单有效期: 当日有效',
+    '最近订单状态: 未知'
+  ]);
+});
+
+test('准备状态 blank (no active plan) renders no order-prep lines at all, even if other Phase 1 lines are present', () => {
+  const { document } = loadDashboard(buildBootstrapWithHolding({
+    '入场计划ID': '', '执行状态': '',
+    '当前阻碍': '无可靠 active 入场计划，研究或估值尚未完成',
+    '下次检查': '建议先完成研究/估值'
+  }), 'daily', {});
+  const card = document.getElementById('ios-tab-content').children[0].children[1].children[0];
+  assert.equal(card.children.length, 6, '4 条基础行 + 当前阻碍/下次检查 两条 Phase 1 说明行，没有任何订单准备行');
+  assert.equal(card.children[4].textContent, '阻碍: 无可靠 active 入场计划，研究或估值尚未完成');
+  assert.equal(card.children[5].textContent, '下次检查: 建议先完成研究/估值');
 });
 
 test('semantic badge mapping is the same function regardless of Daily/Weekly/history rendering path', () => {
