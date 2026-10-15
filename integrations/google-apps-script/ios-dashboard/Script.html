@@ -547,6 +547,172 @@
   }
 
   /**
+   * 报告持仓.今日行动 (Issue #306, schema_version 7) -- the one canonical
+   * primary conclusion, written by the report layer via a fixed mapping
+   * (see setup/schema/sheet-schema.json). Exact match only; only
+   * 可人工准备限价单 gets the "ready" look. An unrecognized value falls back
+   * to the plain neutral badge, never a ready-to-buy style.
+   */
+  var TODAY_ACTION_BADGE_CLASS_ = {
+    '可人工准备限价单': 'ios-severity-low',
+    '已有订单勿重复': 'ios-badge-muted',
+    '先核对缺项': 'ios-badge-unavailable',
+    '暂停新增待复核': 'ios-severity-high',
+    '等待确认': 'ios-badge-muted',
+    '等待价格': 'ios-badge-muted',
+    '无入场计划': 'ios-badge-muted'
+  };
+
+  function todayActionBadgeClass(value) {
+    return Object.prototype.hasOwnProperty.call(TODAY_ACTION_BADGE_CLASS_, value) ? TODAY_ACTION_BADGE_CLASS_[value] : '';
+  }
+
+  var READY_ORDER_FIELDS_ = ['建议限价', '建议订单规模说明', '计划订单有效期'];
+
+  /**
+   * 可人工准备限价单 needs the validated order fields the writer is
+   * contracted to fill alongside it. Returns the ones that are blank so an
+   * inconsistent row can say exactly what is missing (PR #307 review) --
+   * the Dashboard never fills them in from other fields.
+   */
+  function missingReadyOrderFields_(asset) {
+    return READY_ORDER_FIELDS_.filter(function (name) { return isBlank(asset[name]); });
+  }
+
+  /**
+   * Why a row the writer labelled 可人工准备限价单 must still not be shown as
+   * actionable, or null when it may. A contradictory row -- 执行状态 is not
+   * 可小额开始 (e.g. the plan is 暂停复核) or 准备状态 is not 可准备订单 --
+   * fails closed before the order-field check (PR #307 round-2 review); the
+   * Dashboard never re-derives 今日行动 or infers an order from these fields.
+   */
+  function readyActionProblem_(asset) {
+    if (asset['今日行动'] !== '可人工准备限价单') { return null; }
+    if (asset['执行状态'] !== '可小额开始' || asset['准备状态'] !== '可准备订单') {
+      return {
+        badge: '状态矛盾，先核对',
+        message: '报告标注为 可人工准备限价单，但 执行状态=' + (isBlank(asset['执行状态']) ? '空' : asset['执行状态']) +
+          '、准备状态=' + (isBlank(asset['准备状态']) ? '空' : asset['准备状态']) + ' 与之矛盾，请勿据此下单，等待下一次报告'
+      };
+    }
+    var missing = missingReadyOrderFields_(asset);
+    if (missing.length > 0) {
+      return {
+        badge: '订单信息不完整',
+        message: '报告标注为 可人工准备限价单，但缺少 ' + missing.join('/') + '，请勿据此下单，等待下一次报告'
+      };
+    }
+    return null;
+  }
+
+  /**
+   * The single price-discipline line on an action-first card. Which label
+   * applies is decided only by the writer's own 今日行动 value -- the
+   * Dashboard never derives a price, and 建议限价 is shown as a validated
+   * order limit only when the writer said 可人工准备限价单.
+   */
+  function buildPriceDisciplineLines(asset) {
+    var lines = [];
+    if (asset['今日行动'] === '可人工准备限价单' && !readyActionProblem_(asset)) {
+      lines.push(text('p', 'ios-asset-line ios-action-price', '已校验订单限价: ' + asset['建议限价'] + '（人工复查后手工提交）'));
+      [
+        ['规模', asset['建议订单规模说明']],
+        ['有效期', asset['计划订单有效期']],
+        ['跳空处理', asset['跳空处理提示']]
+      ].forEach(function (pair) {
+        var line = entryPlanExplanationLine_(pair[0], pair[1]);
+        if (line) { lines.push(line); }
+      });
+      return lines;
+    }
+    var cap = asset['计划买入上限'];
+    if (isBlank(cap)) {
+      lines.push(text('p', 'ios-asset-line ios-action-price', '最高买入价: 未确定'));
+    } else if (String(cap).indexOf('需补全') === 0) {
+      lines.push(text('p', 'ios-asset-line ios-action-price ios-entry-plan-incomplete', '计划买入上限: ' + cap));
+    } else {
+      lines.push(text('p', 'ios-asset-line ios-action-price', '计划买入上限: ' + cap + '（条件性，尚不可据此下单）'));
+    }
+    return lines;
+  }
+
+  /**
+   * Issue #306 action-first card, used only for rows carrying 今日行动
+   * (schema_version 7). First screen: 今日行动 + 今日行动说明 + price
+   * discipline + 当前阻碍 + freshness. Everything else -- the quote, the
+   * valuation anchor, 执行状态 (shown neutrally as a secondary plan state),
+   * the Phase 1/2 lines, and the research narrative -- sits in a <details>
+   * block that is collapsed by default.
+   */
+  function buildActionFirstCard(asset, isWatchlist) {
+    var action = asset['今日行动'];
+    var readyProblem = readyActionProblem_(asset);
+    var badge = readyProblem
+      ? text('span', 'ios-badge ios-badge-today-action ios-badge-unavailable', readyProblem.badge)
+      : text('span', badgeClass('ios-badge ios-badge-today-action', todayActionBadgeClass(action)), action);
+    var lines = [
+      el('div', { className: 'ios-asset-head' }, [text('strong', null, asset['代码']), badge]),
+      text('p', 'ios-asset-name', asset['名称'])
+    ];
+    if (readyProblem) {
+      lines.push(text('p', 'ios-asset-line ios-entry-plan-incomplete', readyProblem.message));
+    }
+    if (!isBlank(asset['今日行动说明'])) {
+      lines.push(text('p', 'ios-asset-line ios-action-next', asset['今日行动说明']));
+    }
+    buildPriceDisciplineLines(asset).forEach(function (line) { lines.push(line); });
+    var blocker = entryPlanExplanationLine_('阻碍', asset['当前阻碍']);
+    if (blocker) { lines.push(blocker); }
+    var freshnessParts = [];
+    if (!isBlank(asset['报告日期'])) { freshnessParts.push('报告: ' + asset['报告日期']); }
+    if (!isBlank(asset['入场计划版本'])) { freshnessParts.push('计划 v' + asset['入场计划版本']); }
+    if (!isBlank(asset['入场计划数据时间'])) { freshnessParts.push('计划更新: ' + asset['入场计划数据时间']); }
+    if (!isBlank(asset['行情截至时间'])) { freshnessParts.push('行情截至: ' + asset['行情截至时间']); }
+    if (freshnessParts.length > 0) {
+      lines.push(text('p', 'ios-asset-line ios-muted ios-entry-plan-freshness', freshnessParts.join(' · ')));
+    }
+
+    var detail = [text('summary', 'ios-research-summary', '研究与估值详情')];
+    if (!isBlank(asset['IOS状态'])) {
+      detail.push(text('p', 'ios-asset-line', '研究建议: ' + asset['IOS状态']));
+    }
+    detail.push(text('p', 'ios-asset-line',
+      '行情报价: ' + (isBlank(asset['当前价格']) ? '未知' : String(asset['当前价格'])) +
+      (isBlank(asset['行情截至时间']) ? '' : '（截至 ' + asset['行情截至时间'] + '）') + '，非下单价'));
+    if (!isBlank(asset['入场计划ID'])) {
+      detail.push(text('p', 'ios-asset-line',
+        '长期估值锚点: ' + (isBlank(asset['入场计划估值锚点']) ? '未知' : asset['入场计划估值锚点']) + '（研究判断，非订单限价）'));
+      var planState = isBlank(asset['执行状态']) ? '状态不可用' : asset['执行状态'];
+      var planChildren = [
+        document.createTextNode('计划条件: '),
+        text('span', 'ios-badge ios-badge-muted', planState)
+      ];
+      if (!isBlank(asset['当前区间'])) {
+        planChildren.push(text('span', 'ios-asset-line ios-muted ios-entry-plan-zone', asset['当前区间']));
+      }
+      detail.push(el('p', { className: 'ios-asset-line ios-price-info' }, planChildren));
+    } else if (!isBlank(asset['参考买入价/区间'])) {
+      detail.push(text('p', 'ios-asset-line', '参考: ' + asset['参考买入价/区间'] + '（非订单限价）'));
+    }
+    [
+      ['下次检查', asset['下次检查']],
+      ['停止条件', asset['停止条件说明']],
+      ['较上次变化', asset['较上次变化说明']],
+      ['订单准备', asset['准备状态']],
+      ['最近订单状态', asset['最近订单状态']]
+    ].forEach(function (pair) {
+      var line = entryPlanExplanationLine_(pair[0], pair[1]);
+      if (line) { detail.push(line); }
+    });
+    if (asset['关键变化']) { detail.push(text('p', 'ios-asset-line', '变化: ' + asset['关键变化'])); }
+    if (asset['长期逻辑或估值']) { detail.push(text('p', 'ios-asset-line', '逻辑: ' + asset['长期逻辑或估值'])); }
+    if (asset['下一验证点']) { detail.push(text('p', 'ios-asset-line ios-muted', '验证: ' + asset['下一验证点'])); }
+    lines.push(el('details', { className: 'ios-research-details' }, detail));
+
+    return el('div', { className: isWatchlist ? 'ios-asset-card ios-watchlist-card' : 'ios-asset-card' }, lines);
+  }
+
+  /**
    * v1.1 compact card content order: 价格 / 参考(+价格位置) / 变化 / 逻辑 /
    * 验证 (PR #252 review point 4). 价格/参考 are always shown explicitly
    * (missing-value text, never omitted -- these are the fields the
@@ -555,6 +721,7 @@
    * as before, to keep the card compact.
    */
   function buildAssetCard(asset, isWatchlist) {
+    if (!isBlank(asset['今日行动'])) { return buildActionFirstCard(asset, isWatchlist); }
     var headChildren = [text('strong', null, asset['代码'])];
     // Both holdings and watchlist cards render the report-stored IOS status
     // through this one shared mapping. A watchlist section already supplies
@@ -580,6 +747,14 @@
     }
     if (asset['下一验证点']) {
       lines.push(text('p', 'ios-asset-line ios-muted', '验证: ' + asset['下一验证点']));
+    }
+    // Issue #306 decision 4: a pre-schema-7 row keeps its layout, but says
+    // it is a dated snapshot so its old badges never read as today's action.
+    if (!isBlank(asset['入场计划ID']) && !isBlank(asset['报告日期'])) {
+      lines.push(text('p', 'ios-asset-line ios-muted ios-snapshot-note',
+        '报告 ' + asset['报告日期'] + ' 快照' +
+        (isBlank(asset['行情截至时间']) ? '' : '（行情截至 ' + asset['行情截至时间'] + '）') +
+        '，非今日行动'));
     }
     return el('div', { className: isWatchlist ? 'ios-asset-card ios-watchlist-card' : 'ios-asset-card' }, lines);
   }
