@@ -299,7 +299,19 @@ body {
    card's one primary conclusion; tiers come from TODAY_ACTION_BADGE_CLASS_
    (only 可人工准备限价单 is green). Research detail is a <details> block,
    collapsed by default, so the first screen stays short on a phone. */
-.ios-badge-today-action { background: #f1f5f9; color: var(--ios-text); font-weight: 600; }
+.ios-badge-today-action, .ios-badge-today-verdict { background: #f1f5f9; color: var(--ios-text); font-weight: 600; }
+/* Issue #306 five-item first screen (schema_version 8). Long values wrap
+   instead of widening the card, so a narrow iPhone screen never scrolls
+   sideways; blocker links are plain wrapped buttons styled as links. */
+.ios-verdict-label { margin-top: -2px; font-size: 0.8rem; }
+.ios-action-quote, .ios-blocker-links { overflow-wrap: anywhere; }
+.ios-blocker-link {
+  display: inline; margin: 0 6px 0 0; padding: 0; border: 0; background: none;
+  color: var(--ios-accent); font: inherit; text-align: left; text-decoration: underline;
+  cursor: pointer; overflow-wrap: anywhere;
+}
+.ios-blocker-anomaly { color: var(--ios-blocked); }
+.ios-todo-highlight { outline: 2px solid var(--ios-accent); outline-offset: 2px; background: var(--ios-accent-soft); }
 .ios-action-next { font-weight: 600; }
 .ios-action-price { font-weight: 600; }
 .ios-research-details { margin-top: 6px; border-top: 1px solid var(--ios-border); padding-top: 4px; }

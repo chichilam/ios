@@ -1549,14 +1549,14 @@ test('Issue #306 GOOGL-like: missing order feedback -> first screen says 先核�
   const { document } = loadDashboard(buildBootstrapWithHolding(GOOGL_LIKE_MISSING_FEEDBACK), 'daily', {});
   const card = firstCard(document);
   const head = card.children[0];
-  assert.equal(head.children[1].textContent, '先核对缺项');
+  assert.equal(head.children[1].textContent, '无法判断');
   assert.ok(head.children[1].classList.contains('ios-badge-unavailable'));
   const first = firstScreenText(card);
-  assert.match(first, /先核对缺项/);
-  assert.match(first, /现在不挂单/);
-  assert.match(first, /阻碍: 无法确认/);
-  assert.match(first, /计划买入上限: 需补全/);
-  assert.doesNotMatch(first, /171\.4/, '行情报价不能出现在首屏，更不能被当作限价');
+  assert.match(first, /无法判断原因: 无法确认/);
+  assert.match(first, /需要: 现在不挂单/);
+  assert.match(first, /最高 未确定（区间1 只给出范围 165-175，计划未写明最高买入价）/);
+  assert.match(first, /市价: 171\.4 · 截至 2026-10-14 收盘（美东） · 行情属性未提供（非下单价）/, '市价只作为报告时行情展示，标明非下单价');
+  assert.match(first, /阻塞待办: 本报告版本未提供关联/);
   assert.doesNotMatch(first, /\$190/, '估值锚点不能出现在首屏');
   assert.doesNotMatch(first, /可小额开始/, '可小额开始 不能和主结论争夺首屏');
   assert.doesNotMatch(first, /已校验订单限价/);
@@ -1573,7 +1573,7 @@ test('Issue #306: research detail sits in a <details> block collapsed by default
   assert.equal(details.children[0].tagName, 'SUMMARY');
   const t = details.textContent;
   assert.match(t, /研究建议: 研究建仓/);
-  assert.match(t, /行情报价: 171\.4（截至 2026-10-14 收盘（美东）），非下单价/);
+  assert.match(t, /内部行动: 先核对缺项/);
   assert.match(t, /长期估值锚点: \$190 附近（研究判断，非订单限价）/);
   assert.match(t, /计划条件: 可小额开始/);
   assert.match(t, /订单准备: 无法确认/);
@@ -1589,7 +1589,8 @@ test('Issue #306: a defined plan cap with no orderable order shows as conditiona
     '计划买入上限': '180 USD（区间1）', '建议限价': ''
   }), 'daily', {});
   const first = firstScreenText(firstCard(document));
-  assert.match(first, /计划买入上限: 180 USD（区间1）（条件性，尚不可据此下单）/);
+  assert.match(first, /最高 180 USD（区间1）/);
+  assert.match(first, /条件性范围，当前未满足条件，尚不可据此下单/);
   assert.doesNotMatch(first, /已校验订单限价/);
 });
 
@@ -1610,28 +1611,30 @@ test('Issue #306 positive case: 可人工准备限价单 shows one clear limit-o
     '今日行动': '可人工准备限价单',
     '今日行动说明': '今天（美东交易日）可人工准备一笔限价单，最高 180 USD，当日有效；开盘跳空高于 180 不追价、不提价，未成交按反馈处理',
     '建议限价': '180 USD', '建议订单规模说明': '约 2,000 USD（区间1 占比 40% x 计划基数 5,000 USD）',
-    '计划订单有效期': '当日有效', '跳空处理提示': '开盘高于限价则不追价', '计划买入上限': '180 USD（区间1）'
+    '计划订单有效期': '当日有效', '跳空处理提示': '开盘高于限价则不追价', '计划买入上限': '180 USD（区间1）',
+    '阻塞待办ID': '无'
   }), 'daily', {});
   const card = firstCard(document);
   assert.ok(card.children[0].children[1].classList.contains('ios-severity-low'));
   const first = firstScreenText(card);
+  assert.equal(card.children[0].children[1].textContent, '适合买入');
   assert.match(first, /已校验订单限价: 180 USD（人工复查后手工提交）/);
-  assert.match(first, /规模: 约 2,000 USD/);
-  assert.match(first, /有效期: 当日有效/);
-  assert.match(first, /今天（美东交易日）可人工准备一笔限价单/, '正向案例首屏必须给出执行时段');
-  assert.match(first, /跳空处理: 开盘高于限价则不追价/);
-  assert.doesNotMatch(first, /176\.2/, '现价不能替代计划限价出现在首屏');
+  assert.match(first, /规模: 约 2,000 USD.* · 有效期: 当日有效/);
+  assert.match(first, /执行: 今天（美东交易日）可人工准备一笔限价单/, '正向案例首屏必须给出执行时段');
+  assert.match(detailsOf(card).textContent, /跳空处理: 开盘高于限价则不追价/);
+  assert.match(first, /市价: 176\.2（非下单价）|市价: 176\.2 ·/);
+  assert.doesNotMatch(first, /(已校验订单限价|最高)[:：]? ?176\.2/, '现价不能替代计划限价');
 });
 
-test('Issue #306: blank plan cap reads 最高买入价: 未确定; unknown 今日行动 renders neutrally, never as ready', () => {
+test('Issue #306: no plan reads 建议买入范围: 无; unknown 今日行动 renders as 无法判断, never as ready', () => {
   const { document } = loadDashboard(buildBootstrapWithHolding({
     '今日行动': '马上买入', '今日行动说明': 'x'
   }), 'daily', {});
   const card = firstCard(document);
   const badge = card.children[0].children[1];
-  assert.equal(badge.textContent, '马上买入');
-  assert.equal(badge.className, 'ios-badge ios-badge-today-action');
-  assert.match(firstScreenText(card), /最高买入价: 未确定/);
+  assert.equal(badge.textContent, '无法判断', '未知 今日行动 一律落到 无法判断');
+  assert.equal(badge.className, 'ios-badge ios-badge-today-verdict ios-badge-unavailable');
+  assert.match(firstScreenText(card), /建议买入范围: 无（没有可用的入场计划）/);
 });
 
 test('Issue #306: every canonical 今日行动 value except 可人工准备限价单 avoids the green ready tier', () => {
@@ -1663,12 +1666,12 @@ test('Issue #306 / PR #307 review: 可人工准备限价单 with missing order f
     }, fields)), 'daily', {});
     const card = firstCard(document);
     const badge = card.children[0].children[1];
-    assert.equal(badge.textContent, '订单信息不完整');
+    assert.equal(badge.textContent, '无法判断');
     assert.ok(badge.classList.contains('ios-badge-unavailable'));
     const noGreen = allElements(card).every((node) => !node.classList || !node.classList.contains('ios-severity-low'));
     assert.ok(noGreen, JSON.stringify(fields));
     const first = firstScreenText(card);
-    assert.match(first, /请勿据此下单/);
+    assert.match(first, /缺少 .*，请勿据此下单/);
     assert.doesNotMatch(first, /已校验订单限价/);
   });
 });
@@ -1687,7 +1690,7 @@ test('PR #307 round-2 review: a contradictory 可人工准备限价单 row (paus
     }, states)), 'daily', {});
     const card = firstCard(document);
     const badge = card.children[0].children[1];
-    assert.equal(badge.textContent, '状态矛盾，先核对', JSON.stringify(states));
+    assert.equal(badge.textContent, '无法判断', JSON.stringify(states));
     assert.ok(badge.classList.contains('ios-badge-unavailable'));
     const noGreen = allElements(card).every((node) => !node.classList || !node.classList.contains('ios-severity-low'));
     assert.ok(noGreen, JSON.stringify(states));
@@ -1705,4 +1708,193 @@ test('Issue #306 decision 4: a pre-schema-7 plan row keeps its layout but is lab
   assert.equal(detailsOf(card), undefined, '旧行不改版式');
   const last = card.children[card.children.length - 1];
   assert.equal(last.textContent, '报告 2026-08-15 快照（行情截至 2026-08-15 收盘），非今日行动');
+});
+
+// -- Issue #306 five-item first screen (schema_version 8) --------------------
+
+function withTodos(bootstrap, todos) {
+  bootstrap.daily.todos = todos;
+  return bootstrap;
+}
+
+const V8_READY = {
+  '入场计划ID': 'plan-1', '执行状态': '可小额开始', '准备状态': '可准备订单', '当前区间': '区间2',
+  '当前价格': 168.4, '报价币种': 'USD', '行情截至时间': '2026-10-15 16:00 美东', '行情属性': '正式收盘',
+  '今日行动': '可人工准备限价单',
+  '今日行动说明': '下一个美东交易日开盘前人工准备限价单，最高 170 USD，当日有效；跳空高于 170 不追价',
+  '建议限价': '170 USD', '建议订单规模说明': '约 2,000 USD', '计划订单有效期': '当日有效',
+  '计划买入下限': '165 USD（区间2）', '计划买入上限': '170 USD（区间2）', '阻塞待办ID': '无',
+  '入场计划估值锚点': '$190 附近', '入场计划版本': 4
+};
+
+test('Issue #306 v8: 适合买入 card shows the five items in order: quote, verdict, two-sided range with validated limit, execution, 阻塞待办: 无', () => {
+  const { document } = loadDashboard(buildBootstrapWithHolding(V8_READY), 'daily', {});
+  const card = firstCard(document);
+  const badge = card.children[0].children[1];
+  assert.equal(badge.textContent, '适合买入');
+  assert.ok(badge.classList.contains('ios-severity-low'));
+  const first = firstScreenText(card);
+  assert.match(first, /今日建议/);
+  assert.match(first, /市价: 168\.4 USD · 截至 2026-10-15 16:00 美东 · 正式收盘（非下单价）/);
+  assert.match(first, /建议买入范围: 最低 165 USD（区间2） · 最高 170 USD（区间2）/);
+  assert.match(first, /已校验订单限价: 170 USD（人工复查后手工提交）/);
+  assert.match(first, /执行: 下一个美东交易日开盘前人工准备限价单/);
+  assert.match(first, /阻塞待办: 无/);
+  assert.doesNotMatch(first, /等待理由/, '适合买入 时不显示无意义的等待理由');
+  assert.doesNotMatch(first, /\$190|计划 v4|可小额开始/, '估值锚点、计划版本、内部状态都折叠');
+  assert.ok(first.indexOf('市价') < first.indexOf('建议买入范围'));
+  assert.ok(first.indexOf('建议买入范围') < first.indexOf('阻塞待办'));
+});
+
+test('Issue #306 v8: 等待 keeps the known conditional range visible, gives the waiting reason, and never shows a validated limit', () => {
+  const { document } = loadDashboard(buildBootstrapWithHolding(Object.assign({}, V8_READY, {
+    '执行状态': '等待价格', '准备状态': '无需准备', '今日行动': '等待价格', '当前区间': '高于全部区间',
+    '今日行动说明': '现价高于区间2，跌入 165–170 USD 后再由下一次 Daily 评估', '建议限价': '', '建议订单规模说明': ''
+  })), 'daily', {});
+  const card = firstCard(document);
+  assert.equal(card.children[0].children[1].textContent, '等待');
+  const first = firstScreenText(card);
+  assert.match(first, /最低 165 USD（区间2） · 最高 170 USD（区间2）/);
+  assert.match(first, /条件性范围，当前未满足条件，尚不可据此下单/);
+  assert.match(first, /等待理由: 现价高于区间2/);
+  assert.doesNotMatch(first, /已校验订单限价/);
+});
+
+test('Issue #306 v8: 已有订单勿重复 and 暂停新增待复核 read as 等待 with their own reason, never green', () => {
+  [['已有订单勿重复', '区间2 已有挂单，不要重复下单，请与券商记录核对'],
+   ['暂停新增待复核', '计划失效条件触发，暂停新增买入；这不是卖出现有持仓的指令']].forEach(([action, said]) => {
+    const { document } = loadDashboard(buildBootstrapWithHolding(Object.assign({}, V8_READY, {
+      '今日行动': action, '今日行动说明': said, '准备状态': '已有有效订单不重复建议'
+    })), 'daily', {});
+    const card = firstCard(document);
+    assert.equal(card.children[0].children[1].textContent, '等待', action);
+    assert.match(firstScreenText(card), new RegExp('等待理由: ' + said.slice(0, 6)));
+    assert.ok(allElements(card).every((n) => !n.classList || !n.classList.contains('ios-severity-low')), action);
+  });
+});
+
+test('Issue #306 v8: a ready row that still lists a blocker todo is 无法判断, not green', () => {
+  const { document } = loadDashboard(withTodos(buildBootstrapWithHolding(Object.assign({}, V8_READY, { '阻塞待办ID': 'TEST1-1' })),
+    [{ '待办ID': 'TEST1-1', '待办': '执行时点缺项：计划未声明执行路径', '状态': '待处理', '跟进类型': '可执行' }]), 'daily', {});
+  const card = firstCard(document);
+  assert.equal(card.children[0].children[1].textContent, '无法判断');
+  assert.doesNotMatch(firstScreenText(card), /已校验订单限价/);
+});
+
+test('Issue #306 v8: 无法判断 links each blocker todo by 待办ID; clicking jumps to the todo tab and highlights that todo', () => {
+  const bootstrap = withTodos(buildBootstrapWithHolding({
+    '入场计划ID': 'plan-1', '执行状态': '', '准备状态': '计划未完善停在核对', '今日行动': '先核对缺项',
+    '当前价格': 41.2, '报价币种': 'USD', '行情属性': '盘后',
+    '当前阻碍': '计划未完善：无有效价格分档', '今日行动说明': '现在不挂单：等 Weekly Deep Dive 补建价格分档',
+    '计划买入下限': '需补全：计划没有有效价格分档', '计划买入上限': '需补全：计划没有有效价格分档',
+    '阻塞待办ID': 'TEST1-1、TEST1-2'
+  }), [
+    { '待办ID': 'TEST1-1', '待办': '计划维护：为 TEST1 建立有效价格分档', '状态': '待处理', '跟进类型': '可执行' },
+    { '待办ID': 'TEST1-2', '待办': '执行时点缺项：TEST1 计划未声明执行路径', '状态': '待处理', '跟进类型': '可执行' },
+    { '待办ID': 'OTHER-1', '待办': '无关待办', '状态': '待处理', '跟进类型': '可执行' }
+  ]);
+  const { document, window } = loadDashboard(bootstrap, 'daily', {});
+  const card = firstCard(document);
+  assert.equal(card.children[0].children[1].textContent, '无法判断');
+  const first = firstScreenText(card);
+  assert.match(first, /市价: 41\.2 USD · 盘后（非下单价）/);
+  assert.match(first, /无法判断原因: 计划未完善：无有效价格分档/);
+  assert.match(first, /最低 未确定（计划没有有效价格分档） · 最高 未确定（计划没有有效价格分档）/);
+  const links = allElements(card).filter((n) => n.classList && n.classList.contains('ios-blocker-link'));
+  assert.deepEqual(links.map((n) => n.textContent), ['计划维护：为 TEST1 建立有效价格分档', '执行时点缺项：TEST1 计划未声明执行路径']);
+  assert.doesNotMatch(first, /关联异常/);
+  links[1].click();
+  const items = allElements(document.getElementById('ios-tab-content')).filter((n) => n.tagName === 'LI');
+  const highlighted = items.filter((n) => n.classList.contains('ios-todo-highlight'));
+  assert.equal(highlighted.length, 1);
+  assert.equal(highlighted[0].getAttribute('data-todo-id'), 'TEST1-2');
+  void window;
+});
+
+test('Issue #306 v8: missing, completed or absent blocker links render as explicit anomalies, never as no blocker', () => {
+  const base = { '入场计划ID': 'plan-1', '今日行动': '先核对缺项', '当前阻碍': '无法确认：缺少订单记录' };
+  const cases = [
+    [{ '阻塞待办ID': 'GONE-9' }, [], /关联异常: 待办 GONE-9 不在本报告中/],
+    [{ '阻塞待办ID': 'TEST1-1' }, [{ '待办ID': 'TEST1-1', '待办': 'x', '状态': '已完成' }], /关联异常: 待办 TEST1-1 已标记完成，仍被列为阻碍/],
+    [{ '阻塞待办ID': '无' }, [], /关联异常: 无法判断但未关联阻塞待办/]
+  ];
+  cases.forEach(([fields, todos, pattern]) => {
+    const { document } = loadDashboard(withTodos(buildBootstrapWithHolding(Object.assign({}, base, fields)), todos), 'daily', {});
+    const first = firstScreenText(firstCard(document));
+    assert.match(first, pattern);
+    assert.doesNotMatch(first, /阻塞待办: 无/);
+  });
+});
+
+test('Issue #306 v8: a single-price plan never gets a copied lower bound; the gap is named instead', () => {
+  const { document } = loadDashboard(buildBootstrapWithHolding(Object.assign({}, V8_READY, {
+    '今日行动': '等待价格', '执行状态': '等待价格', '准备状态': '无需准备', '建议限价': '',
+    '计划买入下限': '需补全：计划只规定最高出价 180 USD，未规定最低价', '计划买入上限': '180 USD（区间1）',
+    '阻塞待办ID': 'TEST1-3'
+  })), 'daily', {});
+  const first = firstScreenText(firstCard(document));
+  assert.match(first, /最低 未确定（计划只规定最高出价 180 USD，未规定最低价） · 最高 180 USD（区间1）/);
+  assert.doesNotMatch(first, /最低 180/);
+});
+
+test('Issue #306 v8: missing or stale quote is stated plainly on the first screen', () => {
+  let r = loadDashboard(buildBootstrapWithHolding(Object.assign({}, V8_READY, { '当前价格': '', '报价币种': '', '行情属性': '' })), 'daily', {});
+  assert.match(firstScreenText(firstCard(r.document)), /市价: 缺失（本次报告没有可靠报价）/);
+  r = loadDashboard(buildBootstrapWithHolding(Object.assign({}, V8_READY, { '行情属性': '过期' })), 'daily', {});
+  const quote = firstCard(r.document).children.find((c) => c.classList && c.classList.contains('ios-action-quote'));
+  assert.match(quote.textContent, /过期（非下单价）/);
+  assert.ok(quote.classList.contains('ios-entry-plan-incomplete'));
+});
+
+test('Issue #306 v8: a history generation labels the verdict 当时建议 with its own date and resolves links inside that generation', () => {
+  const historyVm = buildBootstrapWithHolding(Object.assign({}, V8_READY, {
+    '报告日期': '2026-10-10', '今日行动': '先核对缺项', '阻塞待办ID': 'TEST1-1', '当前阻碍': '无法确认：缺少订单记录'
+  })).daily;
+  historyVm.summary.报告ID = 'daily-2026-10-10';
+  historyVm.todos = [{ '待办ID': 'TEST1-1', '待办': '补录 TEST1 区间2 订单状态', '状态': '待处理' }];
+  const { document, window } = loadDashboard(buildBootstrapWithHolding(V8_READY), 'daily', {
+    getReport: () => Object.assign({ error: null }, historyVm)
+  });
+  assert.match(firstScreenText(firstCard(document)), /今日建议/);
+  window.selectHistoryReport('daily-2026-10-10');
+  const first = firstScreenText(firstCard(document));
+  assert.match(first, /当时建议（报告 2026-10-10）/);
+  assert.doesNotMatch(first, /今日建议/);
+  assert.match(first, /阻塞待办: 补录 TEST1 区间2 订单状态/);
+});
+
+test('PR #311 review: 适合买入 needs an explicit 无; a missing, empty or whitespace 阻塞待办ID is never a buy promise', () => {
+  const cases = [['missing', null], ['empty', ''], ['whitespace', '   '], ['explicit', '无']];
+  cases.forEach(([label, value]) => {
+    const row = Object.assign({}, V8_READY);
+    if (value === null) { delete row['阻塞待办ID']; } else { row['阻塞待办ID'] = value; }
+    const bootstrap = buildBootstrapWithHolding({});
+    bootstrap.daily.holdings = [Object.assign({}, bootstrap.daily.holdings[0], row)];
+    if (value === null) { delete bootstrap.daily.holdings[0]['阻塞待办ID']; }
+    const { document } = loadDashboard(bootstrap, 'daily', {});
+    const card = firstCard(document);
+    const first = firstScreenText(card);
+    if (label === 'explicit') {
+      assert.equal(card.children[0].children[1].textContent, '适合买入');
+      assert.match(first, /阻塞待办: 无/);
+    } else {
+      assert.equal(card.children[0].children[1].textContent, '无法判断', label);
+      assert.doesNotMatch(first, /已校验订单限价/, label);
+      assert.match(first, /关联异常: 未提供阻塞待办关联，不能确认没有阻碍/, label);
+      assert.ok(allElements(card).every((n) => !n.classList || !n.classList.contains('ios-severity-low')), label);
+    }
+  });
+});
+
+test('PR #311 review: a defined maximum with every gate passed but no lower bound is still 适合买入; the missing floor is shown, not a blocker', () => {
+  const { document } = loadDashboard(buildBootstrapWithHolding(Object.assign({}, V8_READY, {
+    '建议限价': '180 USD', '计划买入上限': '180 USD（区间1）',
+    '计划买入下限': '需补全：计划只规定最高出价 180 USD，未规定最低价', '阻塞待办ID': '无'
+  })), 'daily', {});
+  const card = firstCard(document);
+  assert.equal(card.children[0].children[1].textContent, '适合买入');
+  const first = firstScreenText(card);
+  assert.match(first, /最低 未确定（计划只规定最高出价 180 USD，未规定最低价） · 最高 180 USD（区间1）/);
+  assert.match(first, /已校验订单限价: 180 USD（人工复查后手工提交）/);
+  assert.match(first, /阻塞待办: 无/);
 });

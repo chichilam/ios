@@ -36,7 +36,9 @@
     activeTab: 'portfolio',
     viewingReportId: null, // non-null while pinned to a specific history entry
     displayedViewModel: null, // the viewModel for viewingReportId, once fetched
-    loading: false
+    loading: false,
+    highlightTodoId: null, // 待办ID a first-screen blocker link jumped to (Issue #306)
+    highlightTodoNode: null
   };
 
   // -- Small DOM-construction helpers (no innerHTML with Sheet-derived
@@ -292,8 +294,8 @@
     }
 
     if (STATE.activeTab === 'portfolio') {
-      container.appendChild(buildAssetSection('当前持仓', vm.holdings, false));
-      container.appendChild(buildAssetSection('本期观察候选', vm.watchlistCandidates, true));
+      container.appendChild(buildAssetSection('当前持仓', vm.holdings, false, vm.todos));
+      container.appendChild(buildAssetSection('本期观察候选', vm.watchlistCandidates, true, vm.todos));
     } else if (STATE.activeTab === 'risks') {
       container.appendChild(buildRisksSection(vm.risks));
     } else if (STATE.activeTab === 'todos') {
@@ -546,27 +548,6 @@
     return lines;
   }
 
-  /**
-   * 报告持仓.今日行动 (Issue #306, schema_version 7) -- the one canonical
-   * primary conclusion, written by the report layer via a fixed mapping
-   * (see setup/schema/sheet-schema.json). Exact match only; only
-   * 可人工准备限价单 gets the "ready" look. An unrecognized value falls back
-   * to the plain neutral badge, never a ready-to-buy style.
-   */
-  var TODAY_ACTION_BADGE_CLASS_ = {
-    '可人工准备限价单': 'ios-severity-low',
-    '已有订单勿重复': 'ios-badge-muted',
-    '先核对缺项': 'ios-badge-unavailable',
-    '暂停新增待复核': 'ios-severity-high',
-    '等待确认': 'ios-badge-muted',
-    '等待价格': 'ios-badge-muted',
-    '无入场计划': 'ios-badge-muted'
-  };
-
-  function todayActionBadgeClass(value) {
-    return Object.prototype.hasOwnProperty.call(TODAY_ACTION_BADGE_CLASS_, value) ? TODAY_ACTION_BADGE_CLASS_[value] : '';
-  }
-
   var READY_ORDER_FIELDS_ = ['建议限价', '建议订单规模说明', '计划订单有效期'];
 
   /**
@@ -590,7 +571,6 @@
     if (asset['今日行动'] !== '可人工准备限价单') { return null; }
     if (asset['执行状态'] !== '可小额开始' || asset['准备状态'] !== '可准备订单') {
       return {
-        badge: '状态矛盾，先核对',
         message: '报告标注为 可人工准备限价单，但 执行状态=' + (isBlank(asset['执行状态']) ? '空' : asset['执行状态']) +
           '、准备状态=' + (isBlank(asset['准备状态']) ? '空' : asset['准备状态']) + ' 与之矛盾，请勿据此下单，等待下一次报告'
       };
@@ -598,7 +578,6 @@
     var missing = missingReadyOrderFields_(asset);
     if (missing.length > 0) {
       return {
-        badge: '订单信息不完整',
         message: '报告标注为 可人工准备限价单，但缺少 ' + missing.join('/') + '，请勿据此下单，等待下一次报告'
       };
     }
@@ -606,79 +585,181 @@
   }
 
   /**
-   * The single price-discipline line on an action-first card. Which label
-   * applies is decided only by the writer's own 今日行动 value -- the
-   * Dashboard never derives a price, and 建议限价 is shown as a validated
-   * order limit only when the writer said 可人工准备限价单.
+   * Issue #306 five-item first screen (user-confirmed, schema_version 8).
+   * 今日建议 is the fixed shared mapping over the writer's own 今日行动 --
+   * the same table the schema and both report prompts state -- so the
+   * Dashboard never reads several enums to invent a verdict of its own.
    */
-  function buildPriceDisciplineLines(asset) {
+  var TODAY_VERDICT_BADGE_CLASS_ = {
+    '适合买入': 'ios-severity-low',
+    '等待': 'ios-severity-medium',
+    '无法判断': 'ios-badge-unavailable'
+  };
+  var WAIT_ACTIONS_ = ['等待价格', '等待确认', '已有订单勿重复', '暂停新增待复核'];
+
+  /** A v8 row always carries 阻塞待办ID (无 when nothing blocks); blank means an older report version. */
+  function hasBlockerLinks_(asset) {
+    return String(asset['阻塞待办ID'] == null ? '' : asset['阻塞待办ID']).trim() !== '';
+  }
+
+  function blockerIds_(asset) {
+    var raw = String(asset['阻塞待办ID'] || '').trim();
+    if (raw === '' || raw === '无') { return []; }
+    return raw.split(/[、,，;；\s]+/).filter(function (id) { return id !== ''; });
+  }
+
+  function todayVerdict_(asset) {
+    var action = asset['今日行动'];
+    if (action === '可人工准备限价单') {
+      if (readyActionProblem_(asset)) { return '无法判断'; }
+      // Only an explicit 无 proves nothing blocks: a blank or missing
+      // 阻塞待办ID (older report version, or a v8 row missing the column)
+      // never becomes a 适合买入 promise (PR #311 review).
+      if (String(asset['阻塞待办ID'] == null ? '' : asset['阻塞待办ID']).trim() !== '无') { return '无法判断'; }
+      return '适合买入';
+    }
+    if (WAIT_ACTIONS_.indexOf(action) !== -1) { return '等待'; }
+    return '无法判断';
+  }
+
+  /** ① Report-time quote, its currency, as-of time and session -- never an order price. */
+  function buildQuoteLine_(asset) {
+    if (isBlank(asset['当前价格'])) {
+      return text('p', 'ios-asset-line ios-action-quote ios-entry-plan-incomplete', '市价: 缺失（本次报告没有可靠报价）');
+    }
+    var parts = [String(asset['当前价格']) + (isBlank(asset['报价币种']) ? '' : ' ' + asset['报价币种'])];
+    if (!isBlank(asset['行情截至时间'])) { parts.push('截至 ' + asset['行情截至时间']); }
+    parts.push(isBlank(asset['行情属性']) ? '行情属性未提供' : asset['行情属性']);
+    var stale = asset['行情属性'] === '过期' || asset['行情属性'] === '未知' || isBlank(asset['行情属性']);
+    return text('p', 'ios-asset-line ios-action-quote' + (stale ? ' ios-entry-plan-incomplete' : ''),
+      '市价: ' + parts.join(' · ') + '（非下单价）');
+  }
+
+  function rangeEndText_(value, providedByVersion) {
+    if (isBlank(value)) { return providedByVersion ? '未确定' : '未确定（本报告版本未提供）'; }
+    var s = String(value);
+    if (s.indexOf('需补全') === 0) { return '未确定（' + s.replace(/^需补全[:：]?\s*/, '') + '）'; }
+    return s;
+  }
+
+  /** ③ 建议买入范围: both ends of one batch, never a guessed lower bound. */
+  function buildRangeLines_(asset, verdict) {
     var lines = [];
-    if (asset['今日行动'] === '可人工准备限价单' && !readyActionProblem_(asset)) {
-      lines.push(text('p', 'ios-asset-line ios-action-price', '已校验订单限价: ' + asset['建议限价'] + '（人工复查后手工提交）'));
-      [
-        ['规模', asset['建议订单规模说明']],
-        ['有效期', asset['计划订单有效期']],
-        ['跳空处理', asset['跳空处理提示']]
-      ].forEach(function (pair) {
-        var line = entryPlanExplanationLine_(pair[0], pair[1]);
-        if (line) { lines.push(line); }
-      });
+    if (isBlank(asset['入场计划ID'])) {
+      lines.push(text('p', 'ios-asset-line ios-action-price', '建议买入范围: 无（没有可用的入场计划）'));
       return lines;
     }
-    var cap = asset['计划买入上限'];
-    if (isBlank(cap)) {
-      lines.push(text('p', 'ios-asset-line ios-action-price', '最高买入价: 未确定'));
-    } else if (String(cap).indexOf('需补全') === 0) {
-      lines.push(text('p', 'ios-asset-line ios-action-price ios-entry-plan-incomplete', '计划买入上限: ' + cap));
+    var v8 = hasBlockerLinks_(asset);
+    lines.push(text('p', 'ios-asset-line ios-action-price',
+      '建议买入范围: 最低 ' + rangeEndText_(asset['计划买入下限'], v8) + ' · 最高 ' + rangeEndText_(asset['计划买入上限'], true)));
+    if (verdict === '适合买入') {
+      lines.push(text('p', 'ios-asset-line ios-action-price',
+        '已校验订单限价: ' + asset['建议限价'] + '（人工复查后手工提交）'));
+      lines.push(text('p', 'ios-asset-line', '规模: ' + asset['建议订单规模说明'] + ' · 有效期: ' + asset['计划订单有效期']));
     } else {
-      lines.push(text('p', 'ios-asset-line ios-action-price', '计划买入上限: ' + cap + '（条件性，尚不可据此下单）'));
+      lines.push(text('p', 'ios-asset-line ios-muted', '条件性范围，当前未满足条件，尚不可据此下单'));
     }
     return lines;
   }
 
+  /** ④ Waiting reason for 等待; the execution sentence for 适合买入; the reason for 无法判断. */
+  function buildReasonLine_(asset, verdict) {
+    var said = asset['今日行动说明'];
+    if (verdict === '等待') {
+      var reason = isBlank(said) ? asset['当前阻碍'] : said;
+      return isBlank(reason) ? null : text('p', 'ios-asset-line ios-action-next', '等待理由: ' + reason);
+    }
+    if (verdict === '适合买入') {
+      return isBlank(said) ? null : text('p', 'ios-asset-line ios-action-next', '执行: ' + said);
+    }
+    // A writer-labelled ready row that failed a consistency gate: the reason
+    // is the gate (shown on its own line), not the execution sentence.
+    var cause = asset['今日行动'] === '可人工准备限价单'
+      ? '报告标注为可准备订单，但一致性检查未通过，请勿据此下单'
+      : (isBlank(asset['当前阻碍']) ? said : asset['当前阻碍']);
+    return text('p', 'ios-asset-line ios-action-next ios-entry-plan-incomplete',
+      '无法判断原因: ' + (isBlank(cause) ? '报告未说明' : cause));
+  }
+
+  function jumpToTodo_(id) {
+    STATE.highlightTodoId = id;
+    selectTab('todos');
+    var node = STATE.highlightTodoNode;
+    if (node && typeof node.scrollIntoView === 'function') { node.scrollIntoView({ block: 'center' }); }
+  }
+
   /**
-   * Issue #306 action-first card, used only for rows carrying 今日行动
-   * (schema_version 7). First screen: 今日行动 + 今日行动说明 + price
-   * discipline + 当前阻碍 + freshness. Everything else -- the quote, the
-   * valuation anchor, 执行状态 (shown neutrally as a secondary plan state),
-   * the Phase 1/2 lines, and the research narrative -- sits in a <details>
-   * block that is collapsed by default.
+   * ⑤ Blockers: links resolved only inside the generation on screen. A
+   * missing, completed or unresolvable link is an explicit anomaly, never
+   * read as "no blocker".
    */
-  function buildActionFirstCard(asset, isWatchlist) {
-    var action = asset['今日行动'];
-    var readyProblem = readyActionProblem_(asset);
-    var badge = readyProblem
-      ? text('span', 'ios-badge ios-badge-today-action ios-badge-unavailable', readyProblem.badge)
-      : text('span', badgeClass('ios-badge ios-badge-today-action', todayActionBadgeClass(action)), action);
+  function buildBlockerLines_(asset, verdict, todos) {
+    var lines = [];
+    if (verdict === '无法判断' && !isBlank(asset['当前阻碍']) && !isBlank(asset['今日行动说明']) &&
+        asset['当前阻碍'] !== asset['今日行动说明']) {
+      lines.push(text('p', 'ios-asset-line', '需要: ' + asset['今日行动说明']));
+    }
+    if (!hasBlockerLinks_(asset)) {
+      lines.push(asset['今日行动'] === '可人工准备限价单'
+        ? text('p', 'ios-asset-line ios-entry-plan-incomplete ios-blocker-anomaly', '关联异常: 未提供阻塞待办关联，不能确认没有阻碍')
+        : text('p', 'ios-asset-line ios-muted', '阻塞待办: 本报告版本未提供关联'));
+      return lines;
+    }
+    var ids = blockerIds_(asset);
+    if (ids.length === 0) {
+      lines.push(verdict === '无法判断'
+        ? text('p', 'ios-asset-line ios-entry-plan-incomplete ios-blocker-anomaly', '关联异常: 无法判断但未关联阻塞待办')
+        : text('p', 'ios-asset-line', '阻塞待办: 无'));
+      return lines;
+    }
+    var links = [document.createTextNode('阻塞待办: ')];
+    var anomalies = [];
+    ids.forEach(function (id) {
+      var todo = (todos || []).filter(function (t) { return String(t['待办ID'] || '').trim() === id; })[0];
+      if (!todo) {
+        anomalies.push('待办 ' + id + ' 不在本报告中');
+      } else if (isTodoCompleted(todo['状态'] || '')) {
+        anomalies.push('待办 ' + id + ' 已标记完成，仍被列为阻碍');
+      } else {
+        links.push(el('button', {
+          className: 'ios-blocker-link',
+          text: todo['待办'] || id,
+          attrs: { type: 'button', 'data-todo-id': id },
+          onclick: function () { jumpToTodo_(id); }
+        }));
+      }
+    });
+    if (links.length > 1) { lines.push(el('p', { className: 'ios-asset-line ios-blocker-links' }, links)); }
+    anomalies.forEach(function (msg) {
+      lines.push(text('p', 'ios-asset-line ios-entry-plan-incomplete ios-blocker-anomaly', '关联异常: ' + msg));
+    });
+    return lines;
+  }
+
+  function buildActionFirstCard(asset, isWatchlist, todos) {
+    var verdict = todayVerdict_(asset);
+    var historical = !!STATE.viewingReportId;
+    var badge = text('span', badgeClass('ios-badge ios-badge-today-verdict', TODAY_VERDICT_BADGE_CLASS_[verdict]), verdict);
     var lines = [
       el('div', { className: 'ios-asset-head' }, [text('strong', null, asset['代码']), badge]),
-      text('p', 'ios-asset-name', asset['名称'])
+      text('p', 'ios-asset-name', asset['名称']),
+      text('p', 'ios-asset-line ios-muted ios-verdict-label',
+        historical ? '当时建议（报告 ' + (asset['报告日期'] || '日期未知') + '）' : '今日建议')
     ];
+    var readyProblem = readyActionProblem_(asset);
     if (readyProblem) {
       lines.push(text('p', 'ios-asset-line ios-entry-plan-incomplete', readyProblem.message));
     }
-    if (!isBlank(asset['今日行动说明'])) {
-      lines.push(text('p', 'ios-asset-line ios-action-next', asset['今日行动说明']));
-    }
-    buildPriceDisciplineLines(asset).forEach(function (line) { lines.push(line); });
-    var blocker = entryPlanExplanationLine_('阻碍', asset['当前阻碍']);
-    if (blocker) { lines.push(blocker); }
-    var freshnessParts = [];
-    if (!isBlank(asset['报告日期'])) { freshnessParts.push('报告: ' + asset['报告日期']); }
-    if (!isBlank(asset['入场计划版本'])) { freshnessParts.push('计划 v' + asset['入场计划版本']); }
-    if (!isBlank(asset['入场计划数据时间'])) { freshnessParts.push('计划更新: ' + asset['入场计划数据时间']); }
-    if (!isBlank(asset['行情截至时间'])) { freshnessParts.push('行情截至: ' + asset['行情截至时间']); }
-    if (freshnessParts.length > 0) {
-      lines.push(text('p', 'ios-asset-line ios-muted ios-entry-plan-freshness', freshnessParts.join(' · ')));
-    }
+    lines.push(buildQuoteLine_(asset));
+    buildRangeLines_(asset, verdict).forEach(function (line) { lines.push(line); });
+    var reason = buildReasonLine_(asset, verdict);
+    if (reason) { lines.push(reason); }
+    buildBlockerLines_(asset, verdict, todos).forEach(function (line) { lines.push(line); });
 
     var detail = [text('summary', 'ios-research-summary', '研究与估值详情')];
     if (!isBlank(asset['IOS状态'])) {
       detail.push(text('p', 'ios-asset-line', '研究建议: ' + asset['IOS状态']));
     }
-    detail.push(text('p', 'ios-asset-line',
-      '行情报价: ' + (isBlank(asset['当前价格']) ? '未知' : String(asset['当前价格'])) +
-      (isBlank(asset['行情截至时间']) ? '' : '（截至 ' + asset['行情截至时间'] + '）') + '，非下单价'));
     if (!isBlank(asset['入场计划ID'])) {
       detail.push(text('p', 'ios-asset-line',
         '长期估值锚点: ' + (isBlank(asset['入场计划估值锚点']) ? '未知' : asset['入场计划估值锚点']) + '（研究判断，非订单限价）'));
@@ -694,11 +775,21 @@
     } else if (!isBlank(asset['参考买入价/区间'])) {
       detail.push(text('p', 'ios-asset-line', '参考: ' + asset['参考买入价/区间'] + '（非订单限价）'));
     }
+    var freshnessParts = [];
+    if (!isBlank(asset['报告日期'])) { freshnessParts.push('报告: ' + asset['报告日期']); }
+    if (!isBlank(asset['入场计划版本'])) { freshnessParts.push('计划 v' + asset['入场计划版本']); }
+    if (!isBlank(asset['入场计划数据时间'])) { freshnessParts.push('计划更新: ' + asset['入场计划数据时间']); }
+    if (freshnessParts.length > 0) {
+      detail.push(text('p', 'ios-asset-line ios-muted ios-entry-plan-freshness', freshnessParts.join(' · ')));
+    }
     [
+      ['内部行动', asset['今日行动']],
+      ['订单准备', asset['准备状态']],
+      ['阻碍', verdict === '无法判断' ? '' : asset['当前阻碍']],
       ['下次检查', asset['下次检查']],
       ['停止条件', asset['停止条件说明']],
+      ['跳空处理', asset['跳空处理提示']],
       ['较上次变化', asset['较上次变化说明']],
-      ['订单准备', asset['准备状态']],
       ['最近订单状态', asset['最近订单状态']]
     ].forEach(function (pair) {
       var line = entryPlanExplanationLine_(pair[0], pair[1]);
@@ -720,8 +811,8 @@
    * 逻辑/验证 are free-text narrative fields shown only when present, same
    * as before, to keep the card compact.
    */
-  function buildAssetCard(asset, isWatchlist) {
-    if (!isBlank(asset['今日行动'])) { return buildActionFirstCard(asset, isWatchlist); }
+  function buildAssetCard(asset, isWatchlist, todos) {
+    if (!isBlank(asset['今日行动'])) { return buildActionFirstCard(asset, isWatchlist, todos); }
     var headChildren = [text('strong', null, asset['代码'])];
     // Both holdings and watchlist cards render the report-stored IOS status
     // through this one shared mapping. A watchlist section already supplies
@@ -759,7 +850,7 @@
     return el('div', { className: isWatchlist ? 'ios-asset-card ios-watchlist-card' : 'ios-asset-card' }, lines);
   }
 
-  function buildAssetSection(title, assets, isWatchlist) {
+  function buildAssetSection(title, assets, isWatchlist, todos) {
     var heading = text('h2', null, title + ' (' + assets.length + ')');
     var children = [heading];
     if (isWatchlist) {
@@ -771,7 +862,7 @@
         '——这是合法的空结果，不是错误。'));
     } else {
       var grid = el('div', { className: 'ios-card-grid' });
-      assets.forEach(function (asset) { grid.appendChild(buildAssetCard(asset, isWatchlist)); });
+      assets.forEach(function (asset) { grid.appendChild(buildAssetCard(asset, isWatchlist, todos)); });
       children.push(grid);
     }
     return el('section', { className: 'ios-card' }, children);
@@ -910,7 +1001,14 @@
       children.push(text('p', 'ios-todo-note', todo['备注']));
     }
     var kindItemClass = !completed && TODO_KIND_ITEM_CLASS_[kind] ? TODO_KIND_ITEM_CLASS_[kind] : '';
-    return el('li', { className: 'ios-todo-item' + (completed ? ' ios-todo-done' : ' ios-todo-open') + kindItemClass }, children);
+    var todoId = String(todo['待办ID'] || '').trim();
+    var highlighted = todoId !== '' && todoId === STATE.highlightTodoId;
+    var item = el('li', {
+      className: 'ios-todo-item' + (completed ? ' ios-todo-done' : ' ios-todo-open') + kindItemClass + (highlighted ? ' ios-todo-highlight' : ''),
+      attrs: todoId === '' ? null : { 'data-todo-id': todoId }
+    }, children);
+    if (highlighted) { STATE.highlightTodoNode = item; }
+    return item;
   }
 
   /**
@@ -1054,6 +1152,7 @@
     STATE.activeView = view === 'weekly' ? 'weekly' : 'daily';
     STATE.viewingReportId = null;
     STATE.displayedViewModel = null;
+    STATE.highlightTodoId = null;
     render();
   }
 
