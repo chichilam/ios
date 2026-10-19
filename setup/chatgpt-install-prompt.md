@@ -382,7 +382,7 @@ Task 指令内容（每次创建或更新都要重新执行下面的替换，不
    更新"。
    **读回守卫（第 318 号 issue）**：创建/更新后，把两个 Task 的指令各读回一次，确认其中都有
    "购买计划模式守卫"一节，且 `purchase_plan_modes_supported:` 那一行声明了 `_安装状态` 当前
-   记录的 `purchase_plan_mode`（本版本的 Task 只声明 `legacy`）。任何一个 Task 读不回、缺这一节，
+   记录的 `purchase_plan_mode`（本版本的 Task 声明 `legacy`、`three_layer`、`three_layer_hold`）。任何一个 Task 读不回、缺这一节，
    或者声明里没有当前模式：这次升级没有完成——不要把 `schema_version` 写成 `9`，告诉用户哪个 Task
    出了问题。如果 `_安装状态` 已经记录了 `three_layer`/`three_layer_hold`，而你手上的 Task 指令
    不支持它：Blocked，不要用不支持该模式的指令覆盖现有 Task，也不要改写模式。
@@ -403,10 +403,11 @@ Task 指令内容（每次创建或更新都要重新执行下面的替换，不
 
 **购买计划模式切换（本版本不提供）**：`purchase_plan_mode` 只能由安装程序写入，而且只有在 Daily/
 Weekly 两个 Task 都已更新为支持三层模式的版本、Dashboard 已部署对应版本、并且 Weekly 已经在
-`legacy` 下为所有持仓和观察名单代码写好影子周计划之后才可以切换。本版本（P1）的 Task 只支持
-`legacy`，所以这个条件不可能满足：如果用户要求开启三层购买计划或切换到 `three_layer`/
-`three_layer_hold`，明确告诉用户"当前版本只提供表结构，三层购买计划的研究、判断和 Dashboard 还没有
-实现，不能切换"，不要写入任何非 `legacy` 的值，也不要改动纪元。
+`legacy` 下为所有持仓和观察名单代码写好影子周计划之后才可以切换。本版本的 Daily/Weekly Task 已经带有
+三层模式的研究与评估规则（第 316 号 issue P2、P3），但 Dashboard 还没有部署对应版本（P4），本安装程序
+也还没有切换前的就绪检查，所以这个条件不可能满足：如果用户要求开启三层购买计划或切换到 `three_layer`/
+`three_layer_hold`，明确告诉用户"三层购买计划的 Dashboard 和切换流程还没有实现，不能切换"，
+不要写入任何非 `legacy` 的值，也不要改动纪元，也不要建议用户手动修改 `_安装状态`。
 
 **关于 `report_table_names_*` 的限制（schema 版本 1，不支持自定义 tab 名）**：`_安装状态` 里的
 `report_table_names_*` 字段是为将来版本预留的迁移入口，**在当前 `schema_version: 1` 下，Sheet
