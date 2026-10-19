@@ -64,6 +64,41 @@ History，其余小节逐字保留）>`
 一段被正确省略的说明性小节（带有"本节为面向人类维护者的说明性内容，运行时快照已省略"占位说明）
 不是自检失败——那是按设计跳过的部分，不代表内容权威缺失。
 
+## 购买计划模式守卫（第 318 号 issue，schema_version 9）
+
+purchase_plan_modes_supported: legacy
+
+上面这一行声明本 Task 版本支持的购买计划模式，安装程序更新本 Task 后会读回它，不要改动。本版本只
+实现 v8 行为（`legacy`），没有实现三层购买计划（`three_layer`/`three_layer_hold`，见
+`docs/purchase-plan-three-layer-contract.md`）。每次生成报告时，在第一步读取其他 tab 之前先读取一次
+`_安装状态`，按下表第一条匹配的规则确定本次生成的模式。同一次生成（含重试前的这一次）全程只用这一个
+结果，不在中途重新判断，也不混用两种规则：
+
+| `_安装状态` 读取结果 | 本次生成 |
+| --- | --- |
+| tab 读取本身失败（权限/API 报错、超时） | Blocked：`_安装状态` 读取失败，无法确认购买计划模式 |
+| 确认 tab 完全不存在（早于内部状态机制的极旧安装） | `legacy` |
+| `schema_version` 不为空且不是正整数 | Blocked：schema 版本无法识别 |
+| `schema_version` ≤ 8 或为空，`purchase_plan_mode` 列不存在、为空或为 `legacy` | `legacy`（升级中途中断时的正常中间状态） |
+| `schema_version` ≤ 8 或为空，`purchase_plan_mode` 是其他任何值 | Blocked：schema 版本与购买计划模式不一致 |
+| `schema_version` ≥ 9，`purchase_plan_mode` 列不存在、为空或不是 `legacy`/`three_layer`/`three_layer_hold` 之一，或 `purchase_plan_mode_epoch` 列不存在、为空或不是正整数 | Blocked：购买计划模式缺失或无法识别 |
+| `schema_version` ≥ 9，`purchase_plan_mode` 不在上面 `purchase_plan_modes_supported` 声明里（本版本即 `three_layer`/`three_layer_hold`） | Blocked：任务版本不支持购买计划模式 X（X 写读到的值） |
+| `schema_version` ≥ 9，`purchase_plan_mode`=`legacy`，纪元是正整数 | `legacy` |
+
+- **Blocked**：不猜测模式，不按 v8 规则也不按三层规则生成任何持仓/观察名单判断。按
+  report_write_protocol 只发布一行 `报告摘要`，`核心状态` 写上表 Blocked 原因原文（例如
+  "Blocked：任务版本不支持购买计划模式 three_layer"），`报告持仓`/`报告风险` 不写行；可以写一条
+  `报告待办`（`跟进类型=可执行`）说明需要用户做什么（重新运行安装程序更新本 Task，或检查
+  `_安装状态`）。`购买计划模式`/`模式纪元` 留空。不发送成功通知。
+- **`legacy`**：本 Task 下文的全部规则照旧执行，等同 v8 行为。`入场计划.区间N价格` 保持 v8 的可执行
+  区间含义；不读取、不写入 `周度购买计划` 和 `周计划暂停记录`；`入场计划` 在 schema_version 9 新增的
+  十列（`合理价值下限` 到 `区间价格含义`）不读取、不写入，即使有值也不用于展示或判断；`报告持仓` 在
+  schema_version 9 新增的十五列（`周计划ID` 到 `已核验暂停记录ID`）和 `入场执行反馈.周计划ID` 一律
+  留空；`今日行动` 不写 `本周无购买区间`；`报告摘要.暂停载体行数` 留空。`schema_version` ≥ 9 时，
+  `报告摘要` 的 `购买计划模式` 写 `legacy`、`模式纪元` 写读到的 `purchase_plan_mode_epoch`；
+  `schema_version` ≤ 8 时这两列不写。
+- 本 Task 从不写入 `_安装状态`，也从不改变模式或纪元——模式只由安装程序写入。
+
 ## 第一步：读取 Sheet（权威来源，绝不使用旧的对话记忆代替）
 
 依次读取以下 tab（tab 名称、字段名必须与用户 Sheet 中的表头逐字匹配，不要臆测缩写或翻译）：
@@ -498,6 +533,10 @@ schema_version 8 时不写这些字段。
 
 ## 边界（不可违反）
 
+- 不在 `_安装状态` 读取失败、模式缺失/无法识别、schema 版本与模式不一致，或模式不在本 Task 的
+  `purchase_plan_modes_supported` 声明里时继续生成报告——这些都是 Blocked（第 318 号 issue）；
+  `legacy` 下不读写 `周度购买计划`/`周计划暂停记录`，不填 schema_version 9 新增的估值、周计划和暂停
+  事件列，表结构存在不等于三层购买计划已开启。
 - 不发布未通过"五项首屏与发布前校验"七项检查的行，不把无有效分档写成 `等待确认`，不把 `计划买入上限`
   复制成 `计划买入下限`（第 306 号 issue，schema_version 8）。
 - 不把 `今日行动` 写成映射表之外的值，不在 `准备状态` 不是 `可准备订单` 或 `执行状态` 不是 `可小额开始` 时写 `可人工准备限价单`，

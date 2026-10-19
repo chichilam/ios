@@ -69,6 +69,19 @@
       "type": "string",
       "required": false,
       "notes": "Optional; drives which language Dashboard/Task-facing copy renders in. Does not affect the schema's own (Chinese) field names."
+    },
+    "purchase_plan_mode": {
+      "type": "enum",
+      "values": ["legacy", "three_layer", "three_layer_hold"],
+      "required": true,
+      "default": "legacy",
+      "notes": "Issue #318 (#316 P1), schema_version 9. The purchase-plan behavior switch, separate from schema availability (docs/purchase-plan-three-layer-contract.md, 'Enablement'). Initial legacy (v8 behavior). The schema_version 9 upgrade writes the initial value only when none is recorded and never overwrites an existing one. Required once schema_version >= 9; an installation still at schema_version <= 8 behaves as legacy. A P1 installer never records three_layer or three_layer_hold."
+    },
+    "purchase_plan_mode_epoch": {
+      "type": "integer",
+      "required": true,
+      "default": 1,
+      "notes": "Issue #318 (#316 P1), schema_version 9. Initial 1, recorded together with the initial purchase_plan_mode and never reset by a repeated upgrade. Every mode write increments it in the same single-row write, so a generation computed under an older (mode, epoch) can be recognised as not current."
     }
   },
   "explicitly_excluded": [
