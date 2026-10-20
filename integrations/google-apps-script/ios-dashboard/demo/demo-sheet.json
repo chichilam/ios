@@ -63,5 +63,9 @@
     {"报告ID": "daily-2026-08-15", "生成ID": "gen-daily-0815-b", "报告类型": "daily", "报告日期": "2026-08-15", "排序": 2, "分类": "", "待办": "持续观察 Demo Robotics Co. 产能爬坡与毛利率变化", "状态": "待处理", "跟进类型": "持续观察", "备注": "", "_comment": "Issue #267 demo row: an ongoing-monitoring item -- must never inflate the 待处理 backlog count."},
     {"报告ID": "daily-2026-08-15", "生成ID": "gen-daily-0815-b", "报告类型": "daily", "报告日期": "2026-08-15", "排序": 3, "分类": "", "待办": "等待 Demo Watch Semiconductor 下一季度正式财报后再评估", "状态": "待处理", "跟进类型": "等待证据", "备注": "", "_comment": "Issue #267 demo row: waiting on an external event -- no actionable next step until then."}
   ],
+  "_install_state_comment": "Issue #316 P4: the Dashboard reads exactly two cells of _安装状态 (purchase_plan_mode, purchase_plan_mode_epoch) to decide whether a generation is current-executable. This demo installation is legacy at epoch 1, the state every installation starts in; the demo reports were written before the P1 guard (blank 购买计划模式/模式纪元), which reads as legacy at epoch 1, so they stay current.",
+  "_安装状态": [
+    {"purchase_plan_mode": "legacy", "purchase_plan_mode_epoch": 1}
+  ],
   "_generation_pointer_note": "报告持仓 for daily-2026-08-15 intentionally includes rows at both gen-daily-0815-a (stale) and gen-daily-0815-b (current, matching 报告摘要). 报告风险/报告待办 for weekly-2026-08-15 are intentionally absent entirely -- a valid empty result per blocked_vs_empty, not a Blocked report."
 }

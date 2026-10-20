@@ -252,7 +252,7 @@
     },
     "周计划暂停记录": {
       "english_name": "Weekly Plan Suspension Records",
-      "purpose": "Append-only fact tab of verifiable major events that stop new buying under a weekly plan until a weekly-plan version reviews them (Issue #316 contract, 'Mid-week events'). Created header-only by schema_version 9 (Issue #318, #316 P1).",
+      "purpose": "Append-only fact tab of verifiable major events that stop new buying under a weekly plan until a weekly-plan version reviews them (Issue #316 contract, 'Mid-week events'). Created header-only by schema_version 9 (Issue #318, #316 P1). The Dashboard (P4) reads only 暂停记录ID and 代码 from this tab, fresh on every request, after the 报告持仓 暂停事件载荷 column (the contract's safe scan); a missing tab, a failed or short read or a blank 暂停记录ID/代码 makes three-layer rows '暂停状态无法核验', never an empty set (Issue #323).",
       "fields": [
         {"name": "暂停记录ID", "type": "string", "required": true, "notes": "Stable identity of the EVENT, not of the write: 代码|事件类别|来源标识, where 来源标识 is the official document's own identifier (filing/disclosure number or its normalized official URL) plus the event date. Two writers recording the same disclosure produce the same ID; readers treat all rows with one ID as one record."},
         {"name": "代码", "type": "string", "required": true},
@@ -417,7 +417,7 @@
     },
     "_安装状态": {
       "english_name": "Installation State (internal)",
-      "purpose": "Installer-owned metadata tab (Phase C review finding): the concrete, lossless persistence location for every field of setup/schema/installation-state.json's model, so an installer run can detect an existing installation and upgrade it -- using exact recorded identities -- instead of duplicating Tasks or guessing which Sheet a Task should read. Field names follow installation-state.json's own 'flattening_convention' mechanically (see that file) -- this is not a hand-picked subset. Not a user-facing data tab; users should not hand-edit it. Exactly one data row exists per installation.",
+      "purpose": "Installer-owned metadata tab (Phase C review finding): the concrete, lossless persistence location for every field of setup/schema/installation-state.json's model, so an installer run can detect an existing installation and upgrade it -- using exact recorded identities -- instead of duplicating Tasks or guessing which Sheet a Task should read. Field names follow installation-state.json's own 'flattening_convention' mechanically (see that file) -- this is not a hand-picked subset. Not a user-facing data tab; users should not hand-edit it. Exactly one data row exists per installation. The Dashboard (P4) reads only purchase_plan_mode and purchase_plan_mode_epoch from this tab (the contract's current-epoch reader gate, Issue #323): a generation whose 模式纪元 differs, or any generation when this tab is unreadable, is shown as not current; it never reads any other field.",
       "fields": [
         {"name": "schema_version", "type": "integer", "required": true, "notes": "installation-state.json: schema_version."},
         {"name": "spreadsheet_id", "type": "string", "required": true, "notes": "installation-state.json: spreadsheet_id. Redundant with the Sheet's own id, kept here so a Task/installer run can self-verify it is reading the Sheet it thinks it is."},

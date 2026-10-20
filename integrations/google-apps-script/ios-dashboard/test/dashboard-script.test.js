@@ -134,13 +134,16 @@ function buildBootstrapWithHolding(overrides) {
     '建议订单规模说明': '',
     '计划订单有效期': '',
     '跳空处理提示': '',
-    '最近订单状态': ''
+    '最近订单状态': '',
+    // What Code.gs's applyReaderGate_ attaches to a current-epoch row (Issue #316 P4).
+    _iosOrderable: { ok: true, message: null }
   }, overrides);
   return {
     error: null,
     daily: {
       found: true,
       reportType: 'daily',
+      readerGate: { threeLayer: false, current: true, banner: null },
       summary: {
         报告ID: 'daily-2026-08-20',
         报告日期: '2026-08-20',

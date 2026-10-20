@@ -125,6 +125,23 @@ approximation of it:
   own bordered green tier class (`.ios-badge-done`) distinct from the plain neutral badge open
   items use, for fast scanning.
 
+## Three-layer reader and build marker (Issue #323, #316 P4)
+
+When a report was written in `three_layer`/`three_layer_hold` mode, the card follows the order
+今日行动 → 本周购买计划 → 长期估值, and the Dashboard decides on every request whether the report is
+still a current action. It reads only two `_安装状态` cells (`purchase_plan_mode`,
+`purchase_plan_mode_epoch`), the `报告持仓` column `暂停事件载荷` and the `周计划暂停记录` columns
+`暂停记录ID`/`代码`; it never reads `周度购买计划` or `入场计划`. A report from another mode epoch shows
+"该报告生成于购买计划模式变更前，非当前行动"; a suspension event the report did not see shows
+"有未纳入本报告的暂停事件，非当前行动"; a scan it cannot complete shows "暂停状态无法核验". Reports
+written in `legacy` mode keep their layout.
+
+Opening `<your /exec URL>?view=build&nonce=<code>` returns four plain-text lines, starting with
+`IOS_DASHBOARD_BUILD=ios-dashboard-p4-three-layer-reader-1`, then the Sheet this deployment is
+configured for, the mode and epoch it reads now, and the nonce echoed back. The installer gives you
+the link with a fresh code and asks you to paste the page before it will switch modes. A report
+written in `three_layer_hold` is never shown as 适合买入. Tests: `test/three-layer-reader.test.js`.
+
 ## Follow-up kind: actionable vs. ongoing monitoring vs. waiting for evidence (Issue #267)
 
 `报告待办`'s optional `跟进类型` field (`schema_version 3`) distinguishes three kinds of follow-up so

@@ -22,7 +22,10 @@
  * The seven user-facing tab names the Dashboard reads, in the order
  * setup/schema/sheet-schema.json defines them. Deliberately excludes the
  * schema's installer-owned internal tab (_安装状态) -- the Dashboard has no
- * reason to read or render installer/Task bookkeeping state.
+ * reason to read or render installer/Task bookkeeping state. The one
+ * exception is the three-layer reader gate (Issue #323, #316 P4), which reads
+ * exactly two _安装状态 cells and two 周计划暂停记录 columns through
+ * readReaderInputs_ below, never through this list.
  */
 var SHEET_TABS_ = [
   '当前持仓', '交易记录', '观察名单', '报告摘要', '报告持仓', '报告风险', '报告待办'
@@ -103,7 +106,7 @@ function filterLiveDetailRows_(detailRows, reportId, generationId) {
  * generation renders as a valid empty section (see blocked_vs_empty in
  * setup/schema/sheet-schema.json) -- never as an error.
  */
-function buildReportViewModel_(tabs, reportType, explicitReportId) {
+function buildReportViewModel_(tabs, reportType, explicitReportId, reader) {
   var summary = selectReportSummary_(tabs['报告摘要'], reportType, explicitReportId);
   if (!summary) {
     return { found: false, reportType: reportType };
@@ -111,7 +114,12 @@ function buildReportViewModel_(tabs, reportType, explicitReportId) {
 
   var reportId = summary['报告ID'];
   var generationId = summary['生成ID'];
-  var liveAssets = filterLiveDetailRows_(tabs['报告持仓'], reportId, generationId);
+  // Issue #316 P4: whether this generation, and each of its rows, may be
+  // shown as a current action (see applyReaderGate_). Without explicit
+  // reader inputs they come from `tabs` itself.
+  var gated = applyReaderGate_(summary, filterLiveDetailRows_(tabs['报告持仓'], reportId, generationId),
+    reader || readerFromTabs_(tabs));
+  var liveAssets = gated.rows;
   var holdings = liveAssets.filter(function (row) { return row['资产类型'] === 'holding'; });
   var watchlistCandidates = liveAssets.filter(function (row) { return row['资产类型'] === 'watchlist'; });
   var risks = filterLiveDetailRows_(tabs['报告风险'], reportId, generationId);
@@ -121,6 +129,7 @@ function buildReportViewModel_(tabs, reportType, explicitReportId) {
     found: true,
     reportType: reportType,
     summary: summary,
+    readerGate: gated.gate,
     holdings: sortByOrder_(holdings),
     watchlistCandidates: sortByOrder_(watchlistCandidates),
     risks: sortByOrder_(risks),
@@ -180,11 +189,13 @@ function resolveReportTypeFromReportId_(reportId) {
  * the Apps Script glue section), not here; this function assumes tabs was
  * already read successfully.
  */
-function buildDashboardBootstrap_(tabs) {
+function buildDashboardBootstrap_(tabs, reader) {
+  var inputs = reader || readerFromTabs_(tabs);
   return {
     error: null,
-    daily: buildReportViewModel_(tabs, 'daily', null),
-    weekly: buildReportViewModel_(tabs, 'weekly', null),
+    buildMarker: DASHBOARD_BUILD_MARKER_,
+    daily: buildReportViewModel_(tabs, 'daily', null, inputs),
+    weekly: buildReportViewModel_(tabs, 'weekly', null, inputs),
     dailyHistory: buildHistoryList_(tabs['报告摘要'], 'daily'),
     weeklyHistory: buildHistoryList_(tabs['报告摘要'], 'weekly'),
     allocation: buildAllocationView_(tabs['当前持仓'])
@@ -199,12 +210,12 @@ function buildDashboardBootstrap_(tabs) {
  * error -- e.g. a stale/tampered client-side link is not the same failure
  * class as a genuine Sheet read problem.
  */
-function getReport_(tabs, reportId) {
+function getReport_(tabs, reportId, reader) {
   var reportType = resolveReportTypeFromReportId_(reportId);
   if (!reportType) {
     return { found: false, reportType: null };
   }
-  return buildReportViewModel_(tabs, reportType, reportId);
+  return buildReportViewModel_(tabs, reportType, reportId, reader);
 }
 
 /**
@@ -371,6 +382,315 @@ function reconcileFundSleeveValue_(currentHoldingsRows, fundSleeveRows) {
   };
 }
 
+// -- Three-layer reader gate (Issue #316 P4, #323). The contract
+// (docs/purchase-plan-three-layer-contract.md, "Publishing across a mode
+// change" and "Mid-week events") makes the Dashboard decide, by identity
+// and never by time, whether a published row may be shown as a current
+// action: its generation's 模式纪元 must equal _安装状态's epoch now, and --
+// for a three_layer/three_layer_hold generation -- every 暂停记录ID that now
+// exists for the row's 代码 in either carrier must be in the row's own
+// 已核验暂停记录ID. For that the Dashboard reads exactly two cells of
+// _安装状态 (purchase_plan_mode, purchase_plan_mode_epoch), exactly two
+// columns of 周计划暂停记录 (暂停记录ID, 代码) and the 报告持仓 payload column
+// 暂停事件载荷 -- no plan tab, no investment judgment: the gate is a set-
+// containment check on ids. Every failure fails closed (not current /
+// not orderable); nothing here ever turns a row into 适合买入.
+
+/** Read back by the installer before it may write three_layer (contract "Enablement"); see doGet's ?view=build. */
+var DASHBOARD_BUILD_MARKER_ = 'ios-dashboard-p4-three-layer-reader-1';
+
+var PURCHASE_PLAN_MODES_ = ['legacy', 'three_layer', 'three_layer_hold'];
+var THREE_LAYER_MODES_ = ['three_layer', 'three_layer_hold'];
+var INSTALL_STATE_TAB_ = '_安装状态';
+var SUSPENSION_RECORD_TAB_ = '周计划暂停记录';
+var PAYLOAD_COLUMN_ = '暂停事件载荷';
+var SEEN_SET_COLUMN_ = '已核验暂停记录ID';
+
+var READER_TEXT_ = {
+  epochChanged: '该报告生成于购买计划模式变更前，非当前行动',
+  modeUnreadable: '无法核验当前购买计划模式，非当前行动',
+  generationInvalid: '该报告的购买计划模式或纪元无法识别，非当前行动',
+  unseenEvent: '有未纳入本报告的暂停事件，非当前行动',
+  scanUnverifiable: '暂停状态无法核验',
+  holdMode: '三层购买计划暂停中，非当前行动'
+};
+
+/**
+ * The ?view=build attestation (Issue #323 review B4). The installer opens it
+ * with a fresh nonce of its own, so a stale paste, an old deployment (which
+ * prints only the first line) or a deployment bound to another Sheet cannot
+ * match: line 2 is the Sheet this deployment is configured for, line 3 the
+ * mode and epoch it reads live, line 4 the nonce echoed only when well-formed.
+ */
+var BUILD_NONCE_PATTERN_ = /^[A-Za-z0-9]{16,64}$/;
+
+function buildAttestationText_(nonce, configuredSheetId, install) {
+  var mode = install && install.readable ? install.mode + '@' + install.epoch : '无法读取';
+  return [
+    'IOS_DASHBOARD_BUILD=' + DASHBOARD_BUILD_MARKER_,
+    'IOS_DASHBOARD_SHEET=' + (configuredSheetId ? String(configuredSheetId) : '未配置'),
+    'IOS_DASHBOARD_MODE=' + mode,
+    'IOS_DASHBOARD_NONCE=' + (typeof nonce === 'string' && BUILD_NONCE_PATTERN_.test(nonce) ? nonce : '无效')
+  ].join('\n');
+}
+
+function isBlankCell_(value) {
+  return value === '' || value == null;
+}
+
+/** A positive integer, or null -- a boolean, a fraction, 0, a negative or "2a" is never an epoch. */
+function parsePositiveInt_(value) {
+  if (typeof value === 'number') {
+    return Number.isInteger(value) && value > 0 ? value : null;
+  }
+  if (typeof value === 'string' && /^\s*[1-9]\d*\s*$/.test(value)) {
+    return Number(value.trim());
+  }
+  return null;
+}
+
+/**
+ * The installation's mode and epoch now. `read` is {status: 'ok',
+ * hasModeColumns, rows: [{purchase_plan_mode, purchase_plan_mode_epoch}]},
+ * {status: 'missing'} or {status: 'error'}. A tab that is missing or cannot
+ * be read, a row count other than one, or a malformed value is unreadable --
+ * then no generation is current-executable. A readable tab that has neither
+ * column is a pre-schema_version-9 installation, which is legacy at epoch 1
+ * (the epoch every installation starts at, P1); one column without the
+ * other is unreadable.
+ */
+function resolveInstallMode_(read) {
+  if (!read || read.status !== 'ok') return { readable: false };
+  var rows = read.rows || [];
+  if (rows.length !== 1) return { readable: false };
+  if (read.hasModeColumns === false) return { readable: true, mode: 'legacy', epoch: 1 };
+  if (read.hasModeColumns !== true) return { readable: false };
+  var mode = rows[0]['purchase_plan_mode'];
+  var epoch = parsePositiveInt_(rows[0]['purchase_plan_mode_epoch']);
+  if (PURCHASE_PLAN_MODES_.indexOf(mode) === -1 || epoch === null) return { readable: false };
+  return { readable: true, mode: mode, epoch: epoch };
+}
+
+/**
+ * (mode, epoch) a generation was written in, from its own 报告摘要 row, or
+ * null when it cannot be told. A row written before the P1 guard (both
+ * blank) is legacy at epoch 1; a three-layer generation always carries its
+ * epoch, so a blank one there is unidentifiable.
+ */
+function generationMode_(summary) {
+  var rawMode = summary ? summary['购买计划模式'] : '';
+  var rawEpoch = summary ? summary['模式纪元'] : '';
+  var mode = isBlankCell_(rawMode) ? 'legacy' : rawMode;
+  if (PURCHASE_PLAN_MODES_.indexOf(mode) === -1) return null;
+  if (isBlankCell_(rawEpoch)) {
+    return mode === 'legacy' ? { mode: mode, epoch: 1 } : null;
+  }
+  var epoch = parsePositiveInt_(rawEpoch);
+  return epoch === null ? null : { mode: mode, epoch: epoch };
+}
+
+/** One 暂停事件载荷 cell: [] when blank, null when it is not a JSON array of entries that each name 暂停记录ID and 代码. */
+function parsePayloadCell_(cell) {
+  if (isBlankCell_(cell)) return [];
+  if (typeof cell !== 'string') return null;
+  var value;
+  try {
+    value = JSON.parse(cell);
+  } catch (err) {
+    return null;
+  }
+  if (!Array.isArray(value)) return null;
+  for (var i = 0; i < value.length; i++) {
+    var entry = value[i];
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry) ||
+        typeof entry['暂停记录ID'] !== 'string' || entry['暂停记录ID'].trim() === '' ||
+        typeof entry['代码'] !== 'string' || entry['代码'].trim() === '') {
+      return null;
+    }
+  }
+  return value;
+}
+
+/** 已核验暂停记录ID: the canonical JSON array of distinct ids in sorted order, or null (blank or anything else). */
+function parseSeenSet_(cell) {
+  if (isBlankCell_(cell) || typeof cell !== 'string') return null;
+  var value;
+  try {
+    value = JSON.parse(cell);
+  } catch (err) {
+    return null;
+  }
+  if (!Array.isArray(value)) return null;
+  for (var i = 0; i < value.length; i++) {
+    if (typeof value[i] !== 'string' || value[i] === '') return null;
+    if (i > 0 && !(value[i - 1] < value[i])) return null;
+  }
+  return value;
+}
+
+/**
+ * The largest row counts any published generation recorded in
+ * 报告摘要.暂停载体行数 -- the scan watermark. A malformed watermark cannot be
+ * honored, so it makes the scan unverifiable ({ok: false}) rather than
+ * being skipped.
+ */
+function scanWatermark_(summaryRows) {
+  var marks = { '报告持仓': 0, '周计划暂停记录': 0 };
+  var rows = summaryRows || [];
+  for (var i = 0; i < rows.length; i++) {
+    var raw = rows[i]['暂停载体行数'];
+    if (isBlankCell_(raw)) continue;
+    var value;
+    try {
+      value = typeof raw === 'string' ? JSON.parse(raw) : null;
+    } catch (err) {
+      return { ok: false };
+    }
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return { ok: false };
+    var keys = Object.keys(marks);
+    for (var k = 0; k < keys.length; k++) {
+      if (!Object.prototype.hasOwnProperty.call(value, keys[k])) continue;
+      var count = value[keys[k]];
+      if (typeof count !== 'number' || !Number.isInteger(count) || count < 0) return { ok: false };
+      marks[keys[k]] = Math.max(marks[keys[k]], count);
+    }
+  }
+  return { ok: true, marks: marks };
+}
+
+/**
+ * The safe scan of both carriers (contract "Safe scan"): the 报告持仓
+ * payload column first, then the record tab's two columns, each complete
+ * and at or above the watermark; one retry of both reads, never merging
+ * two attempts. readPayload() returns {ok: true, cells: [...]} or {ok:
+ * false}; readRecords() returns {ok: true, rows: [{id, code}]} or {ok:
+ * false}. Result: {verifiable: true, idsByCode} or {verifiable: false}.
+ * Never an empty set on failure.
+ */
+function runSafeScan_(readPayload, readRecords, watermark) {
+  if (!watermark || !watermark.ok) return { verifiable: false };
+  for (var attempt = 0; attempt < 2; attempt++) {
+    var payload = readPayload();
+    var records = readRecords();
+    if (!payload || !payload.ok || !records || !records.ok) continue;
+    if (payload.cells.length < watermark.marks['报告持仓'] ||
+        records.rows.length < watermark.marks['周计划暂停记录']) continue;
+    var idsByCode = {};
+    var ok = true;
+    var add = function (code, id) {
+      if (!Object.prototype.hasOwnProperty.call(idsByCode, code)) idsByCode[code] = {};
+      idsByCode[code][id] = true;
+    };
+    for (var i = 0; i < payload.cells.length && ok; i++) {
+      var entries = parsePayloadCell_(payload.cells[i]);
+      if (entries === null) { ok = false; break; }
+      entries.forEach(function (entry) { add(entry['代码'], entry['暂停记录ID']); });
+    }
+    for (var j = 0; j < records.rows.length && ok; j++) {
+      var rec = records.rows[j];
+      if (typeof rec.id !== 'string' || rec.id.trim() === '' || typeof rec.code !== 'string' || rec.code.trim() === '') {
+        ok = false;
+        break;
+      }
+      add(rec.code, rec.id);
+    }
+    if (!ok) continue;
+    var result = {};
+    Object.keys(idsByCode).forEach(function (code) { result[code] = Object.keys(idsByCode[code]).sort(); });
+    return { verifiable: true, idsByCode: result };
+  }
+  return { verifiable: false };
+}
+
+/**
+ * Whether one published row passes the suspension half of the reader gate:
+ * 'ok', 'unverifiable' (scan failed, or the row's seen set is blank or not
+ * canonical) or 'unseen' (an id that now exists for its 代码 is missing from
+ * the seen set). A released event the generation saw is in its seen set and
+ * never blocks; timestamps are never consulted.
+ */
+function suspensionGate_(row, scan) {
+  if (!scan || !scan.verifiable) return 'unverifiable';
+  var seen = parseSeenSet_(row[SEEN_SET_COLUMN_]);
+  if (seen === null) return 'unverifiable';
+  var now = scan.idsByCode[row['代码']] || [];
+  for (var i = 0; i < now.length; i++) {
+    if (seen.indexOf(now[i]) === -1) return 'unseen';
+  }
+  return 'ok';
+}
+
+/**
+ * The generation-level half of the gate plus each row's result, attached
+ * to the view model: readerGate = {threeLayer, current, banner}; every
+ * holding/watchlist row gets a shallow copy carrying _iosOrderable =
+ * {ok, message}. A row that is not ok keeps every order/blocker fact it
+ * carries -- only its status as a current action is withdrawn.
+ */
+function applyReaderGate_(summary, rows, reader) {
+  var install = reader && reader.install ? reader.install : { readable: false };
+  var generation = generationMode_(summary);
+  var threeLayer = !!generation && THREE_LAYER_MODES_.indexOf(generation.mode) !== -1;
+  var banner = null;
+  if (!install.readable) {
+    banner = READER_TEXT_.modeUnreadable;
+  } else if (!generation) {
+    banner = READER_TEXT_.generationInvalid;
+  } else if (generation.epoch !== install.epoch || generation.mode !== install.mode) {
+    banner = READER_TEXT_.epochChanged;
+  }
+  var gated = (rows || []).map(function (row) {
+    var copy = {};
+    Object.keys(row).forEach(function (key) { copy[key] = row[key]; });
+    var orderable = { ok: banner === null, message: banner };
+    // three_layer_hold stops every new buy whatever the row says (contract
+    // "Enablement"): a writer's mistaken ready row is never orderable, while
+    // its order and blocker facts stay visible (Issue #323 review B3).
+    if (orderable.ok && generation.mode === 'three_layer_hold') {
+      orderable = { ok: false, message: READER_TEXT_.holdMode };
+    }
+    if (orderable.ok && threeLayer) {
+      var result = suspensionGate_(row, reader ? reader.scan : null);
+      if (result === 'unverifiable') orderable = { ok: false, message: READER_TEXT_.scanUnverifiable };
+      if (result === 'unseen') orderable = { ok: false, message: READER_TEXT_.unseenEvent };
+    }
+    copy._iosOrderable = orderable;
+    copy._iosThreeLayer = threeLayer;
+    copy._iosPurchaseMode = generation ? generation.mode : null;
+    return copy;
+  });
+  return { gate: { threeLayer: threeLayer, mode: generation ? generation.mode : null, current: banner === null, banner: banner }, rows: gated };
+}
+
+/**
+ * The reader inputs for a plain-data `tabs` object (Node tests, the demo
+ * Sheet): tabs['_安装状态'] and tabs['周计划暂停记录'] as row objects, absent
+ * when the tab is absent. The Apps Script glue builds the same result from
+ * its own fresh column reads instead (readReaderInputs_).
+ */
+function readerFromTabs_(tabs) {
+  var stateRows = tabs[INSTALL_STATE_TAB_];
+  var install = resolveInstallMode_(stateRows === undefined ? { status: 'missing' } : {
+    status: 'ok',
+    hasModeColumns: stateRows.length > 0 && Object.prototype.hasOwnProperty.call(stateRows[0], 'purchase_plan_mode'),
+    rows: stateRows
+  });
+  var assets = tabs['报告持仓'] || [];
+  var records = tabs[SUSPENSION_RECORD_TAB_];
+  var hasPayload = assets.length === 0 || Object.prototype.hasOwnProperty.call(assets[0], PAYLOAD_COLUMN_);
+  var scan = runSafeScan_(
+    function () { return hasPayload ? { ok: true, cells: assets.map(function (r) { return r[PAYLOAD_COLUMN_]; }) } : { ok: false }; },
+    function () {
+      return records === undefined ? { ok: false } : {
+        ok: true,
+        rows: records.map(function (r) { return { id: r['暂停记录ID'], code: r['代码'] }; })
+      };
+    },
+    scanWatermark_(tabs['报告摘要'])
+  );
+  return { install: install, scan: scan };
+}
+
 // ---------------------------------------------------------------------------
 // Section 2: Apps Script glue (requires the Apps Script runtime)
 // ---------------------------------------------------------------------------
@@ -450,6 +770,79 @@ function readAllTabs_(spreadsheet) {
   return tabs;
 }
 
+/**
+ * Fresh reads of only the named columns of one tab (Issue #316 P4): the
+ * header row, then each column's data cells. {ok: true, columns: {name:
+ * [...]}, present: {name: bool}} or {ok: false} when the tab is missing or
+ * the read throws. No cache is ever consulted -- every page load and every
+ * history fetch reads again.
+ */
+function readColumns_(spreadsheet, tabName, names) {
+  try {
+    var sheet = spreadsheet.getSheetByName(tabName);
+    if (!sheet) return { ok: false, missing: true };
+    var lastRow = sheet.getLastRow();
+    var lastColumn = sheet.getLastColumn();
+    if (lastRow < 1 || lastColumn < 1) return { ok: true, columns: {}, present: {}, rowCount: 0, empty: true };
+    var headers = sheet.getRange(1, 1, 1, lastColumn).getValues()[0];
+    var columns = {};
+    var present = {};
+    names.forEach(function (name) {
+      var index = headers.indexOf(name);
+      present[name] = index !== -1;
+      if (index === -1) return;
+      columns[name] = lastRow < 2 ? [] : sheet.getRange(2, index + 1, lastRow - 1, 1).getValues().map(function (r) { return r[0]; });
+    });
+    return { ok: true, columns: columns, present: present, rowCount: Math.max(lastRow - 1, 0) };
+  } catch (err) {
+    return { ok: false };
+  }
+}
+
+/** The installation's (mode, epoch), from a fresh read of exactly the two _安装状态 cells. */
+function readInstallMode_(spreadsheet) {
+  var state = readColumns_(spreadsheet, INSTALL_STATE_TAB_, ['purchase_plan_mode', 'purchase_plan_mode_epoch']);
+  var installRead;
+  if (!state.ok) {
+    installRead = { status: state.missing ? 'missing' : 'error' };
+  } else if (state.present['purchase_plan_mode'] !== state.present['purchase_plan_mode_epoch']) {
+    installRead = { status: 'error' };
+  } else {
+    var rows = [];
+    for (var i = 0; i < state.rowCount; i++) {
+      rows.push({
+        purchase_plan_mode: state.present['purchase_plan_mode'] ? state.columns['purchase_plan_mode'][i] : '',
+        purchase_plan_mode_epoch: state.present['purchase_plan_mode_epoch'] ? state.columns['purchase_plan_mode_epoch'][i] : ''
+      });
+    }
+    installRead = { status: 'ok', hasModeColumns: !!state.present['purchase_plan_mode'], rows: rows };
+  }
+  return resolveInstallMode_(installRead);
+}
+
+/** The reader inputs for applyReaderGate_, from fresh column reads (payload column first, then the record tab). */
+function readReaderInputs_(spreadsheet, tabs) {
+  var install = readInstallMode_(spreadsheet);
+  var scan = runSafeScan_(
+    function () {
+      var payload = readColumns_(spreadsheet, '报告持仓', [PAYLOAD_COLUMN_]);
+      return payload.ok && payload.present[PAYLOAD_COLUMN_] ? { ok: true, cells: payload.columns[PAYLOAD_COLUMN_] } : { ok: false };
+    },
+    function () {
+      var records = readColumns_(spreadsheet, SUSPENSION_RECORD_TAB_, ['暂停记录ID', '代码']);
+      if (!records.ok || !records.present['暂停记录ID'] || !records.present['代码']) return { ok: false };
+      return {
+        ok: true,
+        rows: records.columns['暂停记录ID'].map(function (id, index) {
+          return { id: String(id == null ? '' : id), code: String(records.columns['代码'][index] == null ? '' : records.columns['代码'][index]) };
+        })
+      };
+    },
+    scanWatermark_(tabs['报告摘要'])
+  );
+  return { install: install, scan: scan };
+}
+
 function include_(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
@@ -499,10 +892,11 @@ function buildBootstrapSafe_() {
   try {
     var spreadsheet = getConfiguredSpreadsheet_();
     var tabs = readAllTabs_(spreadsheet);
-    return buildDashboardBootstrap_(tabs);
+    return buildDashboardBootstrap_(tabs, readReaderInputs_(spreadsheet, tabs));
   } catch (err) {
     return {
       error: String(err && err.message ? err.message : err),
+      buildMarker: DASHBOARD_BUILD_MARKER_,
       daily: { found: false, reportType: 'daily' },
       weekly: { found: false, reportType: 'weekly' },
       dailyHistory: [],
@@ -537,7 +931,7 @@ function getReport(reportId) {
   try {
     var spreadsheet = getConfiguredSpreadsheet_();
     var tabs = readAllTabs_(spreadsheet);
-    var result = getReport_(tabs, reportId);
+    var result = getReport_(tabs, reportId, readReaderInputs_(spreadsheet, tabs));
     result.error = null;
     return result;
   } catch (err) {
@@ -560,6 +954,11 @@ function getReport(reportId) {
  */
 function doGet(e) {
   var params = (e && e.parameter) || {};
+  if (params.view === 'build') {
+    // Issue #316 P4: the attestation the installer reads back before it may
+    // write three_layer. Reads only the two _安装状态 mode cells.
+    return ContentService.createTextOutput(buildAttestationSafe_(params.nonce)).setMimeType(ContentService.MimeType.TEXT);
+  }
   var view = params.view === 'weekly' ? 'weekly' : 'daily';
 
   var template = HtmlService.createTemplateFromFile('Index');
@@ -570,6 +969,24 @@ function doGet(e) {
   return template.evaluate()
     .setTitle('IOS Personal Dashboard')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+/** The marker line alone (the first line of the attestation). */
+function buildMarkerText_() {
+  return 'IOS_DASHBOARD_BUILD=' + DASHBOARD_BUILD_MARKER_;
+}
+
+/** ?view=build: never throws; an unreadable Sheet reads as 无法读取 / 未配置. */
+function buildAttestationSafe_(nonce) {
+  var sheetId = null;
+  var install = { readable: false };
+  try {
+    sheetId = PropertiesService.getScriptProperties().getProperty(SCRIPT_PROPERTY_SPREADSHEET_ID_);
+    install = readInstallMode_(getConfiguredSpreadsheet_());
+  } catch (err) {
+    install = { readable: false };
+  }
+  return buildAttestationText_(nonce, sheetId, install);
 }
 
 // Exposes the pure-logic section to a plain Node test runner. Apps Script
@@ -591,6 +1008,23 @@ if (typeof module !== 'undefined') {
     buildDashboardBootstrap_: buildDashboardBootstrap_,
     getReport_: getReport_,
     escapeJsonForScriptContext_: escapeJsonForScriptContext_,
+    parsePositiveInt_: parsePositiveInt_,
+    resolveInstallMode_: resolveInstallMode_,
+    generationMode_: generationMode_,
+    parsePayloadCell_: parsePayloadCell_,
+    parseSeenSet_: parseSeenSet_,
+    scanWatermark_: scanWatermark_,
+    runSafeScan_: runSafeScan_,
+    suspensionGate_: suspensionGate_,
+    applyReaderGate_: applyReaderGate_,
+    readerFromTabs_: readerFromTabs_,
+    readColumns_: readColumns_,
+    readReaderInputs_: readReaderInputs_,
+    readInstallMode_: readInstallMode_,
+    buildMarkerText_: buildMarkerText_,
+    buildAttestationText_: buildAttestationText_,
+    DASHBOARD_BUILD_MARKER_: DASHBOARD_BUILD_MARKER_,
+    READER_TEXT_: READER_TEXT_,
     sortByOrder_: sortByOrder_,
     findMissingRequiredHeaders_: findMissingRequiredHeaders_,
     isUnconfiguredSpreadsheetId_: isUnconfiguredSpreadsheetId_,

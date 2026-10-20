@@ -204,9 +204,28 @@
       return;
     }
 
+    var readerBanner = buildReaderBanner_(vm);
+    if (readerBanner) { container.appendChild(readerBanner); }
     container.appendChild(buildSummaryGrid(vm));
     container.appendChild(buildHeadlineCard(vm));
     container.appendChild(buildReportCaption(vm));
+  }
+
+  /**
+   * Issue #316 P4 reader gate, generation half: a generation whose 模式纪元
+   * is not the installation's epoch now (or when the mode cannot be read)
+   * is a pre-change snapshot -- one banner here, and no row of it is shown
+   * as 适合买入 (see todayVerdict_). Computed server-side (applyReaderGate_ in
+   * Code.gs); a view model without it is treated as not current.
+   */
+  function buildReaderBanner_(vm) {
+    var gate = vm.readerGate;
+    if (gate && gate.current === true) { return null; }
+    var message = gate && gate.banner ? gate.banner : '无法核验本报告是否为当前行动，非当前行动';
+    return el('section', { className: 'ios-reader-banner', attrs: { role: 'status' } }, [
+      text('strong', null, message),
+      text('p', 'ios-muted', '订单、阻塞待办与历史内容照常显示；本报告中的任何一行都不作为当前买入依据。')
+    ]);
   }
 
   function buildEmptyStateCard(view) {
@@ -595,7 +614,10 @@
     '等待': 'ios-severity-medium',
     '无法判断': 'ios-badge-unavailable'
   };
-  var WAIT_ACTIONS_ = ['等待价格', '等待确认', '已有订单勿重复', '暂停新增待复核'];
+  // 本周无购买区间 is written only by three-layer generations (Issue #316,
+  // contract T7/T8) and renders as 等待 with its reason; a legacy row never
+  // carries it.
+  var WAIT_ACTIONS_ = ['等待价格', '等待确认', '已有订单勿重复', '暂停新增待复核', '本周无购买区间'];
 
   /** A v8 row always carries 阻塞待办ID (无 when nothing blocks); blank means an older report version. */
   function hasBlockerLinks_(asset) {
@@ -608,6 +630,23 @@
     return raw.split(/[、,，;；\s]+/).filter(function (id) { return id !== ''; });
   }
 
+  /** A row of a three_layer/three_layer_hold generation, or one carrying weekly-plan snapshot fields (Issue #316). */
+  function isThreeLayerRow_(asset) {
+    return asset._iosThreeLayer === true || !isBlank(asset['周计划ID']) || !isBlank(asset['周计划状态']);
+  }
+
+  /**
+   * Issue #316 P4 reader gate, row half, computed server-side
+   * (applyReaderGate_): current epoch, and for a three-layer row every
+   * suspension id that now exists for its 代码 already in its seen set. A row
+   * without the result is not orderable.
+   */
+  function readerGateProblem_(asset) {
+    var gate = asset._iosOrderable;
+    if (gate && gate.ok === true) { return null; }
+    return gate && gate.message ? gate.message : '无法核验是否为当前行动';
+  }
+
   function todayVerdict_(asset) {
     var action = asset['今日行动'];
     if (action === '可人工准备限价单') {
@@ -616,6 +655,12 @@
       // 阻塞待办ID (older report version, or a v8 row missing the column)
       // never becomes a 适合买入 promise (PR #311 review).
       if (String(asset['阻塞待办ID'] == null ? '' : asset['阻塞待办ID']).trim() !== '无') { return '无法判断'; }
+      // Three-layer rows also need a valid weekly plan and funding verified
+      // for this batch (contract "Dashboard", today_verdict in P3).
+      if (isThreeLayerRow_(asset) && (asset['周计划状态'] !== '有效' || asset['资金结论'] !== '已核验充足')) { return '无法判断'; }
+      if (readerGateProblem_(asset)) { return '无法判断'; }
+      // Independent of the server gate: a hold generation never buys.
+      if (asset._iosPurchaseMode !== 'three_layer' && isThreeLayerRow_(asset)) { return '无法判断'; }
       return '适合买入';
     }
     if (WAIT_ACTIONS_.indexOf(action) !== -1) { return '等待'; }
@@ -642,8 +687,45 @@
     return s;
   }
 
+  /**
+   * ③ for a three-layer row: the weekly range of 目标批次 with its 适用周 and
+   * 周计划状态 at T9, or the step's own explicit text otherwise -- exactly the
+   * writer's 计划买入下限/计划买入上限 snapshot; never a legacy 入场计划 zone and
+   * never a range the Dashboard computed.
+   */
+  function buildWeeklyRangeLines_(asset, verdict) {
+    var lines = [];
+    var low = asset['计划买入下限'];
+    var high = asset['计划买入上限'];
+    if (isBlank(low) && isBlank(high)) {
+      lines.push(text('p', 'ios-asset-line ios-action-price', '本周购买区间: 无（' +
+        (isBlank(asset['周计划结论']) ? '本报告未提供周计划结论' : asset['周计划结论']) + '）'));
+    } else if (!isBlank(low) && low === high) {
+      lines.push(text('p', 'ios-asset-line ios-action-price', '本周购买区间: ' + low));
+    } else {
+      lines.push(text('p', 'ios-asset-line ios-action-price',
+        '本周购买区间: 最低 ' + rangeEndText_(low, true) + ' · 最高 ' + rangeEndText_(high, true)));
+    }
+    var weekParts = [];
+    weekParts.push('适用周 ' + (isBlank(asset['周计划适用周']) ? '未提供' : asset['周计划适用周']));
+    weekParts.push('周计划状态 ' + (isBlank(asset['周计划状态']) ? '未提供' : asset['周计划状态']));
+    lines.push(text('p', 'ios-asset-line ios-muted ios-weekly-window', weekParts.join(' · ')));
+    lines.push(text('p', 'ios-asset-line ios-muted ios-funding-line',
+      '价格条件: ' + (isBlank(asset['执行状态']) ? '未满足或不适用' : asset['执行状态']) +
+      ' · 资金（仅本批次）: ' + (isBlank(asset['资金结论']) ? '未提供' : asset['资金结论'])));
+    if (verdict === '适合买入') {
+      lines.push(text('p', 'ios-asset-line ios-action-price',
+        '已校验订单限价: ' + asset['建议限价'] + '（人工复查后手工提交）'));
+      lines.push(text('p', 'ios-asset-line', '规模: ' + asset['建议订单规模说明'] + ' · 有效期: ' + asset['计划订单有效期']));
+    } else {
+      lines.push(text('p', 'ios-asset-line ios-muted', '条件性范围，当前未满足条件，尚不可据此下单'));
+    }
+    return lines;
+  }
+
   /** ③ 建议买入范围: both ends of one batch, never a guessed lower bound. */
   function buildRangeLines_(asset, verdict) {
+    if (isThreeLayerRow_(asset)) { return buildWeeklyRangeLines_(asset, verdict); }
     var lines = [];
     if (isBlank(asset['入场计划ID'])) {
       lines.push(text('p', 'ios-asset-line ios-action-price', '建议买入范围: 无（没有可用的入场计划）'));
@@ -674,8 +756,10 @@
     }
     // A writer-labelled ready row that failed a consistency gate: the reason
     // is the gate (shown on its own line), not the execution sentence.
+    var gateProblem = readerGateProblem_(asset);
     var cause = asset['今日行动'] === '可人工准备限价单'
-      ? '报告标注为可准备订单，但一致性检查未通过，请勿据此下单'
+      ? (gateProblem && !readyActionProblem_(asset) ? gateProblem + '，请勿据此下单'
+        : '报告标注为可准备订单，但一致性检查未通过，请勿据此下单')
       : (isBlank(asset['当前阻碍']) ? said : asset['当前阻碍']);
     return text('p', 'ios-asset-line ios-action-next ios-entry-plan-incomplete',
       '无法判断原因: ' + (isBlank(cause) ? '报告未说明' : cause));
@@ -740,12 +824,17 @@
     var verdict = todayVerdict_(asset);
     var historical = !!STATE.viewingReportId;
     var badge = text('span', badgeClass('ios-badge ios-badge-today-verdict', TODAY_VERDICT_BADGE_CLASS_[verdict]), verdict);
+    var gateProblem = readerGateProblem_(asset);
     var lines = [
       el('div', { className: 'ios-asset-head' }, [text('strong', null, asset['代码']), badge]),
       text('p', 'ios-asset-name', asset['名称']),
       text('p', 'ios-asset-line ios-muted ios-verdict-label',
-        historical ? '当时建议（报告 ' + (asset['报告日期'] || '日期未知') + '）' : '今日建议')
+        historical ? '当时建议（报告 ' + (asset['报告日期'] || '日期未知') + '）'
+          : (gateProblem ? '报告建议（非当前行动）' : '今日建议'))
     ];
+    if (gateProblem) {
+      lines.push(text('p', 'ios-asset-line ios-entry-plan-incomplete ios-reader-gate', gateProblem));
+    }
     var readyProblem = readyActionProblem_(asset);
     if (readyProblem) {
       lines.push(text('p', 'ios-asset-line ios-entry-plan-incomplete', readyProblem.message));
@@ -755,6 +844,11 @@
     var reason = buildReasonLine_(asset, verdict);
     if (reason) { lines.push(reason); }
     buildBlockerLines_(asset, verdict, todos).forEach(function (line) { lines.push(line); });
+
+    if (isThreeLayerRow_(asset)) {
+      lines.push(el('details', { className: 'ios-research-details' }, buildThreeLayerDetail_(asset, verdict)));
+      return el('div', { className: isWatchlist ? 'ios-asset-card ios-watchlist-card' : 'ios-asset-card' }, lines);
+    }
 
     var detail = [text('summary', 'ios-research-summary', '研究与估值详情')];
     if (!isBlank(asset['IOS状态'])) {
@@ -801,6 +895,57 @@
     lines.push(el('details', { className: 'ios-research-details' }, detail));
 
     return el('div', { className: isWatchlist ? 'ios-asset-card ios-watchlist-card' : 'ios-asset-card' }, lines);
+  }
+
+  function labelledLine_(label, value, missing) {
+    return text('p', 'ios-asset-line', label + ': ' + (isBlank(value) ? missing : value));
+  }
+
+  /**
+   * Issue #316 P4 card order after the first screen: 本周购买计划, then 长期估值.
+   * Each section carries its own labelled date, so a weekly review (周计划
+   * 复核时间) is never read as a re-valuation (估值研究日期). Everything is the
+   * row's own snapshot; the Dashboard reads no plan tab.
+   */
+  function buildThreeLayerDetail_(asset, verdict) {
+    var detail = [text('summary', 'ios-research-summary', '本周购买计划与长期估值')];
+    detail.push(text('h3', 'ios-detail-heading', '本周购买计划'));
+    detail.push(labelledLine_('周计划结论', asset['周计划结论'], '未提供'));
+    detail.push(labelledLine_('本周区间', isBlank(asset['计划买入下限']) && isBlank(asset['计划买入上限']) ? '' :
+      (asset['计划买入下限'] === asset['计划买入上限'] ? asset['计划买入下限']
+        : rangeEndText_(asset['计划买入下限'], true) + ' – ' + rangeEndText_(asset['计划买入上限'], true)), '无'));
+    detail.push(labelledLine_('执行路径', asset['周计划执行路径'], '无'));
+    detail.push(labelledLine_('适用周', asset['周计划适用周'], '未提供'));
+    detail.push(labelledLine_('复核方式', asset['周计划复核方式'], '未提供'));
+    detail.push(labelledLine_('周度研究依据截至', asset['周计划研究截至'], '未提供'));
+    detail.push(labelledLine_('周计划复核时间（每周复核，不是重新估值）', asset['周计划复核时间'], '未提供'));
+    var version = [];
+    if (!isBlank(asset['周计划ID'])) { version.push(asset['周计划ID']); }
+    if (!isBlank(asset['周计划版本'])) { version.push('v' + asset['周计划版本']); }
+    detail.push(labelledLine_('周计划版本', version.join(' '), '无'));
+    var reason = verdict === '无法判断' ? '' : asset['当前阻碍'];
+    if (!isBlank(reason)) { detail.push(labelledLine_('主要原因', reason, '')); }
+    detail.push(text('h3', 'ios-detail-heading', '长期估值'));
+    detail.push(labelledLine_('长期合理价值', asset['长期合理价值'], '未提供'));
+    detail.push(labelledLine_('长期买入上限', asset['长期买入上限快照'], '未提供'));
+    detail.push(labelledLine_('估值研究日期（长期估值研究，不随每周复核变化）', asset['估值研究日期快照'], '未提供'));
+    var planVersion = [];
+    if (!isBlank(asset['入场计划ID'])) { planVersion.push(asset['入场计划ID']); }
+    if (!isBlank(asset['入场计划版本'])) { planVersion.push('v' + asset['入场计划版本']); }
+    detail.push(labelledLine_('入场计划版本', planVersion.join(' '), '无'));
+    if (!isBlank(asset['长期逻辑或估值'])) { detail.push(labelledLine_('估值说明', asset['长期逻辑或估值'], '')); }
+    [
+      ['内部行动', asset['今日行动']],
+      ['订单准备', asset['准备状态']],
+      ['下次检查', asset['下次检查']],
+      ['停止条件', asset['停止条件说明']],
+      ['跳空处理', asset['跳空处理提示']],
+      ['最近订单状态', asset['最近订单状态']]
+    ].forEach(function (pair) {
+      var line = entryPlanExplanationLine_(pair[0], pair[1]);
+      if (line) { detail.push(line); }
+    });
+    return detail;
   }
 
   /**
