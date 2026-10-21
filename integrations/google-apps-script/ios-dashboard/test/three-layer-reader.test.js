@@ -447,7 +447,7 @@ test('B3: hold crossed with an epoch change or a blank epoch still never buys', 
   for (const c of cases) assert.equal(verdictOf(world(c)).badge, '无法判断', JSON.stringify(c));
 });
 
-test('card order: conditions follow the weekly range; one closed basis holds all research', () => {
+test('card order: technical range precedes conditions after the weekly range; one closed basis holds other research', () => {
   const c = card(render(logic.buildDashboardBootstrap_(world({ row: REFERENCE_360 }))));
   const children = c.children;
   const blocks = children.filter((n) => n.tagName === 'DETAILS');
@@ -456,17 +456,18 @@ test('card order: conditions follow the weekly range; one closed basis holds all
   assert.equal(blocks[0].getAttribute('open'), null);
   assert.equal(children[children.length - 1], blocks[0]);
   const range = children.findIndex((n) => n.textContent.startsWith('本周购买区间:'));
-  assert.equal(children[range + 1].textContent, '确认条件: 本周连续两个交易日收盘不低于 360');
-  assert.equal(children[range + 2].textContent, '否定条件: 收盘跌破 350 且放量');
-  assert.match(children[range + 3].textContent, /技术参考条件，不是买入授权/);
+  assert.equal(children[range + 2].textContent, '确认条件: 本周连续两个交易日收盘不低于 360');
+  assert.equal(children[range + 3].textContent, '否定条件: 收盘跌破 350 且放量');
+  assert.equal(children[range + 1].textContent, '技术关注范围: 360 – 370 USD');
+  assert.match(children[range + 4].textContent, /技术参考，不是买入授权/);
   const screen = firstScreen(c);
-  assert.doesNotMatch(screen, /技术关注范围|支撑参考|阻力参考|趋势与环境|出处:|长期合理价值|估值研究日期/);
+  assert.doesNotMatch(screen, /支撑参考|阻力参考|趋势与环境|出处:|长期合理价值|估值研究日期/);
   const basis = blocks[0].textContent;
   assert.match(basis, /周计划复核时间（每周复核，不是重新估值）: 2026-10-18T09:00/);
   assert.match(basis, /周度研究依据截至: 2026-10-17T16:00/);
   assert.match(basis, /执行路径: 估值区间限价/);
   assert.match(basis, /周计划版本: wp-a-7 v7/);
-  assert.match(basis, /技术关注范围: 360 – 370 USD/);
+  assert.doesNotMatch(referenceBlock(c).textContent, /技术关注范围:/);
   assert.match(basis, /估值研究日期（长期估值研究，不随每周复核变化）: 2026-09-30/);
   assert.match(basis, /长期合理价值: 420–480 USD/);
   assert.match(basis, /长期买入上限: 400/);
@@ -524,7 +525,7 @@ test('#51 有购买区间: the reference is collapsed apart from the executable 
   assert.match(t, /^本周价格参考/);
   assert.ok(t.includes(STATEMENT));
   assert.match(t, /参考结论: 有关注范围/);
-  assert.match(t, /技术关注范围: 360 – 370 USD/);
+  assert.match(firstScreen(c), /技术关注范围: 360 – 370 USD/);
   assert.match(t, /支撑参考: 358（2026-10-14 低点）/);
   assert.match(t, /阻力参考: 392（2026-10-09 高点）/);
   assert.match(firstScreen(c), /确认条件: 本周连续两个交易日收盘不低于 360/);
@@ -545,10 +546,10 @@ test('#52/#64 T7: no executable range, no buy, and the reference stays in the ba
   const c = card(doc);
   assert.equal(c.children[0].children[1].textContent, '等待');
   assert.match(firstScreen(c), /本周购买区间: 无（无符合长期估值的区间）/);
-  assert.doesNotMatch(firstScreen(c), /已校验订单限价|420|440/);
+  assert.doesNotMatch(firstScreen(c), /已校验订单限价/);
   const t = referenceBlock(c).textContent;
   assert.match(t, /本周技术关注区高于长期买入上限，本周不执行新增购买/);
-  assert.match(t, /技术关注范围: 420 – 440 USD/);
+  assert.match(firstScreen(c), /技术关注范围: 420 – 440 USD/);
   assert.match(t, /与长期买入上限: 关注区全部高于上限/);
   // The cap shown under 长期估值 is the snapshot's 400, never raised to the zone.
   assert.match(details(c).textContent + c.children[c.children.length - 1].textContent, /长期买入上限: 400/);
@@ -563,7 +564,7 @@ test('#54 long-term valuation missing: a well-formed reference stays, compared a
   const c = card(render(logic.buildDashboardBootstrap_(world({ row }))));
   assert.equal(c.children[0].children[1].textContent, '无法判断');
   const t = referenceBlock(c).textContent;
-  assert.match(t, /技术关注范围: 360 – 370 USD/);
+  assert.match(firstScreen(c), /技术关注范围: 360 – 370 USD/);
   assert.match(t, /与长期买入上限: 无法比较/);
   assert.doesNotMatch(t, /本周不执行新增购买/);
   assert.ok(t.includes(STATEMENT));
@@ -739,7 +740,7 @@ test('history: an older report renders its own snapshot, labelled with its repor
   vm.runInContext(SCRIPT_HTML_SRC, sandbox, { filename: 'Script.html' });
   sandbox.window.selectHistoryReport('daily-2026-10-16');
   const t = referenceBlock(card(document)).textContent;
-  assert.match(t, /技术关注范围: 340 – 350 USD/);
+  assert.match(firstScreen(card(document)), /技术关注范围: 340 – 350 USD/);
   assert.match(t, /技术研究截至 2026-10-10T16:00（报告 2026-10-16 时的快照/);
   assert.doesNotMatch(t, /360 – 370/);
 });

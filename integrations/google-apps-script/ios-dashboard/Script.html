@@ -1030,13 +1030,22 @@
 
   /** Display the snapshot's research conditions, never a new execution gate. */
   function buildPriceReferenceConditions_(asset) {
-    if (asset._iosPurchaseMode === 'legacy' ||
-        (isBlank(asset['价格参考确认条件']) && isBlank(asset['价格参考否定条件']))) { return []; }
-    var lines = [
-      labelledLine_('确认条件', asset['价格参考确认条件'], '本报告未提供'),
-      labelledLine_('否定条件', asset['价格参考否定条件'], '本报告未提供'),
-      text('p', 'ios-asset-line ios-muted', '以上为技术参考条件，不是买入授权。')
-    ];
+    if (asset._iosPurchaseMode === 'legacy') { return []; }
+    var low = asset['价格参考下沿'];
+    var high = asset['价格参考上沿'];
+    var hasRange = !isBlank(asset['价格参考结论']) && (!isBlank(low) || !isBlank(high));
+    var hasConditions = !isBlank(asset['价格参考确认条件']) || !isBlank(asset['价格参考否定条件']);
+    if (!hasRange && !hasConditions) { return []; }
+    var lines = [];
+    if (hasRange) {
+      var currency = isBlank(asset['价格参考币种']) ? '' : ' ' + asset['价格参考币种'];
+      lines.push(labelledLine_('技术关注范围', (isBlank(low) ? '未提供' : low) + ' – ' + (isBlank(high) ? '未提供' : high) + currency, ''));
+    }
+    if (hasConditions) {
+      lines.push(labelledLine_('确认条件', asset['价格参考确认条件'], '本报告未提供'));
+      lines.push(labelledLine_('否定条件', asset['价格参考否定条件'], '本报告未提供'));
+    }
+    lines.push(text('p', 'ios-asset-line ios-muted', '以上为技术参考，不是买入授权。'));
     var gate = readerGateProblem_(asset);
     if (gate || STATE.viewingReportId || ['事件暂停', '已过期', '引用失效'].indexOf(asset['周计划状态']) !== -1) {
       lines.push(text('p', 'ios-asset-line ios-muted ios-price-reference-time',
@@ -1072,12 +1081,6 @@
       block.push(text('p', 'ios-asset-line', PRICE_REFERENCE_TEXT_.aboveCap));
     }
     block.push(labelledLine_('参考结论', conclusion, ''));
-    var low = asset['价格参考下沿'];
-    var high = asset['价格参考上沿'];
-    if (!isBlank(low) || !isBlank(high)) {
-      var currency = isBlank(asset['价格参考币种']) ? '' : ' ' + asset['价格参考币种'];
-      block.push(labelledLine_('技术关注范围', (isBlank(low) ? '未提供' : low) + ' – ' + (isBlank(high) ? '未提供' : high) + currency, ''));
-    }
     [
       ['支撑参考', asset['价格参考支撑']],
       ['阻力参考', asset['价格参考阻力']],

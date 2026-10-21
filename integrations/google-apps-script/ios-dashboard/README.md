@@ -127,7 +127,7 @@ approximation of it:
 
 ## Three-layer reader and build marker (Issue #323, #316 P4)
 
-三层模式卡片按 #334 显示今日行动、本周购买区间，然后紧接确认条件和否定条件（技术参考，不是买入授权）。其余周计划、本周价格参考、来源与长期估值明细统一放在默认关闭的“今日行动依据”中，保持各自研究日期。条件来自原报告快照，不影响今日行动判断；事件前、过期、hold、历史或非当前行动的时间/状态说明仍在条件旁显示。旧报告缺字段不补值，legacy 保持原布局。
+三层模式卡片按 #334 显示今日行动、本周购买区间，然后紧接技术关注范围、确认条件和否定条件（技术参考，不是买入授权）。其余周计划、本周价格参考、来源与长期估值明细统一放在默认关闭的“今日行动依据”中，保持各自研究日期。条件来自原报告快照，不影响今日行动判断；事件前、过期、hold、历史或非当前行动的时间/状态说明仍在条件旁显示。旧报告缺字段不补值，legacy 保持原布局。
 
 The Dashboard decides on every request whether the report is
 still a current action. It reads only two `_安装状态` cells (`purchase_plan_mode`,
