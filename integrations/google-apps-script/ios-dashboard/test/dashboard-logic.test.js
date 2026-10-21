@@ -476,3 +476,29 @@ test('isUnconfiguredSpreadsheetId_ rejects blank and the unedited placeholder', 
 test('isUnconfiguredSpreadsheetId_ accepts anything else as configured', () => {
   assert.equal(logic.isUnconfiguredSpreadsheetId_('1AbCDeFGhijklmnop_a_real_looking_id'), false);
 });
+
+
+test('include_ preserves script source before embedding it in Index.html', () => {
+  const vm = require('node:vm');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'Code.gs'), 'utf8');
+  const script = fs.readFileSync(path.join(__dirname, '..', 'Script.html'), 'utf8');
+  const index = fs.readFileSync(path.join(__dirname, '..', 'Index.html'), 'utf8');
+  const sandbox = {
+    HtmlService: {
+      createTemplateFromFile(filename) {
+        assert.equal(filename, 'Script');
+        return { getRawContent: () => script };
+      },
+      createHtmlOutputFromFile() {
+        throw new Error('A source fragment must not be parsed as standalone HTML');
+      }
+    }
+  };
+  vm.runInNewContext(source, sandbox);
+  const included = sandbox.include_('Script');
+  assert.equal(included, script);
+  assert.match(index, /<script><\?!= include\('Script'\) \?><\/script>/);
+  assert.match(included, /i < raw\.length/);
+  assert.match(included, /i < PROVENANCE_KEYS_\.length/);
+  assert.doesNotThrow(() => new vm.Script(included));
+});

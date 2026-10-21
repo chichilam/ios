@@ -844,7 +844,8 @@ function readReaderInputs_(spreadsheet, tabs) {
 }
 
 function include_(filename) {
-  return HtmlService.createHtmlOutputFromFile(filename).getContent();
+  // Read the fragment as source: HTML parsing here would turn JavaScript < into &lt;.
+  return HtmlService.createTemplateFromFile(filename).getRawContent();
 }
 
 /**
