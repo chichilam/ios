@@ -254,8 +254,8 @@ not just the two Task-prompt files.
 - **升级到 schema_version 10 的顺序（中断后每一步都停在安全状态）**：
   1. 先完成上面「升级到 schema_version 9 的顺序」的第 1 到第 3 小步（缺的第 9 版列和 tab、空单元格
      里的 `legacy`/`1`、两个 Task 按当前模板原地更新并读回）。已经存在的列/tab 按精确名称跳过。
-     从第 9 版升到第 10 版时，第 1 小步仍会按当前模板把两个 Task 原地更新并读回。在第 327 号写入包
-     之前，当前模板就是现有的三层模板，不含价格参考标记。目标是第 10 版时，**不要**执行第 9 版顺序
+     从第 9 版升到第 10 版时，第 1 小步仍会按当前模板把两个 Task 原地更新并读回。从第 327 号写入包起，
+     当前模板含价格参考标记，读回方式见第 4 步"读回价格参考标记"。目标是第 10 版时，**不要**执行第 9 版顺序
      的第 4 小步：不要把 `schema_version` 写成 `9` 就结束。
   2. 追加前分别读回 `周度购买计划` 和 `报告持仓` 的当前表头。任一张不可读，或读回与物理表头不一致：
      停下，不追加第 10 版的列，不写版本号。已有表头必须仍是上表 canonical 表头的
@@ -421,6 +421,12 @@ Task 指令内容（每次创建或更新都要重新执行下面的替换，不
    或者声明里没有当前模式：这次升级没有完成——不要把 `schema_version` 写成 `9`，告诉用户哪个 Task
    出了问题。如果 `_安装状态` 已经记录了 `three_layer`/`three_layer_hold`，而你手上的 Task 指令
    不支持它：Blocked，不要用不支持该模式的指令覆盖现有 Task，也不要改写模式。
+   **读回价格参考标记（第 327 号 issue）**：同一次读回里，再确认两个 Task 的指令各恰好有一行
+   `price_reference_snapshot: issue-327-v1`（在"本周价格参考快照"一节里）。两个都有，才告诉用户
+   "两个 Task 已同步本周价格参考"。任何一个读不回或没有这一行：在最终验证清单里单独写明
+   "Task 未同步：<Daily/Weekly>，未读回价格参考标记"，并把读回到的原样留作证据。这一项不阻断表结构
+   升级，也不阻止 `schema_version` 写成 `10`（缺标记的旧 Task 不写新列，空列不参与任何执行判断）；
+   但不能用 `schema_version` 已是 `10` 证明 Task 已同步，也不能凭记忆或用户口述代替这次读回。
 6. 把 `_安装状态` 这一行写完整（新建或更新，不能只写一部分字段）：`schema_version`、
    `spreadsheet_id`、`spreadsheet_url`（如果有）、`daily_task_name`/`daily_task_id`（如果平台给了
    id）/`daily_task_schedule`/`daily_task_enabled`、`weekly_task_name`/`weekly_task_id`/
@@ -631,6 +637,8 @@ schema、Daily/Weekly Task 模板、GAS Dashboard 全部硬编码使用 `报告�
       `周度购买计划` 在 `备注` 之后十三列，`报告持仓` 在 `已核验暂停记录ID` 之后十三列。安装/升级
       没有往这些列写任何值，没有新建 tab，没有改 `purchase_plan_mode` 或 `purchase_plan_mode_epoch`。
       `schema_version` 是在 `周度购买计划` 和 `报告持仓` 的最终表头分别精确读回、并与 canonical 逐列按顺序一致之后才写成 `10` 的。不可读、缺列、错列、重复列或顺序漂移都保持旧版本，重试不重复追加。
+- [ ] 两个 Task 的指令都读回了恰好一行 `price_reference_snapshot: issue-327-v1`；没有读回的那个 Task
+      已单独写明"Task 未同步"并附读回原样，没有用 `schema_version` 代替这项证据。
 - [ ] `_安装状态.purchase_plan_mode` 是 `legacy`（或用户此前经"购买计划模式切换"一节确认写入的
       `three_layer`/`three_layer_hold`，原样保留）、`purchase_plan_mode_epoch` 是正整数（全新安装或
       首次升级为 `1`；重复升级保持原值，没有被重置）；两个 Task 的指令都已读回，都含"购买计划模式
