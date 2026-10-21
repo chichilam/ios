@@ -706,13 +706,7 @@
       lines.push(text('p', 'ios-asset-line ios-action-price',
         '本周购买区间: 最低 ' + rangeEndText_(low, true) + ' · 最高 ' + rangeEndText_(high, true)));
     }
-    var weekParts = [];
-    weekParts.push('适用周 ' + (isBlank(asset['周计划适用周']) ? '未提供' : asset['周计划适用周']));
-    weekParts.push('周计划状态 ' + (isBlank(asset['周计划状态']) ? '未提供' : asset['周计划状态']));
-    lines.push(text('p', 'ios-asset-line ios-muted ios-weekly-window', weekParts.join(' · ')));
-    lines.push(text('p', 'ios-asset-line ios-muted ios-funding-line',
-      '价格条件: ' + (isBlank(asset['执行状态']) ? '未满足或不适用' : asset['执行状态']) +
-      ' · 资金（仅本批次）: ' + (isBlank(asset['资金结论']) ? '未提供' : asset['资金结论'])));
+    buildPriceReferenceConditions_(asset).forEach(function (line) { lines.push(line); });
     if (verdict === '适合买入') {
       lines.push(text('p', 'ios-asset-line ios-action-price',
         '已校验订单限价: ' + asset['建议限价'] + '（人工复查后手工提交）'));
@@ -846,10 +840,11 @@
     buildBlockerLines_(asset, verdict, todos).forEach(function (line) { lines.push(line); });
 
     if (isThreeLayerRow_(asset)) {
-      lines.push(el('details', { className: 'ios-research-details' }, buildWeeklyPlanDetail_(asset, verdict)));
+      var basis = buildWeeklyPlanDetail_(asset, verdict);
       var reference = buildPriceReferenceBlock_(asset, gateProblem, historical);
-      if (reference) { lines.push(reference); }
-      lines.push(el('details', { className: 'ios-research-details' }, buildValuationDetail_(asset)));
+      if (reference) { basis.push(reference); }
+      buildValuationDetail_(asset).slice(1).forEach(function (line) { basis.push(line); });
+      lines.push(el('details', { className: 'ios-research-details' }, basis));
       return el('div', { className: isWatchlist ? 'ios-asset-card ios-watchlist-card' : 'ios-asset-card' }, lines);
     }
 
@@ -906,14 +901,15 @@
 
   /**
    * Card order for a three-layer row (contract "Dashboard", Issue #327):
-   * 今日行动 (the first screen, then its collapsed basis, 本周购买计划) →
-   * 本周价格参考 (its own visible block) → 长期估值 (collapsed). Each section
+   * 今日行动 and 本周购买区间, then the snapshot's technical conditions.
+   * One collapsed 今日行动依据 contains 本周购买计划, 本周价格参考 and
+   * 长期估值. Each section
    * carries its own labelled date, so a weekly review (周计划复核时间) is never
    * read as a re-valuation (估值研究日期). Everything is the row's own
    * snapshot; the Dashboard reads no plan tab.
    */
   function buildWeeklyPlanDetail_(asset, verdict) {
-    var detail = [text('summary', 'ios-research-summary', '今日行动依据（本周购买计划）')];
+    var detail = [text('summary', 'ios-research-summary', '今日行动依据')];
     detail.push(text('h3', 'ios-detail-heading', '本周购买计划'));
     detail.push(labelledLine_('周计划结论', asset['周计划结论'], '未提供'));
     detail.push(labelledLine_('本周区间', isBlank(asset['计划买入下限']) && isBlank(asset['计划买入上限']) ? '' :
@@ -921,6 +917,9 @@
         : rangeEndText_(asset['计划买入下限'], true) + ' – ' + rangeEndText_(asset['计划买入上限'], true)), '无'));
     detail.push(labelledLine_('执行路径', asset['周计划执行路径'], '无'));
     detail.push(labelledLine_('适用周', asset['周计划适用周'], '未提供'));
+    detail.push(labelledLine_('周计划状态', asset['周计划状态'], '未提供'));
+    detail.push(labelledLine_('价格条件', asset['执行状态'], '未满足或不适用'));
+    detail.push(labelledLine_('资金（仅本批次）', asset['资金结论'], '未提供'));
     detail.push(labelledLine_('复核方式', asset['周计划复核方式'], '未提供'));
     detail.push(labelledLine_('周度研究依据截至', asset['周计划研究截至'], '未提供'));
     detail.push(labelledLine_('周计划复核时间（每周复核，不是重新估值）', asset['周计划复核时间'], '未提供'));
@@ -1029,9 +1028,26 @@
     return label + (notes.length > 0 ? '（' + notes.join('；') + '）' : '');
   }
 
+  /** Display the snapshot's research conditions, never a new execution gate. */
+  function buildPriceReferenceConditions_(asset) {
+    if (asset._iosPurchaseMode === 'legacy' ||
+        (isBlank(asset['价格参考确认条件']) && isBlank(asset['价格参考否定条件']))) { return []; }
+    var lines = [
+      labelledLine_('确认条件', asset['价格参考确认条件'], '本报告未提供'),
+      labelledLine_('否定条件', asset['价格参考否定条件'], '本报告未提供'),
+      text('p', 'ios-asset-line ios-muted', '以上为技术参考条件，不是买入授权。')
+    ];
+    var gate = readerGateProblem_(asset);
+    if (gate || STATE.viewingReportId || ['事件暂停', '已过期', '引用失效'].indexOf(asset['周计划状态']) !== -1) {
+      lines.push(text('p', 'ios-asset-line ios-muted ios-price-reference-time',
+        priceReferenceTimeLabel_(asset, gate, !!STATE.viewingReportId)));
+    }
+    return lines;
+  }
+
   /**
    * Issue #327 本周价格参考: exactly the row's 价格参考* snapshot, in its own
-   * visible block that is never styled as a buy signal. Not shown on a row
+   * block within 今日行动依据 that is never styled as a buy signal. Not shown on a row
    * of a legacy generation. A three-layer row whose snapshot is absent (no
    * column, or a blank 结论 and a blank 缺口) shows the fixed old-report line
    * and is never filled from a plan tab. Nothing here feeds the verdict.
@@ -1065,8 +1081,6 @@
     [
       ['支撑参考', asset['价格参考支撑']],
       ['阻力参考', asset['价格参考阻力']],
-      ['确认条件', asset['价格参考确认条件']],
-      ['否定条件', asset['价格参考否定条件']],
       ['趋势与环境', asset['价格参考趋势环境']],
       ['与长期买入上限', asset['价格参考与上限关系']],
       ['报告时现价相对关注区', asset['价格参考位置']],
