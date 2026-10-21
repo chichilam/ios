@@ -128,7 +128,11 @@ approximation of it:
 ## Three-layer reader and build marker (Issue #323, #316 P4)
 
 When a report was written in `three_layer`/`three_layer_hold` mode, the card follows the order
-今日行动 → 本周购买计划 → 长期估值, and the Dashboard decides on every request whether the report is
+今日行动 → 本周价格参考 → 长期估值 (Issue #327: the 今日行动 first screen and its collapsed
+basis, 本周购买计划; then the 本周价格参考 block, always visible, rendered from the row's own
+`价格参考*` snapshot and labelled "技术研究，不是买入授权，也不是订单价格。" with its research time;
+then 长期估值, collapsed). A three-layer row without that snapshot shows
+"本报告版本未提供本周价格参考（生成于 #327 之前）"; a legacy row shows no block. The Dashboard decides on every request whether the report is
 still a current action. It reads only two `_安装状态` cells (`purchase_plan_mode`,
 `purchase_plan_mode_epoch`), the `报告持仓` column `暂停事件载荷` and the `周计划暂停记录` columns
 `暂停记录ID`/`代码`; it never reads `周度购买计划` or `入场计划`. A report from another mode epoch shows

@@ -316,6 +316,15 @@ body {
 .ios-action-price { font-weight: 600; }
 .ios-research-details { margin-top: 6px; border-top: 1px solid var(--ios-border); padding-top: 4px; }
 .ios-research-summary { cursor: pointer; font-size: 0.85rem; color: var(--ios-muted); padding: 4px 0; }
+/* Issue #327 本周价格参考: its own visible block between 今日行动 and the
+   collapsed 长期估值. Neutral and dashed on purpose -- never the bold
+   .ios-action-price look, so it never reads as a second buy signal. */
+.ios-price-reference {
+  margin-top: 8px; padding: 6px 10px; border: 1px dashed var(--ios-border);
+  border-radius: var(--ios-control-radius); overflow-wrap: anywhere;
+}
+.ios-price-reference .ios-detail-heading { margin: 2px 0; font-size: 0.9rem; }
+.ios-price-reference-statement { font-size: 0.8rem; }
 
 /* Semantic badge tiers (Issue #257) for IOS状态/价格位置 -- declared after
    .ios-badge-price-position on purpose: same specificity (one class each),

@@ -1,6 +1,8 @@
 // Tests for the Issue #316 P4 (#323) three-layer reader: the current-epoch
 // gate, the safe scan of both suspension carriers, the seen-set gate, the
-// build marker, and the three-layer card (今日行动 → 本周购买计划 → 长期估值).
+// build marker, and the three-layer card. Issue #327 (PR C) adds the
+// 本周价格参考 block: 今日行动 (first screen, then its collapsed basis,
+// 本周购买计划) → 本周价格参考 (visible) → 长期估值 (collapsed).
 // Same plain node:test/node:assert discipline as the other test files.
 //
 // Run: node --test integrations/google-apps-script/ios-dashboard/test/three-layer-reader.test.js
@@ -70,6 +72,34 @@ function world(changes) {
   return tabs;
 }
 
+/** A well-formed #327 snapshot (matrix #51): attention 360–370 USD, not above the cap of 400. */
+const REFERENCE_360 = {
+  价格参考结论: '有关注范围', 价格参考下沿: 360, 价格参考上沿: 370, 价格参考币种: 'USD',
+  价格参考支撑: '358（2026-10-14 低点）', 价格参考阻力: '392（2026-10-09 高点）',
+  价格参考确认条件: '本周连续两个交易日收盘不低于 360', 价格参考否定条件: '收盘跌破 350 且放量',
+  价格参考趋势环境: '板块横盘，大盘温和上行',
+  价格参考出处: JSON.stringify({ 数据来源: '交易所日线', 取价口径: '未复权收盘价', 回看窗口: '前一个完整交易周', 交易所: 'NYSE', 交易所时区: 'America/New_York' }),
+  价格参考缺口: '', 价格参考与上限关系: '关注区不高于上限', 价格参考位置: '关注区内'
+};
+
+/** Matrix #52: no range within the long-term cap; the attention zone 420–440 lies entirely above 400. */
+const T7_ABOVE_CAP = Object.assign({}, REFERENCE_360, {
+  价格参考下沿: 420, 价格参考上沿: 440, 价格参考与上限关系: '关注区全部高于上限', 价格参考位置: '低于关注区',
+  周计划结论: '无符合长期估值的区间', 周计划执行路径: '', 今日行动: '本周无购买区间',
+  今日行动说明: '本周技术关注区高于长期买入上限', 执行状态: '', 准备状态: '', 计划买入下限: '', 计划买入上限: '',
+  建议限价: '', 建议订单规模说明: '', 计划订单有效期: '', 当前阻碍: '本周无符合长期估值的购买区间'
+});
+
+const REFERENCE_COLUMNS = Object.keys(REFERENCE_360);
+
+function referenceBlock(cardNode) {
+  return cardNode.children.find((c) => c.classList.contains('ios-price-reference')) || null;
+}
+
+function descendants(node) {
+  return (node.children || []).reduce((all, child) => all.concat([child], descendants(child)), []);
+}
+
 function firstRow(tabs) {
   return logic.buildReportViewModel_(tabs, 'daily', null).holdings[0];
 }
@@ -90,7 +120,8 @@ function card(document) {
 }
 
 function firstScreen(cardNode) {
-  return cardNode.children.filter((c) => c.tagName !== 'DETAILS').map((c) => c.textContent).join('\n');
+  return cardNode.children.filter((c) => c.tagName !== 'DETAILS' && !c.classList.contains('ios-price-reference'))
+    .map((c) => c.textContent).join('\n');
 }
 
 function details(cardNode) {
@@ -414,25 +445,33 @@ test('B3: hold crossed with an epoch change or a blank epoch still never buys', 
   for (const c of cases) assert.equal(verdictOf(world(c)).badge, '无法判断', JSON.stringify(c));
 });
 
-test('card order: the first screen, then 本周购买计划, then 长期估值, each with its own labelled date', () => {
-  const doc = render(logic.buildDashboardBootstrap_(world()));
-  const block = details(card(doc));
-  const headings = block.children.filter((c) => c.tagName === 'H3').map((c) => c.textContent);
-  assert.deepEqual(headings, ['本周购买计划', '长期估值']);
-  const textContent = block.textContent;
-  assert.ok(textContent.indexOf('本周购买计划') < textContent.indexOf('长期估值'));
-  assert.match(textContent, /周计划复核时间（每周复核，不是重新估值）: 2026-10-18T09:00/);
-  assert.match(textContent, /周度研究依据截至: 2026-10-17T16:00/);
-  assert.match(textContent, /估值研究日期（长期估值研究，不随每周复核变化）: 2026-09-30/);
-  assert.match(textContent, /长期合理价值: 420–480 USD/);
-  assert.match(textContent, /长期买入上限: 400/);
-  assert.match(textContent, /执行路径: 估值区间限价/);
-  assert.match(textContent, /复核方式: 新研究/);
-  assert.match(textContent, /周计划版本: wp-a-7 v7/);
-  assert.match(textContent, /入场计划版本: plan-a-v3 v3/);
-  // The first screen precedes the details block.
+test('card order: 今日行动, its collapsed 本周购买计划 basis, the visible 本周价格参考, then the collapsed 长期估值', () => {
+  const doc = render(logic.buildDashboardBootstrap_(world({ row: REFERENCE_360 })));
   const children = card(doc).children;
-  assert.equal(children[children.length - 1].tagName, 'DETAILS');
+  const blocks = children.filter((c) => c.tagName === 'DETAILS' || c.classList.contains('ios-price-reference'));
+  assert.deepEqual(blocks.map((c) => c.tagName === 'DETAILS' ? c.children[0].textContent : 'REFERENCE'),
+    ['今日行动依据（本周购买计划）', 'REFERENCE', '长期估值']);
+  // Everything before the first block is the five-item first screen.
+  assert.ok(children.indexOf(blocks[0]) > 0);
+  assert.match(children.slice(0, children.indexOf(blocks[0])).map((c) => c.textContent).join('\n'), /本周购买区间: 最低 350 USD.*最高 380 USD/);
+  assert.equal(children[children.length - 1], blocks[2], '长期估值 is last');
+  // Neither collapsible is open: 长期估值 stays collapsed; the reference is not a <details>.
+  for (const d of [blocks[0], blocks[2]]) assert.equal(d.getAttribute('open'), null);
+  assert.notEqual(blocks[1].tagName, 'DETAILS');
+
+  const plan = blocks[0].textContent;
+  assert.match(plan, /周计划复核时间（每周复核，不是重新估值）: 2026-10-18T09:00/);
+  assert.match(plan, /周度研究依据截至: 2026-10-17T16:00/);
+  assert.match(plan, /执行路径: 估值区间限价/);
+  assert.match(plan, /复核方式: 新研究/);
+  assert.match(plan, /周计划版本: wp-a-7 v7/);
+  assert.doesNotMatch(plan, /长期合理价值/);
+  const valuation = blocks[2].textContent;
+  assert.match(valuation, /估值研究日期（长期估值研究，不随每周复核变化）: 2026-09-30/);
+  assert.match(valuation, /长期合理价值: 420–480 USD/);
+  assert.match(valuation, /长期买入上限: 400/);
+  assert.match(valuation, /入场计划版本: plan-a-v3 v3/);
+  assert.doesNotMatch(valuation, /技术关注范围/);
 });
 
 test('the Dashboard never shows a legacy 参考/锚点 range beside the weekly range on a three-layer row', () => {
@@ -470,6 +509,236 @@ test('the reader keeps the generation pointer: an orphaned generation\'s rows ar
   const vmodel = logic.buildReportViewModel_(tabs, 'daily', null);
   assert.deepEqual(vmodel.holdings.map((r) => r.代码), ['AAA']);
   assert.equal(vmodel.holdings[0]._iosOrderable.ok, true);
+});
+
+// -- Issue #327 本周价格参考 (PR C) --------------------------------------------
+
+const STATEMENT = '技术研究，不是买入授权，也不是订单价格。';
+const OLD_REPORT_LINE = '本报告版本未提供本周价格参考（生成于 #327 之前）';
+
+test('#51 有购买区间: the reference and the one executable range are both shown, apart; the verdict is unchanged', () => {
+  const doc = render(logic.buildDashboardBootstrap_(world({ row: REFERENCE_360 })));
+  const c = card(doc);
+  assert.equal(c.children[0].children[1].textContent, '适合买入');
+  const block = referenceBlock(c);
+  const t = block.textContent;
+  assert.match(t, /^本周价格参考/);
+  assert.ok(t.includes(STATEMENT));
+  assert.match(t, /参考结论: 有关注范围/);
+  assert.match(t, /技术关注范围: 360 – 370 USD/);
+  assert.match(t, /支撑参考: 358（2026-10-14 低点）/);
+  assert.match(t, /阻力参考: 392（2026-10-09 高点）/);
+  assert.match(t, /确认条件: 本周连续两个交易日收盘不低于 360/);
+  assert.match(t, /否定条件: 收盘跌破 350 且放量/);
+  assert.match(t, /趋势与环境: 板块横盘，大盘温和上行/);
+  assert.match(t, /与长期买入上限: 关注区不高于上限/);
+  assert.match(t, /报告时现价相对关注区: 关注区内/);
+  assert.match(t, /出处: 交易所日线 · 未复权收盘价 · 回看 前一个完整交易周 · NYSE（America\/New_York）/);
+  assert.match(t, /技术研究截至 2026-10-17T16:00$/);
+  // Never styled or worded as a second buy signal; the order price stays on the first screen only.
+  assert.ok(descendants(block).every((n) => !n.classList || !n.classList.contains('ios-action-price')));
+  assert.doesNotMatch(t, /已校验订单限价|建议限价|本周购买区间|适合买入/);
+  assert.match(firstScreen(c), /已校验订单限价: 380/);
+});
+
+test('#52/#64 T7: no executable range, no buy, and the reference stays visible with the above-cap explanation', () => {
+  const doc = render(logic.buildDashboardBootstrap_(world({ row: T7_ABOVE_CAP })));
+  const c = card(doc);
+  assert.equal(c.children[0].children[1].textContent, '等待');
+  assert.match(firstScreen(c), /本周购买区间: 无（无符合长期估值的区间）/);
+  assert.doesNotMatch(firstScreen(c), /已校验订单限价|420|440/);
+  const t = referenceBlock(c).textContent;
+  assert.match(t, /本周技术关注区高于长期买入上限，本周不执行新增购买/);
+  assert.match(t, /技术关注范围: 420 – 440 USD/);
+  assert.match(t, /与长期买入上限: 关注区全部高于上限/);
+  // The cap shown under 长期估值 is the snapshot's 400, never raised to the zone.
+  assert.match(details(c).textContent + c.children[c.children.length - 1].textContent, /长期买入上限: 400/);
+});
+
+test('#54 long-term valuation missing: a well-formed reference stays, compared as 无法比较, and never authorizes a buy', () => {
+  const row = Object.assign({}, REFERENCE_360, {
+    周计划结论: '长期估值缺失或失效', 今日行动: '先核对缺项', 今日行动说明: '长期估值缺失', 当前阻碍: '长期估值缺失',
+    长期买入上限快照: '', 长期合理价值: '', 计划买入下限: '', 计划买入上限: '', 建议限价: '',
+    价格参考与上限关系: '无法比较'
+  });
+  const c = card(render(logic.buildDashboardBootstrap_(world({ row }))));
+  assert.equal(c.children[0].children[1].textContent, '无法判断');
+  const t = referenceBlock(c).textContent;
+  assert.match(t, /技术关注范围: 360 – 370 USD/);
+  assert.match(t, /与长期买入上限: 无法比较/);
+  assert.doesNotMatch(t, /本周不执行新增购买/);
+  assert.ok(t.includes(STATEMENT));
+});
+
+test('technical data insufficient / condition-only: the gap is said plainly and no position is invented', () => {
+  const thin = Object.assign({}, REFERENCE_360, {
+    价格参考结论: '技术数据不足', 价格参考下沿: '', 价格参考上沿: '', 价格参考币种: '', 价格参考支撑: '', 价格参考阻力: '',
+    价格参考确认条件: '', 价格参考否定条件: '', 价格参考缺口: '缺前一完整交易周成交量，无法判断关注位置',
+    价格参考与上限关系: '无法比较', 价格参考位置: '无法比较'
+  });
+  const t = referenceBlock(card(render(logic.buildDashboardBootstrap_(world({ row: thin }))))).textContent;
+  assert.match(t, /参考结论: 技术数据不足/);
+  assert.match(t, /技术数据缺口: 缺前一完整交易周成交量，无法判断关注位置/);
+  assert.doesNotMatch(t, /技术关注范围|支撑参考|阻力参考|350|380/);
+  const conditional = Object.assign({}, thin, { 价格参考结论: '仅有条件观察', 价格参考确认条件: '放量站上 392', 价格参考缺口: '' });
+  const t2 = referenceBlock(card(render(logic.buildDashboardBootstrap_(world({ row: conditional }))))).textContent;
+  assert.match(t2, /参考结论: 仅有条件观察/);
+  assert.match(t2, /确认条件: 放量站上 392/);
+  assert.doesNotMatch(t2, /技术关注范围/);
+});
+
+test('S1 and S2 snapshot gaps are shown as written, with nothing filled in', () => {
+  const blank = Object.fromEntries(REFERENCE_COLUMNS.map((k) => [k, '']));
+  for (const [gap, status] of [['周计划异常，技术参考不可用', '周计划异常'], ['无周计划', '无周计划']]) {
+    const row = Object.assign({}, T7_ABOVE_CAP, blank, { 价格参考缺口: gap, 周计划状态: status });
+    const t = referenceBlock(card(render(logic.buildDashboardBootstrap_(world({ row }))))).textContent;
+    assert.match(t, new RegExp('本周价格参考不可用（' + gap + '）'));
+    assert.ok(t.includes(STATEMENT));
+    assert.doesNotMatch(t, /技术关注范围|参考结论|技术研究截至/);
+  }
+});
+
+test('#60 a three-layer row with no snapshot shows the fixed old-report line and is never filled from a plan tab', () => {
+  const planTab = [{ 周计划ID: 'wp-a-7', 周计划版本: 7, 代码: 'AAA', 技术参考结论: '有关注范围', 技术关注下沿: 999, 技术关注上沿: 1001 }];
+  const blank = Object.fromEntries(REFERENCE_COLUMNS.map((k) => [k, '']));
+  for (const row of [{}, blank]) {
+    const tabs = world({ row });
+    tabs.周度购买计划 = planTab;
+    const c = card(render(logic.buildDashboardBootstrap_(tabs)));
+    const t = referenceBlock(c).textContent;
+    assert.ok(t.includes(OLD_REPORT_LINE));
+    assert.doesNotMatch(c.textContent, /999|1001/);
+    assert.equal(c.children[0].children[1].textContent, '适合买入', 'a missing snapshot adds no gate');
+  }
+});
+
+test('#59 legacy: a row of a legacy generation keeps its layout and never shows 本周价格参考, even if columns carry values', () => {
+  const legacy = {
+    summary: { 购买计划模式: 'legacy', 模式纪元: 1 },
+    state: [{ purchase_plan_mode: 'legacy', purchase_plan_mode_epoch: 1 }]
+  };
+  const plainRow = Object.assign({}, REFERENCE_360, { 周计划ID: '', 周计划状态: '', 周计划版本: '' });
+  for (const row of [plainRow, REFERENCE_360]) {
+    const c = card(render(logic.buildDashboardBootstrap_(world(Object.assign({ row }, legacy)))));
+    assert.equal(referenceBlock(c), null);
+    assert.doesNotMatch(c.textContent, /本周价格参考|技术关注范围|360 – 370/);
+  }
+});
+
+test('the reference never feeds the verdict: removing or altering it leaves every badge unchanged', () => {
+  const rows = [readyRow(), Object.assign({}, readyRow(), T7_ABOVE_CAP),
+    readyRow({ 今日行动: '先核对缺项', 今日行动说明: '缺报价', 当前阻碍: '缺报价' })];
+  for (const base of rows) {
+    const badges = [
+      Object.assign({}, base),
+      Object.assign({}, base, REFERENCE_360),
+      Object.assign({}, base, T7_ABOVE_CAP, { 今日行动: base.今日行动, 今日行动说明: base.今日行动说明, 当前阻碍: base.当前阻碍,
+        计划买入下限: base.计划买入下限, 计划买入上限: base.计划买入上限, 建议限价: base.建议限价, 周计划结论: base.周计划结论,
+        执行状态: base.执行状态, 准备状态: base.准备状态, 建议订单规模说明: base.建议订单规模说明, 计划订单有效期: base.计划订单有效期,
+        周计划执行路径: base.周计划执行路径 }),
+      Object.assign({}, base, REFERENCE_360, { 价格参考与上限关系: '乱写', 价格参考出处: '{bad json' })
+    ].map((row) => card(render(logic.buildDashboardBootstrap_(world({ row })))).children[0].children[1].textContent);
+    assert.equal(new Set(badges).size, 1, JSON.stringify(badges));
+  }
+});
+
+const CANONICAL_PROVENANCE = { 数据来源: '交易所日线', 取价口径: '未复权收盘价', 回看窗口: '前一个完整交易周', 交易所: 'NYSE', 交易所时区: 'America/New_York' };
+const LAID_OUT = '出处: 交易所日线 · 未复权收盘价 · 回看 前一个完整交易周 · NYSE（America/New_York）';
+
+function provenanceLine(cell) {
+  const row = Object.assign({}, REFERENCE_360, { 价格参考出处: cell });
+  const c = card(render(logic.buildDashboardBootstrap_(world({ row }))));
+  const line = referenceBlock(c).children.find((n) => n.textContent.startsWith('出处: '));
+  return { line: line ? line.textContent : null, badge: c.children[0].children[1].textContent, screen: firstScreen(c) };
+}
+
+test('provenance: only the exact canonical object is laid out, in any key order', () => {
+  assert.equal(provenanceLine(JSON.stringify(CANONICAL_PROVENANCE)).line, LAID_OUT);
+  const reversed = Object.fromEntries(Object.entries(CANONICAL_PROVENANCE).reverse());
+  assert.equal(provenanceLine(JSON.stringify(reversed)).line, LAID_OUT);
+  assert.equal(provenanceLine(JSON.stringify(CANONICAL_PROVENANCE, null, 2)).line, LAID_OUT, 'whitespace is not shape');
+});
+
+test('provenance: anything not exactly canonical is shown as written, so no source text is dropped', () => {
+  const without = (key) => { const o = Object.assign({}, CANONICAL_PROVENANCE); delete o[key]; return JSON.stringify(o); };
+  const withValue = (key, v) => JSON.stringify(Object.assign({}, CANONICAL_PROVENANCE, { [key]: v }));
+  const canonical = JSON.stringify(CANONICAL_PROVENANCE);
+  const cells = [
+    // Not JSON, or JSON that is not an object.
+    '{bad json', '交易所日线', '[]', '["交易所日线"]', 'null', '42', '"交易所日线"', 'true',
+    // A parseable object missing any one key.
+    ...Object.keys(CANONICAL_PROVENANCE).map(without),
+    // Extra evidence beside the five keys, or only some keys plus extras.
+    JSON.stringify(Object.assign({}, CANONICAL_PROVENANCE, { 额外证据: '供应商回执' })),
+    '{"数据来源":"交易所日线","额外证据":"供应商回执"}',
+    // Wrong value types and blank values.
+    withValue('回看窗口', 5), withValue('数据来源', null), withValue('取价口径', ['未复权']), withValue('交易所', { 名: 'NYSE' }),
+    withValue('数据来源', ''), withValue('取价口径', '   '),
+    // Exchange without time zone, and the reverse.
+    '{"交易所时区":"America/New_York"}', without('交易所时区'), without('交易所'),
+    // A repeated key that JSON.parse would silently collapse.
+    canonical.replace('"数据来源":"交易所日线"', '"数据来源":"供应商A","数据来源":"交易所日线"'),
+    // Several fields wrong at once: no known field covers for another.
+    '{"数据来源":"","取价口径":3,"回看窗口":"前一周","交易所":"NYSE","备注":"x"}',
+    '{}'
+  ];
+  for (const cell of cells) {
+    const shown = provenanceLine(cell);
+    assert.equal(shown.line, '出处: ' + cell, cell);
+  }
+});
+
+test('provenance variants never change the verdict, the executable range or the reader gate', () => {
+  const base = provenanceLine(JSON.stringify(CANONICAL_PROVENANCE));
+  for (const cell of ['{bad json', '{"数据来源":"交易所日线","额外证据":"供应商回执"}', '{"交易所时区":"America/New_York"}', '[]', '']) {
+    const shown = provenanceLine(cell);
+    assert.equal(shown.badge, base.badge, cell);
+    assert.equal(shown.screen, base.screen, cell);
+  }
+  const vm1 = logic.buildReportViewModel_(world({ row: Object.assign({}, REFERENCE_360, { 价格参考出处: '{bad' }) }), 'daily', null);
+  assert.deepEqual(vm1.holdings[0]._iosOrderable, { ok: true, message: null });
+});
+
+test('#63/#58 research-time labels: before the event, expired, superseded valuation, hold and a non-current report', () => {
+  const label = (changes) => {
+    const c = card(render(logic.buildDashboardBootstrap_(world(changes))));
+    const block = referenceBlock(c);
+    return block.children[block.children.length - 1].textContent;
+  };
+  const event = label({ row: Object.assign({}, REFERENCE_360, { 周计划状态: '事件暂停', 今日行动: '暂停新增待复核', 今日行动说明: '业绩发布，待复核' }) });
+  assert.match(event, /^技术研究截至 2026-10-17T16:00（事件前的研究，待周中复核，不是事件后的复核）$/);
+  assert.match(label({ row: Object.assign({}, REFERENCE_360, { 周计划状态: '已过期', 今日行动: '周计划过期待复核' }) }), /周计划已过期，为过期研究/);
+  assert.match(label({ row: Object.assign({}, REFERENCE_360, { 周计划状态: '引用失效', 今日行动: '先核对缺项' }) }), /长期估值已更新，本研究未随新估值复核/);
+  const hold = label({ row: REFERENCE_360, summary: { 购买计划模式: 'three_layer_hold', 模式纪元: 3 },
+    state: [{ purchase_plan_mode: 'three_layer_hold', purchase_plan_mode_epoch: 3 }] });
+  assert.match(hold, /技术研究截至 2026-10-17T16:00（三层购买计划暂停中，此为暂停前的研究，不表示恢复购买）/);
+  const stale = label({ row: REFERENCE_360, state: [{ purchase_plan_mode: 'three_layer', purchase_plan_mode_epoch: 3 }] });
+  assert.match(stale, /报告建议非当前行动，不表示暂停已解除/);
+  const unseen = label({ row: REFERENCE_360, records: [E1] });
+  assert.match(unseen, /报告建议非当前行动，不表示暂停已解除/);
+  for (const text of [event, hold, stale, unseen]) assert.doesNotMatch(text, /可以买|允许下单|(?<!不表示)暂停已解除|事件后已复核/);
+});
+
+test('history: an older report renders its own snapshot, labelled with its report date, never the latest plan', () => {
+  const tabs = world({
+    summaries: [summaryRow(), summaryRow({ 报告ID: 'daily-2026-10-16', 生成ID: 'g-old', 报告日期: '2026-10-16' })],
+    assets: [readyRow(REFERENCE_360), readyRow(Object.assign({}, REFERENCE_360, {
+      报告ID: 'daily-2026-10-16', 生成ID: 'g-old', 报告日期: '2026-10-16', 价格参考下沿: 340, 价格参考上沿: 350,
+      周计划研究截至: '2026-10-10T16:00' }))],
+    summary: { 暂停载体行数: JSON.stringify({ 报告持仓: 2, 周计划暂停记录: 0 }) }
+  });
+  const document = createFakeDocument();
+  const sandbox = {
+    document, window: {}, IOS_BOOTSTRAP: logic.buildDashboardBootstrap_(tabs), IOS_ACTIVE_VIEW: 'daily', console,
+    google: createGoogleScriptRunStub({ getReport: (id) => logic.getReport_(tabs, id) })
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(SCRIPT_HTML_SRC, sandbox, { filename: 'Script.html' });
+  sandbox.window.selectHistoryReport('daily-2026-10-16');
+  const t = referenceBlock(card(document)).textContent;
+  assert.match(t, /技术关注范围: 340 – 350 USD/);
+  assert.match(t, /技术研究截至 2026-10-10T16:00（报告 2026-10-16 时的快照/);
+  assert.doesNotMatch(t, /360 – 370/);
 });
 
 // -- Build marker ---------------------------------------------------------------

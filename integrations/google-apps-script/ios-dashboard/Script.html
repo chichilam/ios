@@ -846,7 +846,10 @@
     buildBlockerLines_(asset, verdict, todos).forEach(function (line) { lines.push(line); });
 
     if (isThreeLayerRow_(asset)) {
-      lines.push(el('details', { className: 'ios-research-details' }, buildThreeLayerDetail_(asset, verdict)));
+      lines.push(el('details', { className: 'ios-research-details' }, buildWeeklyPlanDetail_(asset, verdict)));
+      var reference = buildPriceReferenceBlock_(asset, gateProblem, historical);
+      if (reference) { lines.push(reference); }
+      lines.push(el('details', { className: 'ios-research-details' }, buildValuationDetail_(asset)));
       return el('div', { className: isWatchlist ? 'ios-asset-card ios-watchlist-card' : 'ios-asset-card' }, lines);
     }
 
@@ -902,13 +905,15 @@
   }
 
   /**
-   * Issue #316 P4 card order after the first screen: 本周购买计划, then 长期估值.
-   * Each section carries its own labelled date, so a weekly review (周计划
-   * 复核时间) is never read as a re-valuation (估值研究日期). Everything is the
-   * row's own snapshot; the Dashboard reads no plan tab.
+   * Card order for a three-layer row (contract "Dashboard", Issue #327):
+   * 今日行动 (the first screen, then its collapsed basis, 本周购买计划) →
+   * 本周价格参考 (its own visible block) → 长期估值 (collapsed). Each section
+   * carries its own labelled date, so a weekly review (周计划复核时间) is never
+   * read as a re-valuation (估值研究日期). Everything is the row's own
+   * snapshot; the Dashboard reads no plan tab.
    */
-  function buildThreeLayerDetail_(asset, verdict) {
-    var detail = [text('summary', 'ios-research-summary', '本周购买计划与长期估值')];
+  function buildWeeklyPlanDetail_(asset, verdict) {
+    var detail = [text('summary', 'ios-research-summary', '今日行动依据（本周购买计划）')];
     detail.push(text('h3', 'ios-detail-heading', '本周购买计划'));
     detail.push(labelledLine_('周计划结论', asset['周计划结论'], '未提供'));
     detail.push(labelledLine_('本周区间', isBlank(asset['计划买入下限']) && isBlank(asset['计划买入上限']) ? '' :
@@ -925,15 +930,6 @@
     detail.push(labelledLine_('周计划版本', version.join(' '), '无'));
     var reason = verdict === '无法判断' ? '' : asset['当前阻碍'];
     if (!isBlank(reason)) { detail.push(labelledLine_('主要原因', reason, '')); }
-    detail.push(text('h3', 'ios-detail-heading', '长期估值'));
-    detail.push(labelledLine_('长期合理价值', asset['长期合理价值'], '未提供'));
-    detail.push(labelledLine_('长期买入上限', asset['长期买入上限快照'], '未提供'));
-    detail.push(labelledLine_('估值研究日期（长期估值研究，不随每周复核变化）', asset['估值研究日期快照'], '未提供'));
-    var planVersion = [];
-    if (!isBlank(asset['入场计划ID'])) { planVersion.push(asset['入场计划ID']); }
-    if (!isBlank(asset['入场计划版本'])) { planVersion.push('v' + asset['入场计划版本']); }
-    detail.push(labelledLine_('入场计划版本', planVersion.join(' '), '无'));
-    if (!isBlank(asset['长期逻辑或估值'])) { detail.push(labelledLine_('估值说明', asset['长期逻辑或估值'], '')); }
     [
       ['内部行动', asset['今日行动']],
       ['订单准备', asset['准备状态']],
@@ -946,6 +942,141 @@
       if (line) { detail.push(line); }
     });
     return detail;
+  }
+
+  function buildValuationDetail_(asset) {
+    var detail = [text('summary', 'ios-research-summary', '长期估值')];
+    detail.push(text('h3', 'ios-detail-heading', '长期估值'));
+    detail.push(labelledLine_('长期合理价值', asset['长期合理价值'], '未提供'));
+    detail.push(labelledLine_('长期买入上限', asset['长期买入上限快照'], '未提供'));
+    detail.push(labelledLine_('估值研究日期（长期估值研究，不随每周复核变化）', asset['估值研究日期快照'], '未提供'));
+    var planVersion = [];
+    if (!isBlank(asset['入场计划ID'])) { planVersion.push(asset['入场计划ID']); }
+    if (!isBlank(asset['入场计划版本'])) { planVersion.push('v' + asset['入场计划版本']); }
+    detail.push(labelledLine_('入场计划版本', planVersion.join(' '), '无'));
+    if (!isBlank(asset['长期逻辑或估值'])) { detail.push(labelledLine_('估值说明', asset['长期逻辑或估值'], '')); }
+    return detail;
+  }
+
+  /** Issue #327 fixed texts; the old-report line is the contract's own wording. */
+  var PRICE_REFERENCE_TEXT_ = {
+    statement: '技术研究，不是买入授权，也不是订单价格。',
+    oldReport: '本报告版本未提供本周价格参考（生成于 #327 之前）',
+    aboveCap: '本周技术关注区高于长期买入上限，本周不执行新增购买；技术研究结果保留如下。'
+  };
+
+  /** The five keys of the canonical `价格参考出处` object, in display order. */
+  var PROVENANCE_KEYS_ = ['数据来源', '取价口径', '回看窗口', '交易所', '交易所时区'];
+
+  /** Members at the top level of a JSON object text, counted outside strings, so a duplicate key is never hidden by JSON.parse. */
+  function topLevelMemberCount_(raw) {
+    var depth = 0, inString = false, escaped = false, count = 0;
+    for (var i = 0; i < raw.length; i++) {
+      var ch = raw.charAt(i);
+      if (inString) {
+        if (escaped) { escaped = false; } else if (ch === '\\') { escaped = true; } else if (ch === '"') { inString = false; }
+      } else if (ch === '"') { inString = true;
+      } else if (ch === '{' || ch === '[') { depth++;
+      } else if (ch === '}' || ch === ']') { depth--;
+      } else if (ch === ':' && depth === 1) { count++; }
+    }
+    return count;
+  }
+
+  /**
+   * `价格参考出处` is laid out only when it is exactly the canonical object:
+   * the five keys, no other and no duplicate, each a non-blank string.
+   * Anything else -- not JSON, not an object, a missing, extra or repeated
+   * key, a non-string or blank value -- is shown exactly as written, so no
+   * provenance text is ever dropped.
+   */
+  function provenanceText_(value) {
+    if (isBlank(value)) { return ''; }
+    var raw = String(value);
+    var parsed = null;
+    try { parsed = JSON.parse(raw); } catch (e) { return raw; }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) { return raw; }
+    var keys = Object.keys(parsed);
+    if (keys.length !== PROVENANCE_KEYS_.length || topLevelMemberCount_(raw) !== PROVENANCE_KEYS_.length) { return raw; }
+    for (var i = 0; i < PROVENANCE_KEYS_.length; i++) {
+      var v = parsed[PROVENANCE_KEYS_[i]];
+      if (typeof v !== 'string' || v.trim() === '') { return raw; }
+    }
+    return [parsed['数据来源'], parsed['取价口径'], '回看 ' + parsed['回看窗口'],
+      parsed['交易所'] + '（' + parsed['交易所时区'] + '）'].join(' · ');
+  }
+
+  /**
+   * The research-time label (contract "Events and expiry", Q2). It names the
+   * snapshot's own 周计划研究截至 and says what that research is now: from
+   * before an event, expired, paused by hold, not a current action, or a
+   * historical snapshot. It never says a pause is lifted or that buying is
+   * allowed.
+   */
+  function priceReferenceTimeLabel_(asset, gateProblem, historical) {
+    var asOf = isBlank(asset['周计划研究截至']) ? '未提供' : asset['周计划研究截至'];
+    var label = '技术研究截至 ' + asOf;
+    var notes = [];
+    if (historical) { notes.push('报告 ' + (asset['报告日期'] || '日期未知') + ' 时的快照'); }
+    if (asset._iosPurchaseMode === 'three_layer_hold') {
+      notes.push('三层购买计划暂停中，此为暂停前的研究，不表示恢复购买');
+    }
+    var status = asset['周计划状态'];
+    if (status === '事件暂停') { notes.push('事件前的研究，待周中复核，不是事件后的复核'); }
+    if (status === '已过期') { notes.push('周计划已过期，为过期研究'); }
+    if (status === '引用失效') { notes.push('长期估值已更新，本研究未随新估值复核'); }
+    if (gateProblem && asset._iosPurchaseMode !== 'three_layer_hold') { notes.push('报告建议非当前行动，不表示暂停已解除'); }
+    return label + (notes.length > 0 ? '（' + notes.join('；') + '）' : '');
+  }
+
+  /**
+   * Issue #327 本周价格参考: exactly the row's 价格参考* snapshot, in its own
+   * visible block that is never styled as a buy signal. Not shown on a row
+   * of a legacy generation. A three-layer row whose snapshot is absent (no
+   * column, or a blank 结论 and a blank 缺口) shows the fixed old-report line
+   * and is never filled from a plan tab. Nothing here feeds the verdict.
+   */
+  function buildPriceReferenceBlock_(asset, gateProblem, historical) {
+    if (asset._iosPurchaseMode === 'legacy') { return null; }
+    var block = [
+      text('h3', 'ios-detail-heading', '本周价格参考'),
+      text('p', 'ios-asset-line ios-muted ios-price-reference-statement', PRICE_REFERENCE_TEXT_.statement)
+    ];
+    var conclusion = asset['价格参考结论'];
+    var gap = asset['价格参考缺口'];
+    if (isBlank(conclusion) && isBlank(gap)) {
+      block.push(text('p', 'ios-asset-line ios-muted', PRICE_REFERENCE_TEXT_.oldReport));
+      return el('div', { className: 'ios-price-reference' }, block);
+    }
+    if (isBlank(conclusion)) {
+      block.push(text('p', 'ios-asset-line', '本周价格参考不可用（' + gap + '）'));
+      return el('div', { className: 'ios-price-reference' }, block);
+    }
+    if (asset['价格参考与上限关系'] === '关注区全部高于上限' && asset['周计划结论'] === '无符合长期估值的区间') {
+      block.push(text('p', 'ios-asset-line', PRICE_REFERENCE_TEXT_.aboveCap));
+    }
+    block.push(labelledLine_('参考结论', conclusion, ''));
+    var low = asset['价格参考下沿'];
+    var high = asset['价格参考上沿'];
+    if (!isBlank(low) || !isBlank(high)) {
+      var currency = isBlank(asset['价格参考币种']) ? '' : ' ' + asset['价格参考币种'];
+      block.push(labelledLine_('技术关注范围', (isBlank(low) ? '未提供' : low) + ' – ' + (isBlank(high) ? '未提供' : high) + currency, ''));
+    }
+    [
+      ['支撑参考', asset['价格参考支撑']],
+      ['阻力参考', asset['价格参考阻力']],
+      ['确认条件', asset['价格参考确认条件']],
+      ['否定条件', asset['价格参考否定条件']],
+      ['趋势与环境', asset['价格参考趋势环境']],
+      ['与长期买入上限', asset['价格参考与上限关系']],
+      ['报告时现价相对关注区', asset['价格参考位置']],
+      ['出处', provenanceText_(asset['价格参考出处'])],
+      ['技术数据缺口', gap]
+    ].forEach(function (pair) {
+      if (!isBlank(pair[1])) { block.push(labelledLine_(pair[0], pair[1], '')); }
+    });
+    block.push(text('p', 'ios-asset-line ios-muted ios-price-reference-time', priceReferenceTimeLabel_(asset, gateProblem, historical)));
+    return el('div', { className: 'ios-price-reference' }, block);
   }
 
   /**
