@@ -26,6 +26,7 @@ body {
   color: var(--ios-text);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   line-height: 1.5;
+  overflow-wrap: anywhere;
   max-width: 1180px;
   margin: 0 auto;
 }
@@ -43,6 +44,8 @@ body {
 .ios-subtitle { margin: 2px 0 0; color: var(--ios-muted); font-size: 0.85rem; }
 
 .ios-topbar-controls {
+  min-width: 0;
+  max-width: 100%;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -138,11 +141,12 @@ body {
    are plain cards, not buttons. Responsive to 2 columns on narrow screens. */
 .ios-summary-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 16px;
 }
 .ios-metric-card {
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -220,7 +224,9 @@ body {
   color: var(--ios-accent);
   font-size: 0.75rem;
   font-weight: 600;
-  white-space: nowrap;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .ios-badge-watchlist { background: var(--ios-watchlist-bg); color: #6d28d9; }
@@ -231,18 +237,19 @@ body {
    in Script.html). */
 .ios-card-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 
 .ios-asset-card {
+  min-width: 0;
   border: 1px solid var(--ios-border);
   border-radius: var(--ios-radius);
   padding: 12px 14px;
 }
 
 .ios-watchlist-card { background: var(--ios-watchlist-bg); }
-.ios-asset-head { display: flex; justify-content: space-between; align-items: center; }
+.ios-asset-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
 .ios-asset-name { color: var(--ios-muted); font-size: 0.85rem; margin: 4px 0; overflow-wrap: break-word; }
 .ios-asset-line { font-size: 0.85rem; margin: 4px 0; overflow-wrap: break-word; }
 .ios-price-info { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
@@ -408,16 +415,16 @@ body {
 .ios-allocation-cards { display: none; }
 
 @media (max-width: 900px) {
-  .ios-summary-grid { grid-template-columns: repeat(2, 1fr); }
+  .ios-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 720px) {
-  .ios-card-grid { grid-template-columns: 1fr; }
+  .ios-card-grid { grid-template-columns: minmax(0, 1fr); }
   .ios-allocation-table { display: none; }
-  .ios-allocation-cards { display: grid; grid-template-columns: 1fr; gap: 10px; }
+  .ios-allocation-cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
 }
 
 @media (max-width: 600px) {
   body { padding: 12px; }
-  .ios-summary-grid { grid-template-columns: repeat(2, 1fr); }
+  .ios-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
