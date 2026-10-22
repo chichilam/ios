@@ -427,6 +427,11 @@ Task 指令内容（每次创建或更新都要重新执行下面的替换，不
    "Task 未同步：<Daily/Weekly>，未读回价格参考标记"，并把读回到的原样留作证据。这一项不阻断表结构
    升级，也不阻止 `schema_version` 写成 `10`（缺标记的旧 Task 不写新列，空列不参与任何执行判断）；
    但不能用 `schema_version` 已是 `10` 证明 Task 已同步，也不能凭记忆或用户口述代替这次读回。
+   **读回基金聚合行标记（第 337 号 issue）**：同一次读回里，再确认两个 Task 的指令各恰好有一行
+   `fund_sleeve_boundary: issue-337-v1`（在"基金聚合行与待办关闭修订"一节里）。两个都有，才告诉用户
+   "两个 Task 已同步基金聚合行边界"。任何一个读不回或没有这一行：在最终验证清单里单独写明
+   "Task 未同步：<Daily/Weekly>，未读回基金聚合行标记"，并把读回到的原样留作证据。这一项不阻断表结构升级，
+   也不改变 `schema_version`（本标记不新增列）；不能用 `schema_version` 证明 Task 已同步。
 6. 把 `_安装状态` 这一行写完整（新建或更新，不能只写一部分字段）：`schema_version`、
    `spreadsheet_id`、`spreadsheet_url`（如果有）、`daily_task_name`/`daily_task_id`（如果平台给了
    id）/`daily_task_schedule`/`daily_task_enabled`、`weekly_task_name`/`weekly_task_id`/
@@ -639,6 +644,8 @@ schema、Daily/Weekly Task 模板、GAS Dashboard 全部硬编码使用 `报告�
       `schema_version` 是在 `周度购买计划` 和 `报告持仓` 的最终表头分别精确读回、并与 canonical 逐列按顺序一致之后才写成 `10` 的。不可读、缺列、错列、重复列或顺序漂移都保持旧版本，重试不重复追加。
 - [ ] 两个 Task 的指令都读回了恰好一行 `price_reference_snapshot: issue-327-v1`；没有读回的那个 Task
       已单独写明"Task 未同步"并附读回原样，没有用 `schema_version` 代替这项证据。
+- [ ] 两个 Task 的指令都读回了恰好一行 `fund_sleeve_boundary: issue-337-v1`；没有读回的那个 Task
+      已单独写明"Task 未同步"并附读回原样。
 - [ ] `_安装状态.purchase_plan_mode` 是 `legacy`（或用户此前经"购买计划模式切换"一节确认写入的
       `three_layer`/`three_layer_hold`，原样保留）、`purchase_plan_mode_epoch` 是正整数（全新安装或
       首次升级为 `1`；重复升级保持原值，没有被重置）；两个 Task 的指令都已读回，都含"购买计划模式

@@ -1901,3 +1901,90 @@ test('PR #311 review: a defined maximum with every gate passed but no lower boun
   assert.match(first, /已校验订单限价: 180 USD（人工复查后手工提交）/);
   assert.match(first, /阻塞待办: 无/);
 });
+
+// -- Issue #337: FUND-SLEEVE aggregate row keeps the existing tsumitate ------------------
+
+const FUND_SLEEVE_ROW = {
+  '代码': 'FUND-SLEEVE', '名称': '投资信托（S&P500 / All Country）', '今日行动': '沿用定投',
+  '今日行动说明': '沿用既有定投：每月 S&P500 60000 JPY、All Country 20000 JPY（账户状态截至 2026-10-20；基金明细截至 2026-10-20）；不是额外申购授权',
+  '当前阻碍': '', '阻塞待办ID': '无'
+};
+const FUND_PLAN_TODO = { '待办ID': 'FUND-PLAN-1', '待办': '先完成基金长期估值', '状态': '已完成', '跟进类型': '可执行' };
+
+test('Issue #337: a 沿用定投 FUND-SLEEVE row shows the tsumitate boundary, no buy verdict and no blocker anomaly', () => {
+  const { document } = loadDashboard(withTodos(buildBootstrapWithHolding(FUND_SLEEVE_ROW), [FUND_PLAN_TODO]), 'daily', {});
+  const card = firstCard(document);
+  const badge = card.children[0].children[1];
+  assert.equal(badge.textContent, '沿用定投');
+  assert.equal(badge.className, 'ios-badge ios-badge-today-verdict ios-badge-muted');
+  const first = firstScreenText(card);
+  assert.match(first, /建议买入范围: 不适用（沿用既有定投，不是额外申购授权）/);
+  assert.match(first, /定投: 沿用既有定投：每月 S&P500 60000 JPY/);
+  assert.match(first, /阻塞待办: 无/);
+  assert.doesNotMatch(first, /关联异常|适合买入|已校验订单限价|没有可用的入场计划|长期估值/);
+  assert.ok(allElements(card).every((n) => !n.classList || !n.classList.contains('ios-severity-low')));
+});
+
+test('Issue #337: 2026-10-22 screenshot shape -- a completed blocker still linked stays an explicit anomaly', () => {
+  const old = { '代码': 'FUND-SLEEVE', '今日行动': '无入场计划', '当前阻碍': '基金行需先完成长期估值', '阻塞待办ID': 'FUND-PLAN-1' };
+  const { document } = loadDashboard(withTodos(buildBootstrapWithHolding(old), [FUND_PLAN_TODO]), 'daily', {});
+  assert.match(firstScreenText(firstCard(document)), /关联异常: 待办 FUND-PLAN-1 已标记完成，仍被列为阻碍/);
+  // Clearing only the ID trades it for the next anomaly; the fix is the writer's 沿用定投 revision.
+  const cleared = loadDashboard(buildBootstrapWithHolding(Object.assign({}, old, { '阻塞待办ID': '无' })), 'daily', {});
+  assert.match(firstScreenText(firstCard(cleared.document)), /关联异常: 无法判断但未关联阻塞待办/);
+});
+
+test('Issue #337: 沿用定投 fails closed outside the FUND-SLEEVE row or with any blocker link', () => {
+  [
+    [{ '代码': 'TEST1' }, [], /无法判断原因: 报告标注为 沿用定投，但本行不是基金聚合行/],
+    [{ '阻塞待办ID': 'FUND-PLAN-1' }, [FUND_PLAN_TODO], /关联异常: 待办 FUND-PLAN-1 已标记完成，仍被列为阻碍/],
+    [{ '阻塞待办ID': '' }, [], /无法判断原因: 报告标注为 沿用定投，但阻塞待办ID 不是 无/]
+  ].forEach(([fields, todos, pattern]) => {
+    const { document } = loadDashboard(withTodos(buildBootstrapWithHolding(Object.assign({}, FUND_SLEEVE_ROW, fields)), todos), 'daily', {});
+    const card = firstCard(document);
+    assert.equal(card.children[0].children[1].textContent, '无法判断', JSON.stringify(fields));
+    const first = firstScreenText(card);
+    assert.match(first, pattern);
+    assert.doesNotMatch(first, /不适用（沿用既有定投/);
+  });
+});
+
+test('PR #338 review: 沿用定投 with any plan, order, range or blocker field, or without the no-authorization sentence, fails closed', () => {
+  const forbidden = ['入场计划ID', '周计划ID', '执行状态', '准备状态', '建议限价', '建议订单规模说明',
+    '计划订单有效期', '计划买入下限', '计划买入上限', '当前阻碍'];
+  const cases = forbidden.map((name) => [{ [name]: name.endsWith('ID') ? 'plan-fund-v1' : '100' }, new RegExp(name + ' 应为空')]);
+  cases.push([{ '入场计划ID': 'plan-fund-v1', '建议限价': '100', '计划买入上限': '100' }, /入场计划ID、建议限价、计划买入上限 应为空/]);
+  cases.push([{ '今日行动说明': '' }, /今日行动说明未写明不是额外申购授权/]);
+  cases.push([{ '今日行动说明': '沿用既有定投：每月 S&P500 60000 JPY' }, /今日行动说明未写明不是额外申购授权/]);
+  cases.forEach(([fields, pattern]) => {
+    const { document } = loadDashboard(buildBootstrapWithHolding(Object.assign({}, FUND_SLEEVE_ROW, fields)), 'daily', {});
+    const card = firstCard(document);
+    assert.equal(card.children[0].children[1].textContent, '无法判断', JSON.stringify(fields));
+    const first = firstScreenText(card);
+    assert.match(first, pattern, JSON.stringify(fields));
+    assert.doesNotMatch(first, /不适用（沿用既有定投|已校验订单限价/, JSON.stringify(fields));
+  });
+});
+
+test('PR #338 review round 2: 周计划状态 must prove no active weekly plan -- 无周计划 in three-layer, blank in legacy', () => {
+  const verdictOf = (fields) => {
+    const { document } = loadDashboard(buildBootstrapWithHolding(Object.assign({}, FUND_SLEEVE_ROW, fields)), 'daily', {});
+    const card = firstCard(document);
+    return { verdict: card.children[0].children[1].textContent, first: firstScreenText(card) };
+  };
+  assert.equal(verdictOf({ '_iosThreeLayer': true, '周计划状态': '无周计划' }).verdict, '沿用定投');
+  assert.equal(verdictOf({}).verdict, '沿用定投');
+  [
+    [{ '_iosThreeLayer': true, '周计划状态': '' }, /三层模式下周计划状态应为 无周计划/],
+    [{ '_iosThreeLayer': true, '周计划状态': '有效' }, /三层模式下周计划状态应为 无周计划/],
+    [{ '_iosThreeLayer': true, '周计划状态': '有效', '周计划结论': '有购买区间', '周计划执行路径': '估值区间限价' },
+      /三层模式下周计划状态应为 无周计划；周计划结论、周计划执行路径 应为空/],
+    [{ '_iosThreeLayer': true, '周计划状态': '无周计划', '价格参考下沿': '28000' }, /价格参考下沿 应为空/],
+    [{ '周计划状态': '无周计划' }, /周计划状态应为空/]
+  ].forEach(([fields, pattern]) => {
+    const { verdict, first } = verdictOf(fields);
+    assert.equal(verdict, '无法判断', JSON.stringify(fields));
+    assert.match(first, pattern, JSON.stringify(fields));
+    assert.doesNotMatch(first, /不适用（沿用既有定投/, JSON.stringify(fields));
+  });
+});

@@ -612,7 +612,8 @@
   var TODAY_VERDICT_BADGE_CLASS_ = {
     '适合买入': 'ios-severity-low',
     '等待': 'ios-severity-medium',
-    '无法判断': 'ios-badge-unavailable'
+    '无法判断': 'ios-badge-unavailable',
+    '沿用定投': 'ios-badge-muted'
   };
   // 本周无购买区间 is written only by three-layer generations (Issue #316,
   // contract T7/T8) and renders as 等待 with its reason; a legacy row never
@@ -647,8 +648,40 @@
     return gate && gate.message ? gate.message : '无法核验是否为当前行动';
   }
 
+  // Issue #337: a 沿用定投 row carries no plan, weekly-plan snapshot, order, range or blocker.
+  var TSUMITATE_BLANK_FIELDS_ = ['入场计划ID', '周计划ID', '周计划版本', '周计划结论', '周计划执行路径', '周计划适用周',
+    '周计划研究截至', '周计划复核时间', '周计划复核方式', '价格参考结论', '价格参考下沿', '价格参考上沿',
+    '执行状态', '准备状态', '建议限价', '建议订单规模说明', '计划订单有效期', '计划买入下限', '计划买入上限', '当前阻碍'];
+
+  /**
+   * Issue #337: 沿用定投 is the writer's conclusion for the FUND-SLEEVE
+   * aggregate row (keep the existing tsumitate, no extra purchase). The same
+   * consistency predicate as the writer's pre-publish check 8, over the
+   * row's own snapshot; any failure fails closed to 无法判断 and names it.
+   */
+  function tsumitateProblem_(asset) {
+    if (asset['今日行动'] !== '沿用定投') { return null; }
+    var problems = [];
+    if (asset['代码'] !== 'FUND-SLEEVE') { problems.push('本行不是基金聚合行'); }
+    // 周计划状态 proves "no active weekly plan": 无周计划 in a three-layer
+    // generation, blank in legacy; anything else is a purchase-plan snapshot.
+    var weekly = String(asset['周计划状态'] == null ? '' : asset['周计划状态']).trim();
+    if (asset._iosThreeLayer === true && weekly !== '无周计划') { problems.push('三层模式下周计划状态应为 无周计划'); }
+    if (asset._iosThreeLayer !== true && weekly !== '') { problems.push('周计划状态应为空'); }
+    var filled = TSUMITATE_BLANK_FIELDS_.filter(function (name) { return !isBlank(asset[name]); });
+    if (filled.length > 0) { problems.push(filled.join('、') + ' 应为空'); }
+    if (String(asset['阻塞待办ID'] == null ? '' : asset['阻塞待办ID']).trim() !== '无') {
+      problems.push('阻塞待办ID 不是 无');
+    }
+    if (String(asset['今日行动说明'] || '').indexOf('不是额外申购授权') === -1) {
+      problems.push('今日行动说明未写明不是额外申购授权');
+    }
+    return problems.length > 0 ? '报告标注为 沿用定投，但' + problems.join('；') + '，请勿据此判断' : null;
+  }
+
   function todayVerdict_(asset) {
     var action = asset['今日行动'];
+    if (action === '沿用定投') { return tsumitateProblem_(asset) ? '无法判断' : '沿用定投'; }
     if (action === '可人工准备限价单') {
       if (readyActionProblem_(asset)) { return '无法判断'; }
       // Only an explicit 无 proves nothing blocks: a blank or missing
@@ -719,6 +752,9 @@
 
   /** ③ 建议买入范围: both ends of one batch, never a guessed lower bound. */
   function buildRangeLines_(asset, verdict) {
+    if (verdict === '沿用定投') {
+      return [text('p', 'ios-asset-line ios-action-price', '建议买入范围: 不适用（沿用既有定投，不是额外申购授权）')];
+    }
     if (isThreeLayerRow_(asset)) { return buildWeeklyRangeLines_(asset, verdict); }
     var lines = [];
     if (isBlank(asset['入场计划ID'])) {
@@ -747,6 +783,13 @@
     }
     if (verdict === '适合买入') {
       return isBlank(said) ? null : text('p', 'ios-asset-line ios-action-next', '执行: ' + said);
+    }
+    if (verdict === '沿用定投') {
+      return isBlank(said) ? null : text('p', 'ios-asset-line ios-action-next', '定投: ' + said);
+    }
+    var tsumitateProblem = tsumitateProblem_(asset);
+    if (tsumitateProblem) {
+      return text('p', 'ios-asset-line ios-action-next ios-entry-plan-incomplete', '无法判断原因: ' + tsumitateProblem);
     }
     // A writer-labelled ready row that failed a consistency gate: the reason
     // is the gate (shown on its own line), not the execution sentence.
