@@ -461,7 +461,7 @@ test('card order: technical range precedes conditions after the weekly range; on
   assert.equal(children[range + 1].textContent, '技术关注范围: 360 – 370 USD');
   assert.match(children[range + 4].textContent, /技术参考，不是买入授权/);
   const screen = firstScreen(c);
-  assert.doesNotMatch(screen, /支撑参考|阻力参考|趋势与环境|出处:|长期合理价值|估值研究日期/);
+  assert.doesNotMatch(screen, /支撑参考|阻力参考|趋势与环境|出处:|估值研究日期/);
   const basis = blocks[0].textContent;
   assert.match(basis, /周计划复核时间（每周复核，不是重新估值）: 2026-10-18T09:00/);
   assert.match(basis, /周度研究依据截至: 2026-10-17T16:00/);
@@ -469,10 +469,12 @@ test('card order: technical range precedes conditions after the weekly range; on
   assert.match(basis, /周计划版本: wp-a-7 v7/);
   assert.doesNotMatch(referenceBlock(c).textContent, /技术关注范围:/);
   assert.match(basis, /估值研究日期（长期估值研究，不随每周复核变化）: 2026-09-30/);
-  assert.match(basis, /长期合理价值: 420–480 USD/);
+  assert.match(screen, /基准估值（长期合理价值）: 420–480 USD/);
+  assert.doesNotMatch(basis, /长期合理价值/);
   assert.match(firstScreen(c), /长期买入上限: 400/);
   const quoteIndex = c.children.findIndex((node) => node.textContent.startsWith('市价:'));
-  assert.equal(c.children[quoteIndex + 1].textContent, '长期买入上限: 400');
+  assert.equal(c.children[quoteIndex + 1].textContent, '基准估值（长期合理价值）: 420–480 USD');
+  assert.equal(c.children[quoteIndex + 2].textContent, '长期买入上限: 400');
   assert.doesNotMatch(basis, /长期买入上限: 400/);
   assert.doesNotMatch(referenceBlock(c).textContent, /确认条件:|否定条件:/);
 });
