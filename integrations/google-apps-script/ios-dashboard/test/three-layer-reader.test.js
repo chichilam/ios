@@ -470,7 +470,10 @@ test('card order: technical range precedes conditions after the weekly range; on
   assert.doesNotMatch(referenceBlock(c).textContent, /技术关注范围:/);
   assert.match(basis, /估值研究日期（长期估值研究，不随每周复核变化）: 2026-09-30/);
   assert.match(basis, /长期合理价值: 420–480 USD/);
-  assert.match(basis, /长期买入上限: 400/);
+  assert.match(firstScreen(c), /长期买入上限: 400/);
+  const quoteIndex = c.children.findIndex((node) => node.textContent.startsWith('市价:'));
+  assert.equal(c.children[quoteIndex + 1].textContent, '长期买入上限: 400');
+  assert.doesNotMatch(basis, /长期买入上限: 400/);
   assert.doesNotMatch(referenceBlock(c).textContent, /确认条件:|否定条件:/);
 });
 
@@ -551,8 +554,8 @@ test('#52/#64 T7: no executable range, no buy, and the reference stays in the ba
   assert.match(t, /本周技术关注区高于长期买入上限，本周不执行新增购买/);
   assert.match(firstScreen(c), /技术关注范围: 420 – 440 USD/);
   assert.match(t, /与长期买入上限: 关注区全部高于上限/);
-  // The cap shown under 长期估值 is the snapshot's 400, never raised to the zone.
-  assert.match(details(c).textContent + c.children[c.children.length - 1].textContent, /长期买入上限: 400/);
+  // The visible cap is the snapshot's 400, never raised to the zone.
+  assert.match(firstScreen(c), /长期买入上限: 400/);
 });
 
 test('#54 long-term valuation missing: a well-formed reference stays, compared as 无法比较, and never authorizes a buy', () => {
@@ -845,3 +848,4 @@ test('readReaderInputs_ honors the watermark recorded by published generations',
   const summaries = [{ 暂停载体行数: JSON.stringify({ 报告持仓: 4, 周计划暂停记录: 1 }) }];
   assert.equal(logic.readReaderInputs_(fakeSpreadsheet(SHEETS(), []), { 报告摘要: summaries }).scan.verifiable, false);
 });
+

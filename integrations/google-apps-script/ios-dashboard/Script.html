@@ -877,6 +877,9 @@
       lines.push(text('p', 'ios-asset-line ios-entry-plan-incomplete', readyProblem.message));
     }
     lines.push(buildQuoteLine_(asset));
+    if (isThreeLayerRow_(asset)) {
+      lines.push(labelledLine_('长期买入上限', asset['长期买入上限快照'], '未提供'));
+    }
     buildRangeLines_(asset, verdict).forEach(function (line) { lines.push(line); });
     var reason = buildReasonLine_(asset, verdict);
     if (reason) { lines.push(reason); }
@@ -990,7 +993,6 @@
     var detail = [text('summary', 'ios-research-summary', '长期估值')];
     detail.push(text('h3', 'ios-detail-heading', '长期估值'));
     detail.push(labelledLine_('长期合理价值', asset['长期合理价值'], '未提供'));
-    detail.push(labelledLine_('长期买入上限', asset['长期买入上限快照'], '未提供'));
     detail.push(labelledLine_('估值研究日期（长期估值研究，不随每周复核变化）', asset['估值研究日期快照'], '未提供'));
     var planVersion = [];
     if (!isBlank(asset['入场计划ID'])) { planVersion.push(asset['入场计划ID']); }
