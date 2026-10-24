@@ -315,6 +315,7 @@
     if (STATE.activeTab === 'portfolio') {
       container.appendChild(buildAssetSection('当前持仓', vm.holdings, false, vm.todos));
       if (vm.externalFairValue) container.appendChild(buildExternalFairValueSection_(vm.externalFairValue));
+      if (vm.externalFairValuePortfolio) container.appendChild(buildExternalFairValuePortfolioSection_(vm.externalFairValuePortfolio));
       container.appendChild(buildAssetSection('本期观察候选', vm.watchlistCandidates, true, vm.todos));
     } else if (STATE.activeTab === 'risks') {
       container.appendChild(buildRisksSection(vm.risks));
@@ -1244,6 +1245,20 @@
       lines.push(text('p', 'ios-asset-line ios-muted', '最近尝试说明：' + row['最近尝试失败说明']));
     }
     return el('div', { className: 'ios-asset-card ios-external-card' }, lines);
+  }
+
+  // -- External fair value portfolio comparison (Issue #352): Code.gs shows it
+  // only after replaying the frozen line against this report's own snapshot.
+  // A covered subset, never the portfolio's fair value; nothing else reads it.
+  function buildExternalFairValuePortfolioSection_(module) {
+    var children = [
+      text('h2', null, '外部公允价值组合对照（第三方参考）'),
+      text('p', 'ios-asset-line ios-external-batch', module.line)
+    ];
+    module.items.forEach(function (item) {
+      children.push(text('p', 'ios-asset-line ios-muted ios-external-batch', item.line));
+    });
+    return el('section', { className: 'ios-card ios-external-reference' }, children);
   }
 
   function buildRisksSection(risks) {

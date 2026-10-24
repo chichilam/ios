@@ -125,8 +125,10 @@ function buildReportViewModel_(tabs, reportType, explicitReportId, reader) {
   var risks = filterLiveDetailRows_(tabs['报告风险'], reportId, generationId);
   var todos = filterLiveDetailRows_(tabs['报告待办'], reportId, generationId);
   // Issue #348: this generation's own batch line and snapshot rows only.
-  var externalFairValue = buildExternalFairValueView_(summary,
-    reader && reader.externalFairValue ? reader.externalFairValue : externalFairValueFromTabs_(tabs));
+  var efvInputs = reader && reader.externalFairValue ? reader.externalFairValue : externalFairValueFromTabs_(tabs);
+  var externalFairValue = buildExternalFairValueView_(summary, efvInputs);
+  // Issue #352: the covered-subset aggregate, replayed against the same rows.
+  var externalFairValuePortfolio = buildExternalFairValuePortfolioView_(summary, efvInputs);
 
   return {
     found: true,
@@ -137,7 +139,8 @@ function buildReportViewModel_(tabs, reportType, explicitReportId, reader) {
     watchlistCandidates: sortByOrder_(watchlistCandidates),
     risks: sortByOrder_(risks),
     todos: sortByOrder_(todos),
-    externalFairValue: externalFairValue
+    externalFairValue: externalFairValue,
+    externalFairValuePortfolio: externalFairValuePortfolio
   };
 }
 
@@ -1222,6 +1225,581 @@ function externalFairValueFromTabs_(tabs) {
   };
 }
 
+// -- External fair value portfolio aggregate reader (Issue #352, #342 P5). A
+// strict port of read_published_portfolio and the functions it calls in
+// tests/external_fair_value_portfolio_spec.py: the 外部公允价值组合批次 line is
+// trusted only when it replays byte for byte from its own frozen items and
+// FX records against this generation's own #346 snapshot rows. Amounts are
+// exact decimals on BigInt ({n, s} is n / 10^s), never floating point.
+var PF_BATCH_PREFIX_ = '外部公允价值组合批次：';
+var PF_CALC_VERSION_ = '1';
+var PF_PRICE_THRESHOLD_DAYS_ = 7;
+var PF_FX_THRESHOLD_DAYS_ = 7;
+var PF_LIMIT_DIGITS_ = 15;
+var PF_COVERED_ = '已覆盖';
+var PF_UNCOVERED_ = '未覆盖';
+var PF_NO_VALUE_ = '市值不可计算';
+var PF_MV_REASONS_ = ['持仓数量异常', '持仓重复', '价格缺失', '价格币种不符', '价格冲突', '价格异常', '价格过期',
+  '汇率缺失', '汇率方向错误', '汇率冲突', '汇率异常', '汇率过期', '市值越界'];
+var PF_SCOPE_FULL_ = '全部覆盖';
+var PF_SCOPE_PARTIAL_ = '部分覆盖';
+var PF_SCOPE_NONE_ = '无覆盖';
+var PF_BATCH_WRITTEN_ = '已写入';
+var PF_BATCH_MISSING_ = '未写入';
+var PF_BATCH_REASONS_ = ['组合键无效', '公允价值批次未写入', '证据不可读', '合计越界', '批次过长'];
+var PF_ITEM_KEYS_ = ['代码', '上市市场', '报价币种', '记录状态', '引用值记录ID', '外部公允价值', '采集新鲜度', '模型新鲜度',
+  '结果', '原因', '持有数量', '市场价格', '价格时间', '汇率', '市值', '折算外部公允价值'];
+var PF_P2_COPY_ = PF_ITEM_KEYS_.slice(0, 8);
+var PF_ITEM_NUMBERS_ = ['持有数量', '市场价格', '汇率', '市值', '折算外部公允价值'];
+var PF_FX_KEYS_ = ['基础币种', '计价币种', '汇率', '汇率时间'];
+var PF_WRITTEN_KEYS_ = ['批次状态', '计算版本', '报告币种', '来源标识', '读取截止时间', '范围证券数', '市值可计算证券数', '覆盖证券数',
+  '覆盖范围', '范围市值', '覆盖市值', '覆盖外部公允价值', '覆盖差额', '覆盖差额比例', '市值覆盖率', '未覆盖市值',
+  '基金行数', '非正数量行数', '汇率', '明细', '证据'];
+var PF_HOLDING_FIELDS_ = ['代码', '市场', '币种', '账户', '持有数量'];
+var PF_QUOTE_FIELDS_ = ['代码', '上市市场', '报价币种', '市场价格', '价格时间'];
+var PF_ASSET_FIELDS_ = ['代码', '报价币种', '当前价格'];
+var PF_EVIDENCE_KEYS_ = ['持仓', '行情', '报告持仓价格', '汇率证据'];
+var PF_EVIDENCE_FIELDS_ = { 持仓: PF_HOLDING_FIELDS_, 行情: PF_QUOTE_FIELDS_, 报告持仓价格: PF_ASSET_FIELDS_, 汇率证据: PF_FX_KEYS_ };
+var PF_MAX_LINE_CHARS_ = 40000;
+var PF_FUND_SLEEVE_ = 'FUND-SLEEVE';
+var PF_MISSING_KEYS_ = ['批次状态', '计算版本', '报告币种', '来源标识', '读取截止时间', '原因', '说明'];
+var PF_COUNT_KEYS_ = ['范围证券数', '市值可计算证券数', '覆盖证券数', '基金行数', '非正数量行数'];
+var PF_VIEW_OFF_ = '未启用';
+var PF_VIEW_MISMATCH_ = '批次不一致';
+var PF_VIEW_MARKER_INVALID_ = '批次标记无效';
+var PF_MARKER_INVALID_ = { markerInvalid: true };
+var PF_CURRENCY_ = /^[A-Z]{3}$/;
+var PF_PLAIN_ = /^(0|[1-9][0-9]{0,14})(?:\.([0-9]{1,8}))?$/;
+var PF_EXACT_ = /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]*[1-9])?$/;
+var PF_QUANTITY_ = /^(0|[1-9][0-9]{0,14}|[1-9][0-9]{0,2}(?:,[0-9]{3}){1,4})(?:\.([0-9]{1,8}))?$/;
+
+function pfPow10_(k) {
+  return BigInt('1' + '0'.repeat(k));
+}
+
+function pfMul_(a, b) {
+  return { n: a.n * b.n, s: a.s + b.s };
+}
+
+function pfAdd_(a, b, sign) {
+  var s = Math.max(a.s, b.s);
+  var x = a.n * pfPow10_(s - a.s), y = b.n * pfPow10_(s - b.s);
+  return { n: sign < 0 ? x - y : x + y, s: s };
+}
+
+function pfReachesLimit_(v) {
+  return v.n >= pfPow10_(PF_LIMIT_DIGITS_ + v.s);
+}
+
+/** parse_plain: a positive plain decimal in ASCII digits, or null. */
+function pfParsePlain_(value) {
+  var match = PF_PLAIN_.exec(efvText_(value));
+  if (!match) return null;
+  var fraction = match[2] || '';
+  var n = BigInt(match[1] + fraction);
+  return n > BigInt(0) ? { n: n, s: fraction.length } : null;
+}
+
+/** parse_quantity: a non-negative quantity (thousands may be grouped with ','), or null. */
+function pfParseQuantity_(value) {
+  var match = PF_QUANTITY_.exec(efvText_(value));
+  if (!match) return null;
+  var fraction = match[2] || '';
+  return { n: BigInt(match[1].replace(/,/g, '') + fraction), s: fraction.length };
+}
+
+function pfSameDecimal_(a, b) {
+  return a !== null && b !== null && a.n * pfPow10_(b.s) === b.n * pfPow10_(a.s);
+}
+
+function pfFromPositive_(value) {
+  var parsed = efvParsePositive_(value);
+  return { n: BigInt((parsed.whole || '0') + parsed.fraction), s: parsed.fraction.length };
+}
+
+/** decimal_text: exact, no trailing zeros. */
+function pfDecimalText_(v) {
+  var negative = v.n < BigInt(0);
+  var digits = (negative ? -v.n : v.n).toString();
+  if (v.s > 0) digits = digits.padStart(v.s + 1, '0');
+  var whole = v.s > 0 ? digits.slice(0, -v.s) : digits;
+  var fraction = v.s > 0 ? digits.slice(-v.s).replace(/0+$/, '') : '';
+  var text = fraction ? whole + '.' + fraction : whole;
+  return negative && text !== '0' ? '-' + text : text;
+}
+
+/** Half to even: the integer nearest num / den (den > 0). */
+function pfRoundHalfEven_(num, den) {
+  var negative = num < BigInt(0);
+  var abs = negative ? -num : num;
+  var q = abs / den, r = abs % den;
+  var twice = r * BigInt(2);
+  if (twice > den || (twice === den && q % BigInt(2) === BigInt(1))) q += BigInt(1);
+  return negative ? -q : q;
+}
+
+function pfUnitsText_(units, places) {
+  var negative = units < BigInt(0);
+  var digits = (negative ? -units : units).toString().padStart(places + 1, '0');
+  return (negative ? '-' : '') + digits.slice(0, -places) + '.' + digits.slice(-places);
+}
+
+/** fixed_text: rounded half to even to `places` decimals. */
+function pfFixedText_(v, places) {
+  if (v.s <= places) return pfUnitsText_(v.n * pfPow10_(places - v.s), places);
+  return pfUnitsText_(pfRoundHalfEven_(v.n, pfPow10_(v.s - places)), places);
+}
+
+function pfRatioText_(a, b, places) {
+  return pfUnitsText_(pfRoundHalfEven_(a.n * pfPow10_(b.s + places), b.n * pfPow10_(a.s)), places);
+}
+
+/** evidence_time against a threshold: 'fresh', 'stale' or 'invalid' (unparseable or after the cut-off). */
+function pfEvidenceAge_(value, cutoff, days) {
+  var moment = efvParseTime_(value);
+  if (moment !== null) {
+    if (efvCompareTime_(moment, cutoff) > 0) return 'invalid';
+    var seconds = cutoff.seconds - moment.seconds, micros = cutoff.micros - moment.micros, limit = days * 86400;
+    return seconds < limit || (seconds === limit && micros <= 0) ? 'fresh' : 'stale';
+  }
+  var day = efvParseDate_(value);
+  if (day === null || day > cutoff.day) return 'invalid';
+  return cutoff.day - day <= days ? 'fresh' : 'stale';
+}
+
+function pfFairValueReason_(row) {
+  if (row['记录状态'] !== EFV_READ_) return '公允价值未采用';
+  if (row['采集新鲜度'] !== '新') return '公允价值采集过期';
+  if (row['模型新鲜度'] === '过期') return '公允价值模型过期';
+  return null;
+}
+
+/** compose: the 已写入 body (keys in canonical order), or {fault} when a total reaches 10^15. */
+function pfCompose_(currency, source, cutoffText, p2Rows, evidence, fundRows, nonPositiveRows, frozen) {
+  var zero = { n: BigInt(0), s: 0 };
+  var items = [], usedFx = {}, inScope = zero, coveredMv = zero, coveredFv = zero, calculable = 0, covered = 0;
+  p2Rows.forEach(function (row, index) {
+    var ev = evidence[index];
+    var item = {};
+    PF_P2_COPY_.forEach(function (name) { item[name] = row[name]; });
+    item['结果'] = PF_NO_VALUE_;
+    item['原因'] = '';
+    ['持有数量', '市场价格', '价格时间', '汇率', '市值', '折算外部公允价值'].forEach(function (name) { item[name] = null; });
+    if (ev.reason) {
+      item['原因'] = ev.reason;
+      items.push(item);
+      return;
+    }
+    var marketValue = pfMul_(pfMul_(ev.quantity, ev.price), ev.rate);
+    if (pfReachesLimit_(marketValue)) {
+      item['原因'] = '市值越界';
+      items.push(item);
+      return;
+    }
+    calculable += 1;
+    inScope = pfAdd_(inScope, marketValue, 1);
+    if (ev.fx) usedFx[ev.fx['基础币种']] = ev.fx;
+    item['结果'] = PF_UNCOVERED_;
+    item['持有数量'] = pfDecimalText_(ev.quantity);
+    item['市场价格'] = pfDecimalText_(ev.price);
+    item['价格时间'] = ev.time;
+    item['汇率'] = pfDecimalText_(ev.rate);
+    item['市值'] = pfDecimalText_(marketValue);
+    var reason = pfFairValueReason_(row);
+    var converted = null;
+    if (reason === null) {
+      converted = pfMul_(pfMul_(ev.quantity, pfFromPositive_(row['外部公允价值'])), ev.rate);
+      if (pfReachesLimit_(converted)) reason = '公允价值越界';
+    }
+    if (reason) {
+      item['原因'] = reason;
+    } else {
+      covered += 1;
+      coveredMv = pfAdd_(coveredMv, marketValue, 1);
+      coveredFv = pfAdd_(coveredFv, converted, 1);
+      item['结果'] = PF_COVERED_;
+      item['折算外部公允价值'] = pfDecimalText_(converted);
+    }
+    items.push(item);
+  });
+  if (pfReachesLimit_(inScope) || pfReachesLimit_(coveredFv)) return { fault: '合计越界' };
+  var gap = pfAdd_(coveredFv, coveredMv, -1);
+  return {
+    '批次状态': PF_BATCH_WRITTEN_, '计算版本': PF_CALC_VERSION_, '报告币种': currency, '来源标识': source,
+    '读取截止时间': cutoffText, '范围证券数': items.length, '市值可计算证券数': calculable, '覆盖证券数': covered,
+    '覆盖范围': covered === 0 ? PF_SCOPE_NONE_ : (covered === items.length ? PF_SCOPE_FULL_ : PF_SCOPE_PARTIAL_),
+    '范围市值': calculable ? pfFixedText_(inScope, 2) : null,
+    '覆盖市值': covered ? pfFixedText_(coveredMv, 2) : null,
+    '覆盖外部公允价值': covered ? pfFixedText_(coveredFv, 2) : null,
+    '覆盖差额': covered ? pfFixedText_(gap, 2) : null,
+    '覆盖差额比例': covered ? pfRatioText_(gap, coveredMv, 4) : null,
+    '市值覆盖率': calculable ? pfRatioText_(coveredMv, inScope, 4) : null,
+    '未覆盖市值': calculable ? pfFixedText_(pfAdd_(inScope, coveredMv, -1), 2) : null,
+    '基金行数': fundRows, '非正数量行数': nonPositiveRows,
+    '汇率': Object.keys(usedFx).sort().map(function (base) { return usedFx[base]; }),
+    '明细': items,
+    '证据': frozen
+  };
+}
+
+function pfNorm_(value) {
+  return efvListingKey_(value, '', '')[0];
+}
+
+function pfKeyText_(parts) {
+  return JSON.stringify(parts);
+}
+
+/** _rows_of: rows projected to `fields` as text, sorted by code point; `unique` keeps identical rows once. */
+function pfRowsOf_(rows, fields, unique) {
+  var texts = rows.map(function (row) { return fields.map(function (name) { return efvText_(row[name]); }); });
+  texts.sort(efvCompareKeys_);
+  if (unique) texts = texts.filter(function (t, i) { return i === 0 || efvCompareKeys_(t, texts[i - 1]) !== 0; });
+  return texts.map(function (t) {
+    var row = {};
+    fields.forEach(function (name, i) { row[name] = t[i]; });
+    return row;
+  });
+}
+
+/** freeze: the raw inputs every item, exclusion and count rests on. */
+function pfFreeze_(currency, p2Rows, currentRows, quotes, fx, assets) {
+  var pairs = {}, codes = {}, directions = {};
+  p2Rows.forEach(function (row) {
+    var key = efvListingKey_(row['代码'], row['上市市场'], row['报价币种']);
+    pairs[pfKeyText_(key.slice(0, 2))] = true;
+    codes[key[0]] = true;
+    if (key[2] !== currency) {
+      directions[pfKeyText_([key[2], currency])] = true;
+      directions[pfKeyText_([currency, key[2]])] = true;
+    }
+  });
+  var has = function (set, key) { return Object.prototype.hasOwnProperty.call(set, key); };
+  return {
+    持仓: pfRowsOf_(currentRows.filter(function (r) { return efvText_(r['状态']) === '持有'; }), PF_HOLDING_FIELDS_, false),
+    行情: pfRowsOf_(quotes.filter(function (q) {
+      return has(pairs, pfKeyText_(efvListingKey_(q['代码'], q['上市市场'], q['报价币种']).slice(0, 2)));
+    }), PF_QUOTE_FIELDS_, true),
+    报告持仓价格: pfRowsOf_(assets.filter(function (a) {
+      return efvText_(a['资产类型']) === 'holding' && efvText_(a['当前价格']) !== '' && has(codes, pfNorm_(a['代码']));
+    }), PF_ASSET_FIELDS_, true),
+    汇率证据: pfRowsOf_(fx.filter(function (r) {
+      return has(directions, pfKeyText_([pfNorm_(r['基础币种']), pfNorm_(r['计价币种'])]));
+    }), PF_FX_KEYS_, true)
+  };
+}
+
+function pfSameListing_(a, b) {
+  return a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
+}
+
+/** _quantity: {value} or {reason}; the same 账户 twice is a duplicate, never summed. */
+function pfQuantity_(key, holdings) {
+  var total = { n: BigInt(0), s: 0 }, accounts = {};
+  for (var i = 0; i < holdings.length; i++) {
+    var row = holdings[i];
+    if (efvText_(row['状态']) !== '持有' || !pfSameListing_(efvListingKey_(row['代码'], row['市场'], row['币种']), key)) continue;
+    var quantity = pfParseQuantity_(row['持有数量']);
+    if (quantity === null) return { reason: '持仓数量异常' };
+    var account = pfNorm_(row['账户']);
+    if (Object.prototype.hasOwnProperty.call(accounts, account)) return { reason: '持仓重复' };
+    accounts[account] = true;
+    total = pfAdd_(total, quantity, 1);
+  }
+  return total.n > BigInt(0) ? { value: total } : { reason: '持仓数量异常' };
+}
+
+function pfDistinct_(rows, a, b) {
+  var seen = {};
+  rows.forEach(function (row) { seen[pfKeyText_([row[a], row[b]])] = true; });
+  return Object.keys(seen).length;
+}
+
+/** _quote: {price, time} or {reason}. */
+function pfQuote_(key, quotes, assets, cutoff) {
+  var mine = quotes.filter(function (q) { return pfSameListing_(efvListingKey_(q['代码'], q['上市市场'], q['报价币种']), key); });
+  if (mine.length === 0) {
+    var same = quotes.some(function (q) {
+      var k = efvListingKey_(q['代码'], q['上市市场'], q['报价币种']);
+      return k[0] === key[0] && k[1] === key[1];
+    });
+    return { reason: same ? '价格币种不符' : '价格缺失' };
+  }
+  if (pfDistinct_(mine, '市场价格', '价格时间') > 1) return { reason: '价格冲突' };
+  var price = pfParsePlain_(mine[0]['市场价格']), when = mine[0]['价格时间'];
+  var age = pfEvidenceAge_(when, cutoff, PF_PRICE_THRESHOLD_DAYS_);
+  if (price === null || age === 'invalid') return { reason: '价格异常' };
+  for (var i = 0; i < assets.length; i++) {
+    var asset = assets[i];
+    if (efvText_(asset['资产类型']) !== 'holding' || pfNorm_(asset['代码']) !== key[0]) continue;
+    if (efvText_(asset['当前价格']) === '') continue;
+    if (pfNorm_(asset['报价币种']) !== key[2]) return { reason: '价格币种不符' };
+    if (!pfSameDecimal_(pfParsePlain_(asset['当前价格']), price)) return { reason: '价格冲突' };
+  }
+  if (age !== 'fresh') return { reason: '价格过期' };
+  return { price: price, time: when };
+}
+
+/** _rate: {rate, fx} or {reason}; only listing currency -> report currency, never inverted. */
+function pfRate_(currency, reportCurrency, fx, cutoff) {
+  if (currency === reportCurrency) return { rate: { n: BigInt(1), s: 0 }, fx: null };
+  var mine = fx.filter(function (r) { return pfNorm_(r['基础币种']) === currency && pfNorm_(r['计价币种']) === reportCurrency; });
+  if (mine.length === 0) {
+    var inverse = fx.some(function (r) { return pfNorm_(r['基础币种']) === reportCurrency && pfNorm_(r['计价币种']) === currency; });
+    return { reason: inverse ? '汇率方向错误' : '汇率缺失' };
+  }
+  if (pfDistinct_(mine, '汇率', '汇率时间') > 1) return { reason: '汇率冲突' };
+  var rate = pfParsePlain_(mine[0]['汇率']);
+  var age = pfEvidenceAge_(mine[0]['汇率时间'], cutoff, PF_FX_THRESHOLD_DAYS_);
+  if (rate === null || age === 'invalid') return { reason: '汇率异常' };
+  if (age !== 'fresh') return { reason: '汇率过期' };
+  return { rate: rate, fx: { 基础币种: currency, 计价币种: reportCurrency, 汇率: pfDecimalText_(rate), 汇率时间: mine[0]['汇率时间'] } };
+}
+
+function pfEvidence_(p2Row, reportCurrency, holdings, quotes, fx, assets, cutoff) {
+  var key = efvListingKey_(p2Row['代码'], p2Row['上市市场'], p2Row['报价币种']);
+  var quantity = pfQuantity_(key, holdings);
+  if (quantity.reason) return { reason: quantity.reason };
+  var quote = pfQuote_(key, quotes, assets, cutoff);
+  if (quote.reason) return { reason: quote.reason };
+  var rate = pfRate_(key[2], reportCurrency, fx, cutoff);
+  if (rate.reason) return { reason: rate.reason };
+  return { quantity: quantity.value, price: quote.price, time: quote.time, rate: rate.rate, fx: rate.fx };
+}
+
+/** category_counts: [基金行数, 非正数量行数]. */
+function pfCategoryCounts_(holdings) {
+  var funds = 0, nonPositive = 0;
+  holdings.forEach(function (row) {
+    if (efvText_(row['状态']) !== '持有') return;
+    if (pfNorm_(row['代码']) === PF_FUND_SLEEVE_) {
+      funds += 1;
+    } else {
+      var quantity = pfParseQuantity_(row['持有数量']);
+      if (quantity === null || quantity.n === BigInt(0)) nonPositive += 1;
+    }
+  });
+  return [funds, nonPositive];
+}
+
+/** build: freeze, then compose from the frozen inputs alone. */
+function pfBuild_(currency, source, cutoffText, p2Rows, currentRows, quotes, fx, assets) {
+  var frozen = pfFreeze_(currency, p2Rows, currentRows, quotes, fx, assets);
+  var holdings = frozen['持仓'].map(function (row) { return Object.assign({}, row, { 状态: '持有' }); });
+  var prices = frozen['报告持仓价格'].map(function (row) { return Object.assign({}, row, { 资产类型: 'holding' }); });
+  var cutoff = efvParseTime_(cutoffText);
+  var evidence = p2Rows.map(function (row) {
+    return pfEvidence_(row, currency, holdings, frozen['行情'], frozen['汇率证据'], prices, cutoff);
+  });
+  var counts = pfCategoryCounts_(holdings);
+  return pfCompose_(currency, source, cutoffText, p2Rows, evidence, counts[0], counts[1], frozen);
+}
+
+function pfIsObject_(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function pfExactOrNull_(value) {
+  return value === null || (typeof value === 'string' && PF_EXACT_.test(value) && value !== '-0');
+}
+
+function pfFixedOrNull_(value, places) {
+  return value === null || (typeof value === 'string' && new RegExp('^-?(?:0|[1-9][0-9]*)\\.[0-9]{' + places + '}$').test(value));
+}
+
+function pfItemShapeOk_(item) {
+  if (!pfIsObject_(item) || !efvSameKeys_(item, PF_ITEM_KEYS_)) return false;
+  if (!PF_P2_COPY_.concat(['结果', '原因']).every(function (name) { return typeof item[name] === 'string'; })) return false;
+  if (!PF_ITEM_NUMBERS_.every(function (name) { return pfExactOrNull_(item[name]); })) return false;
+  return item['价格时间'] === null || typeof item['价格时间'] === 'string';
+}
+
+function pfFxShapeOk_(record) {
+  return pfIsObject_(record) && efvSameKeys_(record, PF_FX_KEYS_) &&
+    PF_FX_KEYS_.every(function (name) { return typeof record[name] === 'string'; }) && pfExactOrNull_(record['汇率']);
+}
+
+function pfEvidenceShapeOk_(frozen) {
+  if (!pfIsObject_(frozen) || !efvSameKeys_(frozen, PF_EVIDENCE_KEYS_)) return false;
+  return PF_EVIDENCE_KEYS_.every(function (name) {
+    var fields = PF_EVIDENCE_FIELDS_[name];
+    return Array.isArray(frozen[name]) && frozen[name].every(function (row) {
+      return pfIsObject_(row) && efvSameKeys_(row, fields) && fields.every(function (f) { return typeof row[f] === 'string'; });
+    });
+  });
+}
+
+/** line_length: Unicode code points (a supplementary-plane character counts once), as the Python reference. */
+function pfLineLength_(line) {
+  return Array.from(line).length;
+}
+
+function pfIsCount_(value) {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0;
+}
+
+function pfBatchLike_(line) {
+  return line.replace(EFV_LSTRIP_, '').indexOf(PF_BATCH_PREFIX_) === 0;
+}
+
+/** parse_marker: null (no portfolio line), the parsed body, or PF_MARKER_INVALID_. */
+function pfParseMarker_(note) {
+  var lines = efvSplitLines_(note == null ? '' : String(note)).filter(pfBatchLike_);
+  if (lines.length === 0) return null;
+  if (lines.length > 1 || lines[0].indexOf(PF_BATCH_PREFIX_) !== 0 || pfLineLength_(lines[0]) > PF_MAX_LINE_CHARS_) return PF_MARKER_INVALID_;
+  var payload = lines[0].slice(PF_BATCH_PREFIX_.length);
+  var body;
+  try {
+    body = JSON.parse(payload);
+  } catch (err) {
+    return PF_MARKER_INVALID_;
+  }
+  if (!pfIsObject_(body) || JSON.stringify(body) !== payload) return PF_MARKER_INVALID_;
+  var status = body['批次状态'];
+  if (status === PF_BATCH_MISSING_) {
+    if (!efvSameKeys_(body, PF_MISSING_KEYS_) || !PF_MISSING_KEYS_.every(function (k) { return typeof body[k] === 'string'; })) {
+      return PF_MARKER_INVALID_;
+    }
+    if (body['计算版本'] !== PF_CALC_VERSION_ || PF_BATCH_REASONS_.indexOf(body['原因']) === -1 || efvText_(body['说明']) === '') {
+      return PF_MARKER_INVALID_;
+    }
+    return body;
+  }
+  if (status !== PF_BATCH_WRITTEN_ || !efvSameKeys_(body, PF_WRITTEN_KEYS_) || body['计算版本'] !== PF_CALC_VERSION_) return PF_MARKER_INVALID_;
+  if (!['报告币种', '来源标识', '读取截止时间', '覆盖范围'].every(function (k) { return typeof body[k] === 'string'; })) return PF_MARKER_INVALID_;
+  if (!PF_COUNT_KEYS_.every(function (k) { return pfIsCount_(body[k]); })) return PF_MARKER_INVALID_;
+  var money = ['范围市值', '覆盖市值', '覆盖外部公允价值', '覆盖差额', '未覆盖市值'];
+  if (!money.every(function (k) { return pfFixedOrNull_(body[k], 2); }) ||
+      !['覆盖差额比例', '市值覆盖率'].every(function (k) { return pfFixedOrNull_(body[k], 4); })) {
+    return PF_MARKER_INVALID_;
+  }
+  if (!Array.isArray(body['汇率']) || !body['汇率'].every(pfFxShapeOk_)) return PF_MARKER_INVALID_;
+  if (!Array.isArray(body['明细']) || !body['明细'].every(pfItemShapeOk_)) return PF_MARKER_INVALID_;
+  if (!pfEvidenceShapeOk_(body['证据'])) return PF_MARKER_INVALID_;
+  return body;
+}
+
+/** scope_errors, as a boolean: the frozen holdings must give exactly the #346 batch's listings. */
+function pfScopeFails_(frozen, p2Rows) {
+  var keys = {}, held = {};
+  p2Rows.forEach(function (row) { keys[pfKeyText_(efvListingKey_(row['代码'], row['上市市场'], row['报价币种']))] = true; });
+  for (var i = 0; i < frozen['持仓'].length; i++) {
+    var row = frozen['持仓'][i];
+    var key = efvListingKey_(row['代码'], row['市场'], row['币种']);
+    held[pfKeyText_(key)] = true;
+    var quantity = pfParseQuantity_(row['持有数量']);
+    if (key[0] !== PF_FUND_SLEEVE_ && quantity !== null && quantity.n > BigInt(0) &&
+        !Object.prototype.hasOwnProperty.call(keys, pfKeyText_(key))) return true;
+  }
+  return Object.keys(keys).some(function (k) { return !Object.prototype.hasOwnProperty.call(held, k); });
+}
+
+/** replay_errors, as a boolean: true when the body does not follow from its own generation and frozen inputs. */
+function pfReplayFails_(body, p2Rows) {
+  var currency = body['报告币种'];
+  if (!PF_CURRENCY_.test(currency) || efvParseTime_(body['读取截止时间']) === null) return true;
+  var items = body['明细'];
+  if (items.length !== p2Rows.length) return true;
+  for (var i = 0; i < items.length; i++) {
+    for (var j = 0; j < PF_P2_COPY_.length; j++) {
+      if (items[i][PF_P2_COPY_[j]] !== p2Rows[i][PF_P2_COPY_[j]]) return true;
+    }
+  }
+  var frozen = body['证据'];
+  if (pfScopeFails_(frozen, p2Rows)) return true;
+  var holdings = frozen['持仓'].map(function (row) { return Object.assign({}, row, { 状态: '持有' }); });
+  var prices = frozen['报告持仓价格'].map(function (row) { return Object.assign({}, row, { 资产类型: 'holding' }); });
+  var again = pfBuild_(currency, body['来源标识'], body['读取截止时间'], p2Rows, holdings, frozen['行情'], frozen['汇率证据'], prices);
+  return Boolean(again.fault) || JSON.stringify(again) !== JSON.stringify(body);
+}
+
+/** read_published_portfolio: {state[, reason, detail | body]} from the summary row and this generation's #346 rows only. */
+function pfReadPublishedPortfolio_(summary, readTab) {
+  var marker = pfParseMarker_(summary['备注']);
+  if (marker === null) return { state: PF_VIEW_OFF_ };
+  if (marker === PF_MARKER_INVALID_) return { state: PF_VIEW_MARKER_INVALID_ };
+  if (marker['批次状态'] === PF_BATCH_MISSING_) return { state: PF_BATCH_MISSING_, reason: marker['原因'], detail: marker['说明'] };
+  var p2Marker = efvParseBatchMarker_(summary['备注']);
+  if (p2Marker === null || p2Marker === EFV_MARKER_INVALID_ || p2Marker['批次状态'] !== EFV_BATCH_WRITTEN_) return { state: PF_VIEW_MISMATCH_ };
+  if (p2Marker['来源标识'] !== marker['来源标识'] || p2Marker['读取截止时间'] !== marker['读取截止时间']) return { state: PF_VIEW_MISMATCH_ };
+  var p2 = efvReadPublishedBatch_(summary, readTab);
+  if (p2.state !== EFV_BATCH_WRITTEN_ || pfReplayFails_(marker, p2.rows)) return { state: PF_VIEW_MISMATCH_ };
+  return { state: PF_BATCH_WRITTEN_, body: marker };
+}
+
+function pfPercent_(ratioText) {
+  var negative = ratioText.charAt(0) === '-';
+  var parts = ratioText.replace(/^-/, '').split('.');
+  var digits = (parts[0] + parts[1]).replace(/^0+/, '').padStart(3, '0');
+  return (negative ? '-' : '') + digits.slice(0, -2) + '.' + digits.slice(-2);
+}
+
+function pfSigned_(text) {
+  return text.charAt(0) === '-' || text.replace(/[0.]/g, '') === '' ? text : '+' + text;
+}
+
+var PF_UNKNOWN_MODEL_NOTE_ = '模型日期未提供，模型新鲜度未知';
+
+/** item_line: one frozen item; only a covered item calls out an unknown model date. */
+function pfItemLine_(item) {
+  var line = item['代码'] + ' · ' + item['上市市场'] + ' · ' + item['结果'] + (item['原因'] ? '（' + item['原因'] + '）' : '');
+  if (item['结果'] === PF_COVERED_ && item['模型新鲜度'] === '未提供') line += '；' + PF_UNKNOWN_MODEL_NOTE_;
+  return line;
+}
+
+/** portfolio_line: the one generation-level line; '' for 未启用. */
+function pfPortfolioLine_(view) {
+  var note = EFV_THIRD_PARTY_NOTE_;
+  if (view.state === PF_VIEW_OFF_) return '';
+  if (view.state === PF_BATCH_MISSING_) return '外部公允价值组合对照：本次未计算（' + view.reason + '：' + view.detail + '），未采用；' + note;
+  if (view.state === PF_VIEW_MISMATCH_) return '外部公允价值组合对照：本次组合批次与快照不一致，未采用；' + note;
+  if (view.state === PF_VIEW_MARKER_INVALID_) return '外部公允价值组合对照：本次组合批次标记无效，未采用；' + note;
+  var body = view.body;
+  var total = body['范围证券数'], calculable = body['市值可计算证券数'], covered = body['覆盖证券数'], ccy = body['报告币种'];
+  var parts = [];
+  if (covered === 0) {
+    parts.push('外部公允价值组合对照：本次没有可比较的覆盖证券（范围内 ' + total + ' 只），不显示合计');
+  } else {
+    var label = body['覆盖范围'] === PF_SCOPE_FULL_ ? '范围内全部证券' : '仅覆盖部分，不是组合整体公允价值';
+    parts.push('外部公允价值组合对照（' + label + '）：覆盖 ' + covered + '/' + total + ' 只证券，市值覆盖率 ' + pfPercent_(body['市值覆盖率']) + '%');
+    parts.push('覆盖部分市值 ' + body['覆盖市值'] + ' ' + ccy + '，外部公允价值合计 ' + body['覆盖外部公允价值'] + ' ' + ccy +
+      '，差额 ' + pfSigned_(body['覆盖差额']) + ' ' + ccy + '（' + pfSigned_(pfPercent_(body['覆盖差额比例'])) + '%）');
+    var unknown = body['明细'].filter(function (item) { return item['结果'] === PF_COVERED_ && item['模型新鲜度'] === '未提供'; }).length;
+    if (unknown) parts.push('其中 ' + unknown + ' 只模型日期未提供（模型新鲜度未知）');
+  }
+  if (total - calculable) parts.push((total - calculable) + ' 只市值不可计算，未计入分母');
+  parts.push('来源标识 ' + body['来源标识'] + '，读取截止 ' + body['读取截止时间']);
+  parts.push('不含现金、基金与观察名单；' + note);
+  return parts.join('；');
+}
+
+/**
+ * The view model's externalFairValuePortfolio: null when the generation has
+ * no portfolio line (module off, or a report from before #352); otherwise
+ * {state, line, items}. `inputs` is the same {readTab, dateText} the #348
+ * reader uses, so the snapshot tab is still read at most once per request.
+ */
+function buildExternalFairValuePortfolioView_(summary, inputs) {
+  var dateText = inputs && inputs.dateText ? inputs.dateText : efvUtcDateText_;
+  var readTab = inputs && inputs.readTab ? inputs.readTab : function () { return null; };
+  var row = {};
+  ['报告ID', '生成ID', '报告类型', '报告日期', '备注'].forEach(function (name) {
+    row[name] = efvCellText_(summary[name], dateText);
+  });
+  var view = pfReadPublishedPortfolio_(row, readTab);
+  if (view.state === PF_VIEW_OFF_) return null;
+  return {
+    state: view.state,
+    line: pfPortfolioLine_(view),
+    items: view.body ? view.body['明细'].map(function (item) {
+      return {
+        code: item['代码'], market: item['上市市场'], result: item['结果'], reason: item['原因'],
+        modelFreshness: item['模型新鲜度'], line: pfItemLine_(item)
+      };
+    }) : []
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Section 2: Apps Script glue (requires the Apps Script runtime)
 // ---------------------------------------------------------------------------
@@ -1607,6 +2185,18 @@ if (typeof module !== 'undefined') {
     efvCellText_: efvCellText_,
     buildExternalFairValueView_: buildExternalFairValueView_,
     externalFairValueFromTabs_: externalFairValueFromTabs_,
-    readExternalFairValueInputs_: readExternalFairValueInputs_
+    readExternalFairValueInputs_: readExternalFairValueInputs_,
+    PF_MARKER_INVALID_: PF_MARKER_INVALID_,
+    pfParseMarker_: pfParseMarker_,
+    pfReplayFails_: pfReplayFails_,
+    pfLineLength_: pfLineLength_,
+    PF_MAX_LINE_CHARS_: PF_MAX_LINE_CHARS_,
+    pfReadPublishedPortfolio_: pfReadPublishedPortfolio_,
+    pfPortfolioLine_: pfPortfolioLine_,
+    pfItemLine_: pfItemLine_,
+    pfDecimalText_: pfDecimalText_,
+    pfFixedText_: pfFixedText_,
+    pfRatioText_: pfRatioText_,
+    buildExternalFairValuePortfolioView_: buildExternalFairValuePortfolioView_
   };
 }
