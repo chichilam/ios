@@ -124,6 +124,9 @@ function buildReportViewModel_(tabs, reportType, explicitReportId, reader) {
   var watchlistCandidates = liveAssets.filter(function (row) { return row['资产类型'] === 'watchlist'; });
   var risks = filterLiveDetailRows_(tabs['报告风险'], reportId, generationId);
   var todos = filterLiveDetailRows_(tabs['报告待办'], reportId, generationId);
+  // Issue #348: this generation's own batch line and snapshot rows only.
+  var externalFairValue = buildExternalFairValueView_(summary,
+    reader && reader.externalFairValue ? reader.externalFairValue : externalFairValueFromTabs_(tabs));
 
   return {
     found: true,
@@ -133,7 +136,8 @@ function buildReportViewModel_(tabs, reportType, explicitReportId, reader) {
     holdings: sortByOrder_(holdings),
     watchlistCandidates: sortByOrder_(watchlistCandidates),
     risks: sortByOrder_(risks),
-    todos: sortByOrder_(todos)
+    todos: sortByOrder_(todos),
+    externalFairValue: externalFairValue
   };
 }
 
@@ -688,7 +692,534 @@ function readerFromTabs_(tabs) {
     },
     scanWatermark_(tabs['报告摘要'])
   );
-  return { install: install, scan: scan };
+  return { install: install, scan: scan, externalFairValue: externalFairValueFromTabs_(tabs) };
+}
+
+// -- External fair value snapshot reader (Issue #348, #342 P3). A strict port
+// of read_published_batch and the functions it calls in
+// tests/external_fair_value_spec.py (the P1/P2 executable specification):
+// a published generation's third-party reference is shown only from its own
+// 报告摘要.备注 batch line and its own (报告ID, 生成ID) rows of the optional
+// 外部公允价值快照 tab. Nothing here reads the collector's record tab or the
+// installation switch, so later collection or a changed switch never alters a
+// published page. test/external-fair-value-reader.test.js holds this port to
+// the Python reference through test/external-fair-value-golden.json. The
+// values shown never feed any IOS field, verdict or gate on the page.
+
+var EFV_SNAPSHOT_TAB_ = '外部公允价值快照';
+var EFV_SNAPSHOT_KEYS_ = ['报告ID', '生成ID', '报告类型', '报告日期', '代码', '上市市场', '报价币种', '来源标识', '读取截止时间'];
+var EFV_SNAPSHOT_FIELDS_ = EFV_SNAPSHOT_KEYS_.concat([
+  '记录状态', '引用值记录ID', '引用值协议版本', '来源名称', '外部公允价值', '外部区间下沿', '外部区间上沿', '模型数据截至日',
+  '值记录获取时间', '获取方式', '来源链接', '页面价格', '页面价格时间', '采集新鲜度', '模型新鲜度',
+  '引用最近尝试记录ID', '引用最近尝试协议版本', '最近尝试获取时间', '最近尝试采集结果', '最近尝试失败说明'
+]);
+var EFV_VALUE_REQUIRED_ = ['引用值记录ID', '引用值协议版本', '来源名称', '外部公允价值', '值记录获取时间', '获取方式', '采集新鲜度', '模型新鲜度'];
+var EFV_VALUE_OPTIONAL_ = ['外部区间下沿', '外部区间上沿', '模型数据截至日', '来源链接', '页面价格', '页面价格时间'];
+var EFV_LATEST_GROUP_ = ['引用最近尝试记录ID', '引用最近尝试协议版本', '最近尝试获取时间'];
+var EFV_SUPPORTED_VERSIONS_ = ['1'];
+var EFV_METHODS_ = ['自动采集', '手工导入'];
+
+var EFV_TAB_FAILED_ = '消费读取失败';
+var EFV_ANOMALY_ = '记录异常';
+var EFV_MISMATCH_ = '币种或证券不匹配';
+var EFV_NO_RECORD_ = '无记录';
+var EFV_READ_LATEST_UNSUPPORTED_ = '已读取，最新记录版本不支持';
+var EFV_UNSUPPORTED_ = '协议版本不支持';
+var EFV_READ_ = '已读取';
+var EFV_READ_LATEST_FAILED_ = '已读取，最近一次采集失败';
+var EFV_FAILED_ = '读取失败';
+var EFV_NOT_COVERED_ = '未覆盖';
+var EFV_SNAPSHOT_INVALID_ = '快照校验失败';
+var EFV_STATUSES_ = [
+  EFV_TAB_FAILED_, EFV_ANOMALY_, EFV_MISMATCH_, EFV_NO_RECORD_, EFV_READ_LATEST_UNSUPPORTED_, EFV_UNSUPPORTED_, EFV_READ_,
+  EFV_READ_LATEST_FAILED_, EFV_FAILED_, EFV_NOT_COVERED_, EFV_SNAPSHOT_INVALID_
+];
+var EFV_VALUE_STATUSES_ = [EFV_READ_, EFV_READ_LATEST_FAILED_, EFV_READ_LATEST_UNSUPPORTED_];
+var EFV_LATEST_STATUSES_ = [EFV_READ_LATEST_UNSUPPORTED_, EFV_UNSUPPORTED_, EFV_READ_, EFV_READ_LATEST_FAILED_, EFV_FAILED_, EFV_NOT_COVERED_];
+var EFV_LATEST_RESULT_ = {};
+EFV_LATEST_RESULT_[EFV_READ_] = '成功';
+EFV_LATEST_RESULT_[EFV_READ_LATEST_FAILED_] = '读取失败';
+EFV_LATEST_RESULT_[EFV_FAILED_] = '读取失败';
+EFV_LATEST_RESULT_[EFV_NOT_COVERED_] = '未覆盖';
+var EFV_THIRD_PARTY_NOTE_ = '第三方参考，不改变购买计划或今日行动';
+var EFV_RECORD_THRESHOLD_SECONDS_ = 7 * 86400;
+var EFV_MODEL_THRESHOLD_DAYS_ = 90;
+
+var EFV_BATCH_PREFIX_ = '外部公允价值快照批次：';
+var EFV_BATCH_WRITTEN_ = '已写入';
+var EFV_BATCH_MISSING_ = '未写入';
+var EFV_REASON_KEYS_ = '快照键无效';
+var EFV_BATCH_REASONS_ = [EFV_REASON_KEYS_, '快照表不可用', '快照写入失败', '快照校验未通过'];
+var EFV_VIEW_OFF_ = '未启用';
+var EFV_VIEW_INCOMPLETE_ = '批次不完整';
+var EFV_VIEW_MARKER_INVALID_ = '批次标记无效';
+var EFV_MARKER_INVALID_ = { markerInvalid: true };
+var EFV_ROW_KEY_ = ['报告ID', '生成ID', '代码', '上市市场', '报价币种'];
+
+// Python's str.strip()/lstrip() whitespace and str.splitlines() boundaries,
+// which differ from JavaScript's \s and line terminators.
+var EFV_PY_SPACE_ = '\\t\\n\\x0b\\x0c\\r\\x1c-\\x1f \\x85\\xa0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000';
+var EFV_STRIP_ = new RegExp('^[' + EFV_PY_SPACE_ + ']+|[' + EFV_PY_SPACE_ + ']+$', 'g');
+var EFV_LSTRIP_ = new RegExp('^[' + EFV_PY_SPACE_ + ']+');
+var EFV_LINE_BREAK_ = /\r\n|[\n\r\x0b\x0c\x1c\x1d\x1e\x85\u2028\u2029]/;
+
+var EFV_SOURCE_ID_ = /^[a-z0-9][a-z0-9_-]*$/;
+var EFV_DATETIME_ = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?(?:Z|([+-])(\d{2}):(\d{2}))$/;
+// Python's \d and strptime's %Y/%d accept any Unicode decimal digit; %m does not.
+var EFV_DATE_ = /^(\p{Nd}{4})-(1[0-2]|0[1-9])-(3[01]|[12]\p{Nd}|0[1-9])$/u;
+var EFV_DECIMAL_ = /^(0|[1-9]\p{Nd}{0,14})(?:\.(\p{Nd}{1,8}))?$/u;
+var EFV_ND_ = /^\p{Nd}$/u;
+
+function efvText_(value) {
+  return value == null ? '' : String(value).replace(EFV_STRIP_, '');
+}
+
+function efvSplitLines_(text) {
+  if (text === '') return [];
+  var lines = text.split(EFV_LINE_BREAK_);
+  if (lines[lines.length - 1] === '') lines.pop();
+  return lines;
+}
+
+/** One Unicode decimal digit's value: digits come in aligned runs of ten. */
+function efvDigitValue_(ch) {
+  var cp = ch.codePointAt(0);
+  var start = cp;
+  while (start > 0 && EFV_ND_.test(String.fromCodePoint(start - 1))) start--;
+  return (cp - start) % 10;
+}
+
+function efvAsciiDigits_(text) {
+  return Array.from(text).map(function (ch) { return String(efvDigitValue_(ch)); }).join('');
+}
+
+/** Days since 1970-01-01 of a proleptic Gregorian date (exact for every year). */
+function efvDayNumber_(y, m, d) {
+  y -= m <= 2 ? 1 : 0;
+  var era = Math.floor(y / 400);
+  var yoe = y - era * 400;
+  var doy = Math.floor((153 * (m + (m > 2 ? -3 : 9)) + 2) / 5) + d - 1;
+  var doe = yoe * 365 + Math.floor(yoe / 4) - Math.floor(yoe / 100) + doy;
+  return era * 146097 + doe - 719468;
+}
+
+function efvValidDate_(y, m, d) {
+  if (y < 1 || y > 9999 || m < 1 || m > 12 || d < 1) return false;
+  var leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+  return d <= [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1];
+}
+
+/**
+ * parse_time: ISO 8601 with a zone, or null. {seconds, micros} is the instant
+ * (fractions beyond microseconds truncated, as datetime does); day is the
+ * calendar day in the value's own offset (datetime.date()).
+ */
+function efvParseTime_(value) {
+  var match = EFV_DATETIME_.exec(efvText_(value));
+  if (!match) return null;
+  var y = Number(match[1]), mo = Number(match[2]), d = Number(match[3]);
+  var h = Number(match[4]), mi = Number(match[5]), s = match[6] ? Number(match[6]) : 0;
+  if (!efvValidDate_(y, mo, d) || h > 23 || mi > 59 || s > 59) return null;
+  var offset = 0;
+  if (match[8]) {
+    offset = Number(match[9]) * 60 + Number(match[10]);
+    if (offset >= 24 * 60) return null;
+    if (match[8] === '-') offset = -offset;
+  }
+  var day = efvDayNumber_(y, mo, d);
+  var micros = match[7] ? Number((match[7] + '00000').slice(0, 6)) : 0;
+  return { seconds: day * 86400 + h * 3600 + mi * 60 + s - offset * 60, micros: micros, day: day };
+}
+
+function efvCompareTime_(a, b) {
+  if (a.seconds !== b.seconds) return a.seconds < b.seconds ? -1 : 1;
+  return a.micros === b.micros ? 0 : (a.micros < b.micros ? -1 : 1);
+}
+
+/** parse_date: YYYY-MM-DD as a day number, or null. */
+function efvParseDate_(value) {
+  var match = EFV_DATE_.exec(efvText_(value));
+  if (!match) return null;
+  var y = Number(efvAsciiDigits_(match[1])), m = Number(match[2]), d = Number(efvAsciiDigits_(match[3]));
+  return efvValidDate_(y, m, d) ? efvDayNumber_(y, m, d) : null;
+}
+
+/** parse_positive: a positive plain decimal as {whole, fraction} digit strings (exact), or null. */
+function efvParsePositive_(value) {
+  var match = EFV_DECIMAL_.exec(efvText_(value));
+  if (!match) return null;
+  var whole = efvAsciiDigits_(match[1]).replace(/^0+/, '');
+  var fraction = match[2] ? efvAsciiDigits_(match[2]).replace(/0+$/, '') : '';
+  return whole === '' && fraction === '' ? null : { whole: whole, fraction: fraction };
+}
+
+function efvCompareDecimal_(a, b) {
+  if (a.whole.length !== b.whole.length) return a.whole.length < b.whole.length ? -1 : 1;
+  if (a.whole !== b.whole) return a.whole < b.whole ? -1 : 1;
+  var width = Math.max(a.fraction.length, b.fraction.length);
+  var fa = (a.fraction + '00000000').slice(0, width), fb = (b.fraction + '00000000').slice(0, width);
+  return fa === fb ? 0 : (fa < fb ? -1 : 1);
+}
+
+function efvListingKey_(code, market, currency) {
+  return [code, market, currency].map(function (part) {
+    return efvText_(efvText_(part).normalize('NFKC')).toUpperCase();
+  });
+}
+
+/** Python's ordering of str tuples: element by element, by code point. */
+function efvCompareKeys_(a, b) {
+  for (var i = 0; i < a.length; i++) {
+    var x = Array.from(a[i]), y = Array.from(b[i]);
+    for (var j = 0; j < Math.min(x.length, y.length); j++) {
+      var cx = x[j].codePointAt(0), cy = y[j].codePointAt(0);
+      if (cx !== cy) return cx < cy ? -1 : 1;
+    }
+    if (x.length !== y.length) return x.length < y.length ? -1 : 1;
+  }
+  return 0;
+}
+
+function efvRecordFreshness_(fetched, cutoff) {
+  var seconds = cutoff.seconds - fetched.seconds;
+  var micros = cutoff.micros - fetched.micros;
+  var fresh = seconds < EFV_RECORD_THRESHOLD_SECONDS_ || (seconds === EFV_RECORD_THRESHOLD_SECONDS_ && micros <= 0);
+  return fresh ? '新' : '过期';
+}
+
+function efvModelFreshness_(asOf, cutoff) {
+  var day = efvParseDate_(asOf);
+  if (day === null) return '未提供';
+  return cutoff.day - day <= EFV_MODEL_THRESHOLD_DAYS_ ? '新' : '过期';
+}
+
+function efvKeyErrors_(row) {
+  var errors = EFV_SNAPSHOT_KEYS_.filter(function (name) { return efvText_(row[name]) === ''; })
+    .map(function (name) { return name + ' missing'; });
+  if (['daily', 'weekly'].indexOf(efvText_(row['报告类型'])) === -1) errors.push('报告类型 invalid');
+  if (efvText_(row['报告日期']) && efvParseDate_(row['报告日期']) === null) errors.push('报告日期 not YYYY-MM-DD');
+  if (efvText_(row['读取截止时间']) && efvParseTime_(row['读取截止时间']) === null) errors.push('读取截止时间 not ISO 8601 with a zone');
+  return errors;
+}
+
+function efvPairErrors_(get, low, high, label) {
+  var lo = get(low), hi = get(high);
+  if ((lo === '') !== (hi === '')) return [label + ' unpaired'];
+  if (lo === '') return [];
+  var a = efvParsePositive_(lo), b = efvParsePositive_(hi);
+  return a === null || b === null || efvCompareDecimal_(a, b) > 0 ? [label + ' invalid'] : [];
+}
+
+function efvValueErrors_(row, cutoff) {
+  var errors = [];
+  var get = function (name) { return efvText_(row[name]); };
+  if (EFV_SUPPORTED_VERSIONS_.indexOf(get('引用值协议版本')) === -1) errors.push('value record version unsupported');
+  if (efvParsePositive_(get('外部公允价值')) === null) errors.push('外部公允价值 not a positive plain decimal');
+  errors = errors.concat(efvPairErrors_(get, '外部区间下沿', '外部区间上沿', 'range'));
+  var fetched = efvParseTime_(get('值记录获取时间'));
+  if (fetched === null || efvCompareTime_(fetched, cutoff) > 0) errors.push('值记录获取时间 invalid or after the cut-off');
+  if (EFV_METHODS_.indexOf(get('获取方式')) === -1) errors.push('获取方式 invalid');
+  var price = get('页面价格'), priceTime = get('页面价格时间');
+  if ((price === '') !== (priceTime === '')) {
+    errors.push('page price unpaired');
+  } else if (price !== '') {
+    var shown = efvParseTime_(priceTime);
+    if (efvParsePositive_(price) === null || shown === null || (fetched !== null && efvCompareTime_(shown, fetched) > 0)) {
+      errors.push('page price invalid');
+    }
+  }
+  var asOf = get('模型数据截至日');
+  var asOfOk = asOf === '' || (efvParseDate_(asOf) !== null && efvParseDate_(asOf) <= cutoff.day);
+  if (!asOfOk) errors.push('模型数据截至日 invalid or after the cut-off');
+  if (['新', '过期'].indexOf(get('采集新鲜度')) === -1) {
+    errors.push('采集新鲜度 invalid');
+  } else if (fetched !== null && efvCompareTime_(fetched, cutoff) <= 0 && get('采集新鲜度') !== efvRecordFreshness_(fetched, cutoff)) {
+    errors.push('采集新鲜度 disagrees with 值记录获取时间');
+  }
+  if (['新', '过期', '未提供'].indexOf(get('模型新鲜度')) === -1) {
+    errors.push('模型新鲜度 invalid');
+  } else if (asOfOk && get('模型新鲜度') !== efvModelFreshness_(asOf, cutoff)) {
+    errors.push('模型新鲜度 disagrees with 模型数据截至日');
+  }
+  return errors;
+}
+
+/** snapshot_errors: the Layer 2 type, enum and consistency checks; [] means the row is shown as selected. */
+function efvSnapshotErrors_(row) {
+  var errors = efvKeyErrors_(row);
+  var get = function (name) { return efvText_(row[name]); };
+  var isSet = function (name) { return get(name) !== ''; };
+  var status = get('记录状态');
+  if (EFV_STATUSES_.indexOf(status) === -1) return errors.concat(['记录状态 invalid']);
+  var others = EFV_SNAPSHOT_FIELDS_.filter(function (name) { return EFV_SNAPSHOT_KEYS_.indexOf(name) === -1 && name !== '记录状态'; });
+  if (status === EFV_SNAPSHOT_INVALID_) {
+    if (others.some(isSet)) errors.push('快照校验失败 row carries fields');
+    return errors;
+  }
+  if (errors.length) return errors;
+  var cutoff = efvParseTime_(row['读取截止时间']);
+  if (status !== EFV_TAB_FAILED_ && !EFV_SOURCE_ID_.test(get('来源标识'))) errors.push('来源标识 not a valid source id');
+
+  if (EFV_VALUE_STATUSES_.indexOf(status) !== -1) {
+    if (!EFV_VALUE_REQUIRED_.every(isSet)) {
+      errors.push('value group incomplete');
+    } else {
+      errors = errors.concat(efvValueErrors_(row, cutoff));
+    }
+  } else if (EFV_VALUE_REQUIRED_.concat(EFV_VALUE_OPTIONAL_).some(isSet)) {
+    errors.push('value group set without a value status');
+  }
+
+  if (EFV_LATEST_STATUSES_.indexOf(status) !== -1) {
+    if (!EFV_LATEST_GROUP_.every(isSet)) {
+      errors.push('latest-attempt group incomplete');
+    } else {
+      var supported = EFV_SUPPORTED_VERSIONS_.indexOf(get('引用最近尝试协议版本')) !== -1;
+      if (supported !== (status !== EFV_READ_LATEST_UNSUPPORTED_ && status !== EFV_UNSUPPORTED_)) {
+        errors.push('latest-attempt version disagrees with status');
+      }
+      var latestTime = efvParseTime_(get('最近尝试获取时间'));
+      var valueTime = efvParseTime_(get('值记录获取时间'));
+      if (latestTime === null || efvCompareTime_(latestTime, cutoff) > 0) {
+        errors.push('最近尝试获取时间 invalid or after the cut-off');
+      } else if (valueTime !== null && efvCompareTime_(latestTime, valueTime) < 0) {
+        errors.push('latest attempt earlier than the value record');
+      }
+    }
+  } else if (EFV_LATEST_GROUP_.some(isSet)) {
+    errors.push('latest-attempt group set in rows 1-4');
+  }
+
+  if (get('最近尝试采集结果') !== (EFV_LATEST_RESULT_[status] || '')) errors.push('最近尝试采集结果 disagrees with status');
+  if (status === EFV_READ_ && get('引用值记录ID') !== get('引用最近尝试记录ID')) errors.push('已读取 cites two records');
+  if (status === EFV_READ_LATEST_FAILED_ && isSet('引用值记录ID') && get('引用值记录ID') === get('引用最近尝试记录ID')) {
+    errors.push('failed attempt cited as the value');
+  }
+  if (isSet('最近尝试失败说明') && [EFV_READ_LATEST_FAILED_, EFV_FAILED_, EFV_NOT_COVERED_].indexOf(status) === -1) {
+    errors.push('失败说明 outside rows 8-10');
+  }
+  return errors;
+}
+
+/** finalize, on a row whose keys already passed: unchanged, or 快照校验失败 with only the nine keys. */
+function efvFinalize_(row) {
+  if (efvSnapshotErrors_(row).length === 0) return row;
+  var failed = {};
+  EFV_SNAPSHOT_FIELDS_.forEach(function (name) { failed[name] = ''; });
+  EFV_SNAPSHOT_KEYS_.forEach(function (name) { failed[name] = efvText_(row[name]); });
+  failed['记录状态'] = EFV_SNAPSHOT_INVALID_;
+  return failed;
+}
+
+/** generation_key_faults for a published batch line's (来源标识, 读取截止时间) against its 报告摘要 row. */
+function efvGenerationKeyFaults_(summary, label, cutoffText) {
+  var probe = {
+    '报告ID': efvText_(summary['报告ID']), '生成ID': efvText_(summary['生成ID']),
+    '报告类型': efvText_(summary['报告类型']), '报告日期': efvText_(summary['报告日期']),
+    '代码': '-', '上市市场': '-', '报价币种': '-', '来源标识': label, '读取截止时间': cutoffText
+  };
+  var errors = efvKeyErrors_(probe);
+  if (efvText_(label) && !EFV_SOURCE_ID_.test(efvText_(label))) errors.push('来源标识 invalid');
+  return errors;
+}
+
+function efvBatchLike_(line) {
+  return line.replace(EFV_LSTRIP_, '').indexOf(EFV_BATCH_PREFIX_) === 0;
+}
+
+function efvSameKeys_(body, keys) {
+  var actual = Object.keys(body);
+  return actual.length === keys.length && actual.every(function (key, i) { return key === keys[i]; });
+}
+
+/** parse_batch_marker: null (no batch line), the parsed line, or EFV_MARKER_INVALID_. */
+function efvParseBatchMarker_(note) {
+  var lines = efvSplitLines_(note == null ? '' : String(note)).filter(efvBatchLike_);
+  if (lines.length === 0) return null;
+  if (lines.length > 1 || lines[0].indexOf(EFV_BATCH_PREFIX_) !== 0) return EFV_MARKER_INVALID_;
+  var payload = lines[0].slice(EFV_BATCH_PREFIX_.length);
+  var body;
+  try {
+    body = JSON.parse(payload);
+  } catch (err) {
+    return EFV_MARKER_INVALID_;
+  }
+  if (!body || typeof body !== 'object' || Array.isArray(body) || JSON.stringify(body) !== payload) return EFV_MARKER_INVALID_;
+  var status = body['批次状态'];
+  var keys = ['批次状态', '来源标识', '读取截止时间', '快照行数'].concat(status === EFV_BATCH_MISSING_ ? ['原因', '说明'] : []);
+  if (!efvSameKeys_(body, keys) || (status !== EFV_BATCH_WRITTEN_ && status !== EFV_BATCH_MISSING_)) return EFV_MARKER_INVALID_;
+  var count = body['快照行数'];
+  if (typeof count !== 'number' || !Number.isInteger(count) || count < 0) return EFV_MARKER_INVALID_;
+  if (typeof body['来源标识'] !== 'string' || efvText_(body['来源标识']) === '') return EFV_MARKER_INVALID_;
+  var keyFault = status === EFV_BATCH_MISSING_ && body['原因'] === EFV_REASON_KEYS_;
+  if (typeof body['读取截止时间'] !== 'string' || (efvParseTime_(body['读取截止时间']) === null && !keyFault)) return EFV_MARKER_INVALID_;
+  if (status === EFV_BATCH_MISSING_ && (EFV_BATCH_REASONS_.indexOf(body['原因']) === -1 ||
+      typeof body['说明'] !== 'string' || efvText_(body['说明']) === '')) {
+    return EFV_MARKER_INVALID_;
+  }
+  return body;
+}
+
+/** batch_rows: one (报告ID, 生成ID)'s rows as snapshot-field objects, or null when the tab is not usable. */
+function efvBatchRows_(tab, reportId, generationId) {
+  if (!tab || typeof tab !== 'object' || !Array.isArray(tab.header) || !Array.isArray(tab.rows)) return null;
+  var header = tab.header.map(efvText_);
+  var usable = EFV_SNAPSHOT_FIELDS_.every(function (name) {
+    return header.filter(function (h) { return h === name; }).length === 1;
+  });
+  if (!usable) return null;
+  var rows = [];
+  tab.rows.forEach(function (raw) {
+    var row = {};
+    EFV_SNAPSHOT_FIELDS_.forEach(function (name) { row[name] = efvText_(raw[header.indexOf(name)]); });
+    if (row['报告ID'] === reportId && row['生成ID'] === generationId) rows.push(row);
+  });
+  return rows;
+}
+
+function efvSameRow_(a, b) {
+  return EFV_SNAPSHOT_FIELDS_.every(function (name) { return a[name] === b[name]; });
+}
+
+/**
+ * read_published_batch: {state, rows} for one published generation, plus
+ * reason/detail for 未写入. `readTab` is called only for an 已写入 batch line,
+ * so a generation without one never reads the snapshot tab at all.
+ */
+function efvReadPublishedBatch_(summary, readTab) {
+  var marker = efvParseBatchMarker_(summary['备注']);
+  if (marker === null) return { state: EFV_VIEW_OFF_, rows: [] };
+  if (marker === EFV_MARKER_INVALID_) return { state: EFV_VIEW_MARKER_INVALID_, rows: [] };
+  if (marker['批次状态'] === EFV_BATCH_MISSING_) {
+    return { state: EFV_BATCH_MISSING_, reason: marker['原因'], detail: marker['说明'], rows: [] };
+  }
+  var incomplete = { state: EFV_VIEW_INCOMPLETE_, rows: [] };
+  if (efvGenerationKeyFaults_(summary, marker['来源标识'], marker['读取截止时间']).length) return incomplete;
+  var staged = efvBatchRows_(readTab(), efvText_(summary['报告ID']), efvText_(summary['生成ID']));
+  if (staged === null) return incomplete;
+  var unique = [];
+  for (var i = 0; i < staged.length; i++) {
+    var identity = JSON.stringify(EFV_ROW_KEY_.map(function (name) { return staged[i][name]; }));
+    var seen = unique.filter(function (entry) { return entry.identity === identity; })[0];
+    if (!seen) {
+      unique.push({ identity: identity, row: staged[i] });
+    } else if (!efvSameRow_(seen.row, staged[i])) {
+      return incomplete;
+    }
+  }
+  var fixed = {
+    '报告类型': efvText_(summary['报告类型']), '报告日期': efvText_(summary['报告日期']),
+    '来源标识': efvText_(marker['来源标识']), '读取截止时间': efvText_(marker['读取截止时间'])
+  };
+  var rows = unique.map(function (entry) { return entry.row; });
+  if (rows.length !== marker['快照行数'] || rows.some(function (row) {
+    return efvKeyErrors_(row).length > 0 || Object.keys(fixed).some(function (name) { return row[name] !== fixed[name]; });
+  })) {
+    return incomplete;
+  }
+  rows = rows.map(function (row, index) { return { row: row, index: index }; }).sort(function (a, b) {
+    var order = efvCompareKeys_(efvListingKey_(a.row['代码'], a.row['上市市场'], a.row['报价币种']),
+      efvListingKey_(b.row['代码'], b.row['上市市场'], b.row['报价币种']));
+    return order || a.index - b.index;
+  }).map(function (entry) { return efvFinalize_(entry.row); });
+  return { state: EFV_BATCH_WRITTEN_, rows: rows };
+}
+
+/** batch_line: the one generation-level line when a batch is not displayable; '' for 未启用 and 已写入. */
+function efvBatchLine_(view) {
+  var fixed = {};
+  fixed[EFV_BATCH_MISSING_] = '外部公允价值：本次快照未写入（' + (view.reason || '') + '：' + (view.detail || '') + '），未采用';
+  fixed[EFV_VIEW_INCOMPLETE_] = '外部公允价值：本次快照批次不完整，未采用';
+  fixed[EFV_VIEW_MARKER_INVALID_] = '外部公允价值：本次快照批次标记无效，未采用';
+  return Object.prototype.hasOwnProperty.call(fixed, view.state) ? fixed[view.state] + '；' + EFV_THIRD_PARTY_NOTE_ : '';
+}
+
+/** display_line: the holding line, from the snapshot row alone. */
+function efvDisplayLine_(row) {
+  var status = row['记录状态'];
+  var fixed = {};
+  fixed[EFV_TAB_FAILED_] = '外部公允价值：外部数据表读取失败';
+  fixed[EFV_ANOMALY_] = '外部公允价值：外部记录异常（重复 ID 冲突或格式错误），未采用';
+  fixed[EFV_MISMATCH_] = '外部公允价值：证券或币种不匹配';
+  fixed[EFV_NO_RECORD_] = '外部公允价值：暂无记录';
+  fixed[EFV_UNSUPPORTED_] = '外部公允价值：外部记录格式不受支持';
+  fixed[EFV_NOT_COVERED_] = '外部公允价值：本来源未覆盖';
+  fixed[EFV_SNAPSHOT_INVALID_] = '外部公允价值：快照校验失败，未采用';
+  if (status === EFV_FAILED_) return '外部公允价值：读取失败（' + row['最近尝试获取时间'] + '）；' + EFV_THIRD_PARTY_NOTE_;
+  if (Object.prototype.hasOwnProperty.call(fixed, status)) return fixed[status] + '；' + EFV_THIRD_PARTY_NOTE_;
+  var parts = ['外部公允价值（来源：' + row['来源名称'] + '）' + row['外部公允价值'] + ' ' + row['报价币种'],
+    '获取时间 ' + row['值记录获取时间']];
+  if (row['获取方式'] === '手工导入') parts.push('手工导入');
+  if (row['模型新鲜度'] === '未提供') {
+    parts.push('模型日期未提供，模型新鲜度未知');
+  } else {
+    parts.push('模型日期 ' + row['模型数据截至日'] + '（' + (row['模型新鲜度'] === '新' ? '新' : '已过期') + '）');
+  }
+  if (row['采集新鲜度'] === '过期') parts.push('采集记录已过期');
+  if (status === EFV_READ_LATEST_FAILED_) parts.push('最近一次采集失败（' + row['最近尝试获取时间'] + '）');
+  if (status === EFV_READ_LATEST_UNSUPPORTED_) {
+    parts.push('最新外部记录格式不受支持（' + row['引用最近尝试协议版本'] + '，' + row['最近尝试获取时间'] + '）');
+  }
+  parts.push(EFV_THIRD_PARTY_NOTE_);
+  return parts.join('；');
+}
+
+/**
+ * One Sheet cell as the text the writer put there. Sheets turns a typed
+ * YYYY-MM-DD into a Date and a plain decimal into a number; `dateText` gives
+ * a Date's 'yyyy-MM-dd HH:mm:ss' in the Sheet's own time zone. A whole day
+ * is its date; any other Date stays an unparseable text, so a cell Sheets
+ * reinterpreted never passes a time check by accident.
+ */
+function efvCellText_(value, dateText) {
+  if (value == null) return '';
+  if (Object.prototype.toString.call(value) === '[object Date]') {
+    if (isNaN(value.getTime())) return '';
+    var text = dateText(value);
+    return /^\d{4}-\d{2}-\d{2} 00:00:00$/.test(text) ? text.slice(0, 10) : text;
+  }
+  return String(value);
+}
+
+function efvUtcDateText_(date) {
+  return date.toISOString().slice(0, 19).replace('T', ' ');
+}
+
+/**
+ * The view model's externalFairValue: null when the generation has no batch
+ * line (module off, or a report from before #346: nothing is shown);
+ * otherwise {state, batchLine, rowCount, rows}. `inputs` is {readTab,
+ * dateText}; readTab returns {header, rows} of cell text, or null when the
+ * tab is missing or unreadable.
+ */
+function buildExternalFairValueView_(summary, inputs) {
+  var dateText = inputs && inputs.dateText ? inputs.dateText : efvUtcDateText_;
+  var readTab = inputs && inputs.readTab ? inputs.readTab : function () { return null; };
+  var row = {};
+  ['报告ID', '生成ID', '报告类型', '报告日期', '备注'].forEach(function (name) {
+    row[name] = efvCellText_(summary[name], dateText);
+  });
+  var view = efvReadPublishedBatch_(row, readTab);
+  if (view.state === EFV_VIEW_OFF_) return null;
+  return {
+    state: view.state,
+    batchLine: efvBatchLine_(view),
+    note: EFV_THIRD_PARTY_NOTE_,
+    rows: view.rows.map(function (snapshot) {
+      var shown = {};
+      Object.keys(snapshot).forEach(function (name) { shown[name] = snapshot[name]; });
+      shown.displayLine = efvDisplayLine_(snapshot);
+      return shown;
+    })
+  };
+}
+
+/** The reader's snapshot input for a plain-data `tabs` object: {header, rows} as tabs['外部公允价值快照'] carries it. */
+function externalFairValueFromTabs_(tabs) {
+  return {
+    readTab: function () { return tabs[EFV_SNAPSHOT_TAB_] === undefined ? null : tabs[EFV_SNAPSHOT_TAB_]; },
+    dateText: efvUtcDateText_
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -840,7 +1371,34 @@ function readReaderInputs_(spreadsheet, tabs) {
     },
     scanWatermark_(tabs['报告摘要'])
   );
-  return { install: install, scan: scan };
+  return { install: install, scan: scan, externalFairValue: readExternalFairValueInputs_(spreadsheet) };
+}
+
+/**
+ * The optional 外部公允价值快照 tab as cell text (Issue #348), read at most
+ * once per request and only when a generation's batch line says 已写入.
+ * Missing or unreadable is null: that batch then shows as 批次不完整.
+ */
+function readExternalFairValueInputs_(spreadsheet) {
+  var cached;
+  var dateText = function (date) {
+    return Utilities.formatDate(date, spreadsheet.getSpreadsheetTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+  };
+  return {
+    dateText: dateText,
+    readTab: function () {
+      if (cached !== undefined) return cached;
+      try {
+        var sheet = spreadsheet.getSheetByName(EFV_SNAPSHOT_TAB_);
+        var values = sheet ? sheet.getDataRange().getValues() : null;
+        var cell = function (value) { return efvCellText_(value, dateText); };
+        cached = values ? { header: (values[0] || []).map(cell), rows: values.slice(1).map(function (row) { return row.map(cell); }) } : null;
+      } catch (err) {
+        cached = null;
+      }
+      return cached;
+    }
+  };
 }
 
 function include_(filename) {
@@ -1032,6 +1590,23 @@ if (typeof module !== 'undefined') {
     SHEET_TABS_: SHEET_TABS_,
     REPORT_TABS_: REPORT_TABS_,
     REQUIRED_HEADERS_: REQUIRED_HEADERS_,
-    SPREADSHEET_ID_PLACEHOLDER_: SPREADSHEET_ID_PLACEHOLDER_
+    SPREADSHEET_ID_PLACEHOLDER_: SPREADSHEET_ID_PLACEHOLDER_,
+    EFV_SNAPSHOT_TAB_: EFV_SNAPSHOT_TAB_,
+    EFV_SNAPSHOT_FIELDS_: EFV_SNAPSHOT_FIELDS_,
+    EFV_MARKER_INVALID_: EFV_MARKER_INVALID_,
+    efvText_: efvText_,
+    efvParseTime_: efvParseTime_,
+    efvParseDate_: efvParseDate_,
+    efvParsePositive_: efvParsePositive_,
+    efvListingKey_: efvListingKey_,
+    efvParseBatchMarker_: efvParseBatchMarker_,
+    efvSnapshotErrors_: efvSnapshotErrors_,
+    efvReadPublishedBatch_: efvReadPublishedBatch_,
+    efvBatchLine_: efvBatchLine_,
+    efvDisplayLine_: efvDisplayLine_,
+    efvCellText_: efvCellText_,
+    buildExternalFairValueView_: buildExternalFairValueView_,
+    externalFairValueFromTabs_: externalFairValueFromTabs_,
+    readExternalFairValueInputs_: readExternalFairValueInputs_
   };
 }
