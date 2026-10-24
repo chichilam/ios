@@ -88,6 +88,12 @@
       "required": false,
       "default": "",
       "notes": "Issue #344 (#342 P1), no schema_version change. Switch and source id of the optional external fair value module (sheet-schema.json optional_modules.external_fair_value). Blank (the default) means not enabled: no record read, no source request, no login, no snapshot, no required field and no quality gap. An installer never writes a value here and never asks about it; only the user sets a source id, at the production enablement step. Never a credential, account name or session."
+    },
+    "external_materials_source_id": {
+      "type": "string",
+      "required": false,
+      "default": "",
+      "notes": "Issue #350 (#342 P4), no schema_version change. Switch and source id of the optional external financial materials module (sheet-schema.json optional_modules.external_financial_materials), independent of external_fair_value_source_id. Blank (the default) means not enabled: no record read, no source request, no login, no snapshot, no required field and no quality gap. An installer never writes a value here and never asks about it; only the user sets a source id, at a production enablement step. Never a credential, account name or session."
     }
   },
   "explicitly_excluded": [
