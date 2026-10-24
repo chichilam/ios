@@ -440,6 +440,11 @@ Task 指令内容（每次创建或更新都要重新执行下面的替换，不
    "两个 Task 已同步基金聚合行边界"。任何一个读不回或没有这一行：在最终验证清单里单独写明
    "Task 未同步：<Daily/Weekly>，未读回基金聚合行标记"，并把读回到的原样留作证据。这一项不阻断表结构升级，
    也不改变 `schema_version`（本标记不新增列）；不能用 `schema_version` 证明 Task 已同步。
+   **读回外部公允价值快照标记（第 346 号 issue）**：同一次读回里，再确认两个 Task 的指令各恰好有一行
+   `external_fair_value_snapshot: issue-346-v1`（在"外部公允价值快照"一节里）。两个都有，才告诉用户
+   "两个 Task 已同步外部公允价值快照（默认关闭）"。任何一个读不回或没有这一行：在最终验证清单里单独写明
+   "Task 未同步：<Daily/Weekly>，未读回外部公允价值快照标记"，并把读回到的原样留作证据。这一项不阻断表结构
+   升级，不改变 `schema_version`，也不启用外部来源（开关仍由用户在生产启用步骤自己填写）。
 6. 把 `_安装状态` 这一行写完整（新建或更新，不能只写一部分字段）：`schema_version`、
    `spreadsheet_id`、`spreadsheet_url`（如果有）、`daily_task_name`/`daily_task_id`（如果平台给了
    id）/`daily_task_schedule`/`daily_task_enabled`、`weekly_task_name`/`weekly_task_id`/
@@ -658,6 +663,8 @@ schema、Daily/Weekly Task 模板、GAS Dashboard 全部硬编码使用 `报告�
       已单独写明"Task 未同步"并附读回原样，没有用 `schema_version` 代替这项证据。
 - [ ] 两个 Task 的指令都读回了恰好一行 `fund_sleeve_boundary: issue-337-v1`；没有读回的那个 Task
       已单独写明"Task 未同步"并附读回原样。
+- [ ] 两个 Task 的指令都读回了恰好一行 `external_fair_value_snapshot: issue-346-v1`；没有读回的那个 Task
+      已单独写明"Task 未同步"并附读回原样；`external_fair_value_source_id` 仍未被安装程序写值。
 - [ ] `_安装状态.purchase_plan_mode` 是 `legacy`（或用户此前经"购买计划模式切换"一节确认写入的
       `three_layer`/`three_layer_hold`，原样保留）、`purchase_plan_mode_epoch` 是正整数（全新安装或
       首次升级为 `1`；重复升级保持原值，没有被重置）；两个 Task 的指令都已读回，都含"购买计划模式
