@@ -469,7 +469,8 @@
         {"name": "locale", "type": "string", "required": false, "notes": "installation-state.json: locale."},
         {"name": "last_verified_at", "type": "datetime", "required": true, "notes": "Installer-only bookkeeping, no installation-state.json counterpart: timestamp of the most recent installer run that confirmed this row still matches reality (Sheet readable, Tasks present under the recorded exact names)."},
         {"name": "purchase_plan_mode", "type": "enum", "values": ["legacy", "three_layer", "three_layer_hold"], "required": true, "notes": "installation-state.json: purchase_plan_mode. Issue #318 (#316 P1), schema_version 9. The runtime behavior switch, deliberately separate from schema availability: legacy = v8 behavior everywhere. The v9 upgrade writes legacy only into a blank cell (the column was just added) and never overwrites an existing value. Required once schema_version >= 9; on a schema_version <= 8 row the column may be absent or blank (an interrupted upgrade) and every Task treats the installation as legacy, while any other non-blank value there is schema/state drift and Blocks. A P1 installer never writes any value other than legacy -- the three_layer readiness gate cannot pass while the Tasks and Dashboard are P1."},
-        {"name": "purchase_plan_mode_epoch", "type": "integer", "required": true, "notes": "installation-state.json: purchase_plan_mode_epoch. Issue #318 (#316 P1), schema_version 9. Initial 1, written together with the initial legacy into a blank cell; a repeated upgrade never resets it. Only a mode write increments it, in the same single-row write as the mode itself. Required once schema_version >= 9; a missing or non-positive-integer value on a schema_version >= 9 row Blocks every Task."}
+        {"name": "purchase_plan_mode_epoch", "type": "integer", "required": true, "notes": "installation-state.json: purchase_plan_mode_epoch. Issue #318 (#316 P1), schema_version 9. Initial 1, written together with the initial legacy into a blank cell; a repeated upgrade never resets it. Only a mode write increments it, in the same single-row write as the mode itself. Required once schema_version >= 9; a missing or non-positive-integer value on a schema_version >= 9 row Blocks every Task."},
+        {"name": "external_fair_value_source_id", "type": "string", "required": false, "notes": "installation-state.json: external_fair_value_source_id. Issue #344 (#342 P1), no schema_version change. The optional external fair value module switch (optional_modules.external_fair_value): blank or column absent means not enabled, which is the default and the state every installer run leaves it in. The installer creates or appends this column blank, never writes a value and never asks about it; only the user writes a source id at the production enablement step. Read by no Task or Dashboard until #342 P2/P3."}
       ],
       "rules": [
         "Installer-owned -- users should not hand-edit this tab. Exactly one data row per installation.",
@@ -479,6 +480,109 @@
         "Under schema_version 1, report_table_names_* must always equal the canonical defaults (报告摘要/报告持仓/报告风险/报告待办) -- no consumer (Task templates, GAS Dashboard) reads a custom value yet. An installer must reject a user's request to rename these tabs rather than writing a non-default value that no reader/writer actually honors.",
         "Purchase-plan mode guard (Issue #318, #316 P1): every Daily/Weekly Task reads schema_version/purchase_plan_mode/purchase_plan_mode_epoch once at the start of each generation and uses that one result for the whole generation. A Task writes a Blocked report -- never guessed or mixed behavior -- when this tab cannot be read, when schema_version >= 9 and the mode or epoch is missing/malformed, when a schema_version <= 8 row carries a non-blank mode other than legacy, or when the mode is one the Task does not declare in its purchase_plan_modes_supported line (P1 Tasks declare legacy only). Tasks never write this tab."
       ]
+    }
+  },
+  "optional_modules": {
+    "external_fair_value": {
+      "issue": 344,
+      "contract": "docs/external-fair-value-source-validation.md",
+      "status": "Protocol and snapshot schema only (Issue #344, #342 P1). No Task, installer step or Dashboard reads or writes these tabs yet: Daily/Weekly selection and snapshot writes are #342 P2, Dashboard display is P3. Merging this enables nothing.",
+      "description": "Optional, off-by-default external fair value reference. An independent collector outside IOS appends source-neutral records to 外部公允价值记录 (Layer 1); a report generation that has the source enabled reads that tab once at its cut-off and freezes what it selected into its own 外部公允价值快照 rows (Layer 2). IOS never writes Layer 1, never logs in to or requests a source, and never triggers, waits for or retries a collection. The external value is a third-party reference shown beside the IOS fields; it never feeds 合理价值区间, 长期买入上限, 周度购买计划, 今日行动 or any gate.",
+      "versioning": "Not part of the schema_version sequence: schema_version stays 10 and no existing tab gains or loses a column for this module, except the optional, blank-by-default _安装状态.external_fair_value_source_id switch. Neither tab below is in the tabs list, so the installer never creates them, the Dashboard's required headers never include them, and a Sheet with or without them is equally valid. Bumping schema_version was rejected because the current Daily/Weekly Tasks write the #327 price-reference columns only when schema_version is exactly 10. Layer 1 records carry their own 协议版本; Layer 2 snapshot columns are append-only.",
+      "enablement": {
+        "switch": "_安装状态.external_fair_value_source_id. The module is enabled exactly when this cell holds a valid source id (lower-case ASCII letters, digits, '_' or '-', starting with a letter or digit). A missing column or a blank cell means not enabled: no Layer 1 read, no request, no login, no snapshot row, no field, todo or information-quality gap, and the report is exactly what it is today. A non-blank value that is not a valid id is a configuration error confined to the module: every holding's snapshot gets 消费读取失败 and the main report is unaffected.",
+        "who_writes_it": "Only the user, at the production enablement step after the collector gate and V8 (docs/external-fair-value-source-validation.md, 'Gates'). The installer creates the column blank on a fresh install or appends it blank on a rerun, never writes a value into it, never asks about it and never creates the two tabs below.",
+        "enable": "The user creates 外部公允价值记录 with the canonical header (or lets the collector create it) and 外部公允价值快照 with the canonical header, then writes the source id. Order does not matter for safety: with the switch blank nothing reads the tabs; with the switch set and a tab missing the module degrades locally (消费读取失败) and the report still publishes.",
+        "disable_and_rollback": "Clear the cell (or remove the column): the next generation reads nothing and writes no snapshot row. Both tabs and every published snapshot row stay where they are, so a published generation keeps displaying exactly what it showed. Removing 外部公允价值记录 is safe at any time. Removing 外部公允价值快照 deletes the history it holds and is the user's explicit choice, never part of an installer upgrade or cleanup.",
+        "upgrade": "Purely additive and idempotent: an installer rerun on any schema_version appends the blank external_fair_value_source_id column to _安装状态 when it is missing, skips it when present and never changes its value. No schema_version write, no Task update, no tab creation and no row backfill belong to this module. Interrupting it leaves either no column or a blank column, both of which mean not enabled."
+      },
+      "identity": "A holding is matched to records by the listing (当前持仓.代码, 当前持仓.市场, 当前持仓.币种) against (代码, 上市市场, 报价币种). All three are compared after NFKC, trimming and upper-casing; nothing else is normalised (no exchange or currency alias table), so a collector writes 上市市场 in the ledger's own 当前持仓.市场 vocabulary. An ADR and its local share are different listings. FUND-SLEEVE rows, funds and cash get no snapshot row.",
+      "supported_protocol_versions": ["1"],
+      "freshness": {
+        "record_threshold_days": 7,
+        "model_threshold_days": 90,
+        "notes": "Proposed defaults for maintainer review (Open item 3 of the contract). 采集新鲜度 is 新 when the value record's 获取时间 is at most record_threshold_days before the generation's 读取截止时间, else 过期. 模型新鲜度 is 新 when 模型数据截至日 is at most model_threshold_days before the 读取截止时间's calendar date, 过期 when older, and 未提供 when 模型数据截至日 is blank. Both are evaluated once at generation time and frozen in the snapshot; a later threshold change never relabels a published snapshot."
+      },
+      "tabs": {
+        "外部公允价值记录": {
+          "english_name": "External Fair Value Records (Layer 1)",
+          "purpose": "Append-only collection records written by an independent collector, one record per attempt per listing. IOS reads it and never writes, edits, sorts or deletes it.",
+          "fields": [
+            {"name": "记录ID", "type": "string", "required": true, "envelope": true, "notes": "Unique per record, set by the collector, never reused. Rows sharing an ID with every field equal count as one record; any difference is a conflict."},
+            {"name": "协议版本", "type": "string", "required": true, "envelope": true, "notes": "Protocol version of this record, compared as trimmed text. IOS interprets the non-envelope fields only for a version in supported_protocol_versions."},
+            {"name": "来源标识", "type": "string", "required": true, "envelope": true, "notes": "Stable, source-neutral id compared with _安装状态.external_fair_value_source_id. Rows of another source are ignored."},
+            {"name": "来源名称", "type": "string", "required": false, "notes": "Display name. Version 1: required on every record."},
+            {"name": "代码", "type": "string", "required": true, "envelope": true},
+            {"name": "上市市场", "type": "string", "required": true, "envelope": true, "notes": "In the ledger's own 当前持仓.市场 vocabulary."},
+            {"name": "报价币种", "type": "string", "required": true, "envelope": true, "notes": "Currency of the external value and of 页面价格."},
+            {"name": "采集结果", "type": "enum", "values": ["成功", "读取失败", "未覆盖"], "required": false, "notes": "Version 1: required. 读取失败 and 未覆盖 carry no value, range, page price or model date."},
+            {"name": "外部公允价值", "type": "number", "required": false, "notes": "Version 1: required and positive for 成功, empty otherwise. The source's central value as stated; never rounded into an IOS field."},
+            {"name": "外部区间下沿", "type": "number", "required": false, "notes": "Optional, 成功 only, positive. Set together with 外部区间上沿, and not above it."},
+            {"name": "外部区间上沿", "type": "number", "required": false, "notes": "Optional, 成功 only, positive. Set together with 外部区间下沿."},
+            {"name": "模型数据截至日", "type": "date", "required": false, "notes": "YYYY-MM-DD as the source states it; empty when not provided. Never the fetch, export or import time, never derived from relative times."},
+            {"name": "获取时间", "type": "datetime", "required": true, "envelope": true, "notes": "ISO 8601 with a time zone (Z or +HH:MM). When this attempt read the source, or for an import when the source export was made. A failed attempt is a new record with its own 获取时间 and never refreshes an earlier record's."},
+            {"name": "导入时间", "type": "datetime", "required": false, "notes": "Version 1: required for 手工导入 (ISO 8601 with a time zone), empty for 自动采集."},
+            {"name": "获取方式", "type": "enum", "values": ["自动采集", "手工导入"], "required": false, "notes": "Version 1: required. An import is never shown as automatic."},
+            {"name": "来源链接", "type": "string", "required": false, "notes": "Page or export reference. Never a session token, cookie or credential."},
+            {"name": "页面价格", "type": "number", "required": false, "notes": "Optional, 成功 only, positive: the price shown with the value at the same moment. Set together with 页面价格时间."},
+            {"name": "页面价格时间", "type": "datetime", "required": false, "notes": "ISO 8601 with a time zone; set together with 页面价格."},
+            {"name": "失败说明", "type": "string", "required": false, "notes": "Short reason for 读取失败/未覆盖; empty for 成功. Never credentials or session data."},
+            {"name": "记录完整", "type": "enum", "values": ["是"], "required": true, "envelope": true, "notes": "Written last. A row without exactly 是 is half-written and invisible."}
+          ],
+          "rules": [
+            "Envelope: 记录ID, 协议版本, 来源标识, 代码, 上市市场, 报价币种, 获取时间 and 记录完整 keep their names and meaning in every protocol version, so IOS can order and match a record whose other fields it does not understand. A new 协议版本 may change only the other fields.",
+            "Columns are found by header name after trimming. The tab is unusable (消费读取失败 for every holding) when it is missing, cannot be read, lacks any envelope column, or has any field of this tab as a column header more than once; an empty but readable tab is not a failure. Column order does not matter, unknown extra columns are ignored (they still count when comparing duplicate 记录ID rows), and a missing non-envelope column reads as empty.",
+            "Cut-off: a row whose envelope 获取时间 is later than the generation's 读取截止时间, or a supported-version 手工导入 row whose 导入时间 is, takes no part in that generation at all (it can neither be selected nor make a listing 记录异常 or 币种或证券不匹配). A row whose 获取时间 equals the cut-off, in any time zone, takes part. The body of an unsupported 协议版本 (获取方式, 导入时间 and every other non-envelope field) is never read, so it cannot change selection, order or status. Candidates are rows with 记录完整=是, the configured 来源标识 and not after the cut-off. A candidate is malformed when 记录ID or 协议版本 is empty, 代码/上市市场/报价币种 is empty, 获取时间 is not ISO 8601 with a time zone, or (for a supported 协议版本) any version 1 field rule on this tab fails or 模型数据截至日 is later than the 读取截止时间's calendar day. A malformed candidate that names a full listing gives that listing 记录异常; otherwise it is ignored.",
+            "Version 1 field rules: 来源名称, 采集结果 and 获取方式 are required; 成功 requires a positive 外部公允价值 and leaves 失败说明 empty; 读取失败/未覆盖 leave 外部公允价值, 外部区间下沿, 外部区间上沿, 模型数据截至日, 页面价格 and 页面价格时间 empty; numbers are plain decimals (no sign, exponent, thousands separator or leading zero, at most 15 integer and 8 fractional digits) compared exactly, never as binary floats; the range bounds and the page price/time are pairs; 外部区间下沿 is not above 外部区间上沿; 模型数据截至日 is empty or YYYY-MM-DD and not after the calendar day of the record's own 获取时间; 页面价格时间 is not after 获取时间; 手工导入 requires 导入时间 not before 获取时间 and 自动采集 leaves it empty.",
+            "No credentials, cookies, session state, account identity or collector environment details belong in any field."
+          ]
+        },
+        "外部公允价值快照": {
+          "english_name": "External Fair Value Report Snapshot (Layer 2)",
+          "purpose": "Per-generation, per-holding record of what one Daily or Weekly generation selected, written only by that generation (from #342 P2) and keyed by (报告ID, 生成ID). Daily and Weekly keep separate rows even when they cite the same record. Every display of a generation, including history, is built from these rows alone; nothing reads Layer 1, the current switch or a later protocol interpretation to display a published generation. A separate tab rather than 报告持仓 columns, so enabling or disabling the module never changes a report tab header.",
+          "fields": [
+            {"name": "报告ID", "type": "string", "required": true},
+            {"name": "生成ID", "type": "string", "required": true, "notes": "Live only while it equals the 生成ID in that 报告ID's 报告摘要 row, as for the other report tabs."},
+            {"name": "报告类型", "type": "enum", "values": ["daily", "weekly"], "required": true},
+            {"name": "报告日期", "type": "date", "required": true},
+            {"name": "代码", "type": "string", "required": true, "notes": "The holding's listing as written in 当前持仓."},
+            {"name": "上市市场", "type": "string", "required": true},
+            {"name": "报价币种", "type": "string", "required": true},
+            {"name": "来源标识", "type": "string", "required": true, "notes": "The _安装状态.external_fair_value_source_id value this generation read, as written (also when it is not a valid id)."},
+            {"name": "读取截止时间", "type": "datetime", "required": true, "notes": "The generation's single Layer 1 read time; freshness is evaluated against it."},
+            {"name": "记录状态", "type": "enum", "values": ["消费读取失败", "记录异常", "币种或证券不匹配", "无记录", "已读取，最新记录版本不支持", "协议版本不支持", "已读取", "已读取，最近一次采集失败", "读取失败", "未覆盖", "快照校验失败"], "required": true},
+            {"name": "引用值记录ID", "type": "string", "required": false, "notes": "Value group."},
+            {"name": "引用值协议版本", "type": "string", "required": false, "notes": "Value group."},
+            {"name": "来源名称", "type": "string", "required": false, "notes": "Value group, copied from the value record."},
+            {"name": "外部公允价值", "type": "number", "required": false, "notes": "Value group, copied from the value record."},
+            {"name": "外部区间下沿", "type": "number", "required": false, "notes": "Value group (optional member)."},
+            {"name": "外部区间上沿", "type": "number", "required": false, "notes": "Value group (optional member)."},
+            {"name": "模型数据截至日", "type": "date", "required": false, "notes": "Value group (optional member); empty exactly when 模型新鲜度=未提供."},
+            {"name": "值记录获取时间", "type": "datetime", "required": false, "notes": "Value group: the value record's 获取时间, never a later attempt's."},
+            {"name": "获取方式", "type": "enum", "values": ["自动采集", "手工导入"], "required": false, "notes": "Value group."},
+            {"name": "来源链接", "type": "string", "required": false, "notes": "Value group (optional member)."},
+            {"name": "页面价格", "type": "number", "required": false, "notes": "Value group (optional member)."},
+            {"name": "页面价格时间", "type": "datetime", "required": false, "notes": "Value group (optional member)."},
+            {"name": "采集新鲜度", "type": "enum", "values": ["新", "过期"], "required": false, "notes": "Value group; from 值记录获取时间 only."},
+            {"name": "模型新鲜度", "type": "enum", "values": ["新", "过期", "未提供"], "required": false, "notes": "Value group; from 模型数据截至日 only."},
+            {"name": "引用最近尝试记录ID", "type": "string", "required": false, "notes": "Latest-attempt group."},
+            {"name": "引用最近尝试协议版本", "type": "string", "required": false, "notes": "Latest-attempt group; may be an unsupported version."},
+            {"name": "最近尝试获取时间", "type": "datetime", "required": false, "notes": "Latest-attempt group; an envelope field, so known for any version."},
+            {"name": "最近尝试采集结果", "type": "enum", "values": ["成功", "读取失败", "未覆盖"], "required": false, "notes": "Copied from a supported-version latest attempt; empty otherwise."},
+            {"name": "最近尝试失败说明", "type": "string", "required": false, "notes": "Copied from the latest attempt's 失败说明 when it is 读取失败 or 未覆盖; empty otherwise."}
+          ],
+          "rules": [
+            "Status table (first applicable row wins; exactly one applies): 1 tab unusable or switch value invalid -> 消费读取失败; 2 a malformed or conflicting candidate names this listing -> 记录异常; 3 no record for this listing but a candidate has the same 代码 with another market or currency -> 币种或证券不匹配; 4 no record -> 无记录; 5 latest attempt of an unsupported 协议版本 with a value record -> 已读取，最新记录版本不支持; 6 latest attempt of an unsupported 协议版本 without one -> 协议版本不支持; 7 latest attempt 成功 -> 已读取; 8 latest attempt 读取失败 with a value record -> 已读取，最近一次采集失败; 9 latest attempt 读取失败 without one -> 读取失败; 10 latest attempt 未覆盖 -> 未覆盖, even when an earlier value record exists.",
+            "Order: a listing's records (malformed and conflicting rows excluded, identical duplicates counted once) are ordered by 获取时间, then by 记录ID compared as a string. The latest attempt is the last one whatever its 协议版本; the value record is the last one with a supported 协议版本 and 采集结果=成功. Selection is a pure function of the rows read: any row order gives the same result.",
+            "Value group: 引用值记录ID, 引用值协议版本, 来源名称, 外部公允价值, 值记录获取时间, 获取方式, 采集新鲜度 and 模型新鲜度 are all set exactly in statuses 已读取, 已读取，最近一次采集失败 and 已读取，最新记录版本不支持, with 引用值协议版本 supported; otherwise they and the optional members (外部区间下沿, 外部区间上沿, 模型数据截至日, 来源链接, 页面价格, 页面价格时间) are all empty.",
+            "Latest-attempt group: 引用最近尝试记录ID, 引用最近尝试协议版本 and 最近尝试获取时间 are all set exactly in status rows 5-10 and all empty in rows 1-4; 引用最近尝试协议版本 is unsupported in rows 5-6 and supported in rows 7-10.",
+            "Agreement: 最近尝试采集结果 is 成功 in row 7 (where 引用值记录ID equals 引用最近尝试记录ID), 读取失败 in rows 8-9 (row 8 citing a different value record), 未覆盖 in row 10 and empty in rows 1-6; 最近尝试失败说明 is empty outside rows 8-10.",
+            "Types: before publishing, every set field is checked against its type and enum here and against the Layer 1 rules (positive plain decimals compared exactly, range and page price pairs, ISO 8601 times with a zone, YYYY-MM-DD dates); 来源标识 is a valid source id except on a 消费读取失败 row; 值记录获取时间, 最近尝试获取时间 and 页面价格时间 are not after 读取截止时间 and 模型数据截至日 is not after its calendar day; 最近尝试获取时间 is not before 值记录获取时间 and 页面价格时间 not after it; 采集新鲜度 and 模型新鲜度 equal what the thresholds give for 值记录获取时间 and 模型数据截至日 at 读取截止时间. The nine keys come from the generation, never from a record: a row with a missing or ill-typed key is a generation fault and is not staged at all.", "A row that fails any check above is never published as selected: it is stored as 记录状态=快照校验失败 with only the nine key fields (报告ID to 读取截止时间) set and every other field empty. The main report is unaffected.",
+            "One row per holding of the generation (资产类型=holding, excluding FUND-SLEEVE), written under the generation's own (报告ID, 生成ID) while the switch is on. With the switch off no row is written. Rows are append-only and are never deleted by report cleanup; a superseded generation's rows are inert by the read contract.",
+            "Never a value, todo, gap or status in any other tab: 记录状态 of any value leaves the report's 核心状态, 今日行动, 周度购买计划 and every gate unchanged."
+          ]
+        }
+      }
     }
   },
   "report_write_protocol": {

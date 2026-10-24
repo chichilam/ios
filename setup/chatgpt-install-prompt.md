@@ -140,7 +140,7 @@ not just the two Task-prompt files.
 | `报告持仓` | `报告ID*`, `生成ID*`, `报告类型*`, `报告日期*`, `资产类型*`, `代码*`, `名称*`, `数量`, `Thesis状态`, `IOS状态`, `关键变化`, `长期逻辑或估值`, `下一验证点`, `参考买入价/区间`, `当前价格`, `价格位置`, `优先级`, `排序`, `入场计划ID`, `执行状态`, `当前区间`, `需要复核`, `入场计划估值锚点`, `入场计划版本`, `入场计划数据时间`, `行情截至时间`, `当前阻碍`, `下次检查`, `停止条件说明`, `较上次变化说明`, `准备状态`, `建议限价`, `建议订单规模说明`, `计划订单有效期`, `跳空处理提示`, `最近订单状态`, `今日行动`, `今日行动说明`, `计划买入上限`, `行情属性`, `报价币种`, `计划买入下限`, `阻塞待办ID`, `周计划ID`, `周计划版本`, `周计划状态`, `周计划结论`, `周计划执行路径`, `周计划适用周`, `周计划研究截至`, `周计划复核时间`, `周计划复核方式`, `长期合理价值`, `长期买入上限快照`, `估值研究日期快照`, `资金结论`, `暂停事件载荷`, `已核验暂停记录ID`, `价格参考结论`, `价格参考下沿`, `价格参考上沿`, `价格参考币种`, `价格参考支撑`, `价格参考阻力`, `价格参考确认条件`, `价格参考否定条件`, `价格参考趋势环境`, `价格参考出处`, `价格参考缺口`, `价格参考与上限关系`, `价格参考位置` |
 | `报告风险` | `报告ID*`, `生成ID*`, `报告类型*`, `报告日期*`, `风险类型`, `风险*`, `影响资产`, `影响`, `本期动作`, `严重度`, `排序` |
 | `报告待办` | `报告ID*`, `生成ID*`, `报告类型*`, `报告日期*`, `排序`, `分类`, `待办*`, `状态`, `备注`, `跟进类型`, `待办ID` |
-| `_安装状态` | `schema_version*`, `spreadsheet_id*`, `spreadsheet_url`, `dashboard_url`, `daily_task_name*`, `daily_task_id`, `daily_task_schedule*`, `daily_task_enabled*`, `weekly_task_name*`, `weekly_task_id`, `weekly_task_schedule*`, `weekly_task_enabled*`, `weekly_cash_context`, `timezone*`, `report_table_names_summary*`, `report_table_names_assets*`, `report_table_names_risks*`, `report_table_names_todos*`, `locale`, `last_verified_at*`, `purchase_plan_mode*`, `purchase_plan_mode_epoch*` |
+| `_安装状态` | `schema_version*`, `spreadsheet_id*`, `spreadsheet_url`, `dashboard_url`, `daily_task_name*`, `daily_task_id`, `daily_task_schedule*`, `daily_task_enabled*`, `weekly_task_name*`, `weekly_task_id`, `weekly_task_schedule*`, `weekly_task_enabled*`, `weekly_cash_context`, `timezone*`, `report_table_names_summary*`, `report_table_names_assets*`, `report_table_names_risks*`, `report_table_names_todos*`, `locale`, `last_verified_at*`, `purchase_plan_mode*`, `purchase_plan_mode_epoch*`, `external_fair_value_source_id` |
 
 规则：
 
@@ -226,6 +226,14 @@ not just the two Task-prompt files.
   `legacy` 报告不引用、不展示它们。三层报告行没有 `价格参考结论` 且 `价格参考缺口` 为空时，固定显示
   「本报告版本未提供本周价格参考（生成于 #327 之前）」，不回读 `周度购买计划` 补值。字段如何由行情
   形成，不写在本安装说明里。
+- `_安装状态` 末尾的 `external_fair_value_source_id`（第 344 号 issue，第 342 号 issue 的 P1）是可选
+  外部公允价值来源的开关，**默认关闭**，不改变 `schema_version`，也不改变任何报告行为。全新安装时这一列
+  随表头一起创建，单元格留空；升级任何版本的已有安装时，列不存在就在 `_安装状态` 末尾追加一个空列，
+  已存在就跳过。安装/升级步骤绝不往这个单元格写值，绝不询问用户是否启用外部来源，绝不要求账户、订阅
+  或任何采集工具，也不为它写 `schema_version`。列不存在或为空都表示未启用：没有来源请求、没有登录
+  提示、没有必填字段、没有阻塞待办，也不算信息缺口。`外部公允价值记录` 和 `外部公允价值快照` 两个 tab
+  不在上表里，安装/升级步骤绝不创建、读取、修改或删除它们；Sheet 里有没有这两个 tab 都正常，不算
+  schema 漂移。
 - 增量升级时，只追加缺失的 tab/字段（例如在已有 tab 末尾新增列，或新增整个 `账户状态`/
   `投资信托明细`/`入场计划`/`入场执行反馈` tab，或在 `报告待办`/`报告持仓`/`入场计划` 末尾新增
   列），不得重新排序或覆盖已有列——用户已经填写的单元格必须原样保留。任何会导致现有行无法按原样
@@ -444,7 +452,8 @@ Task 指令内容（每次创建或更新都要重新执行下面的替换，不
    版本 1 下必须固定写 schema 默认值 `报告摘要`/`报告持仓`/`报告风险`/`报告待办`，不支持自定义**——
    见下方"关于 `report_table_names_*` 的限制"）、`locale`（如果用户表达过语言偏好）、
    `last_verified_at`（设为现在）、`purchase_plan_mode`/`purchase_plan_mode_epoch`（全新安装写
-   `legacy`/`1`；升级时只在为空时写 `legacy`/`1`，已有值原样保留——见第 2 步）。`dashboard_url`
+   `legacy`/`1`；升级时只在为空时写 `legacy`/`1`，已有值原样保留——见第 2 步）。
+   `external_fair_value_source_id` 不写：全新安装留空，已有值原样保留。`dashboard_url`
    此时通常还没有，留空，第 6 步再补上。
 
 **购买计划模式切换（第 316 号 issue P4）**：`purchase_plan_mode` 只能由安装程序写入，而且只能在用户
@@ -642,6 +651,9 @@ schema、Daily/Weekly Task 模板、GAS Dashboard 全部硬编码使用 `报告�
       `周度购买计划` 在 `备注` 之后十三列，`报告持仓` 在 `已核验暂停记录ID` 之后十三列。安装/升级
       没有往这些列写任何值，没有新建 tab，没有改 `purchase_plan_mode` 或 `purchase_plan_mode_epoch`。
       `schema_version` 是在 `周度购买计划` 和 `报告持仓` 的最终表头分别精确读回、并与 canonical 逐列按顺序一致之后才写成 `10` 的。不可读、缺列、错列、重复列或顺序漂移都保持旧版本，重试不重复追加。
+- [ ] `_安装状态` 末尾有 `external_fair_value_source_id` 列（第 344 号 issue），只有一列；安装/升级没有
+      往里写值，也没有询问用户是否启用外部来源；没有创建 `外部公允价值记录`/`外部公允价值快照`；
+      `schema_version` 没有因为这一列改变。
 - [ ] 两个 Task 的指令都读回了恰好一行 `price_reference_snapshot: issue-327-v1`；没有读回的那个 Task
       已单独写明"Task 未同步"并附读回原样，没有用 `schema_version` 代替这项证据。
 - [ ] 两个 Task 的指令都读回了恰好一行 `fund_sleeve_boundary: issue-337-v1`；没有读回的那个 Task
@@ -694,6 +706,8 @@ schema、Daily/Weekly Task 模板、GAS Dashboard 全部硬编码使用 `报告�
   第 318 号 issue）——表结构存在不等于三层购买计划已开启。`three_layer`/`three_layer_hold` 只能经
   "购买计划模式切换"一节的就绪检查、用户明确确认、一次同行写入（纪元加一）并读回之后写入；绝不把模式
   写回 `legacy`，绝不只改模式不改纪元，绝不在没读回的情况下重写。
+- 不替用户启用外部公允价值来源（第 344 号 issue）：不写 `external_fair_value_source_id`，不创建
+  `外部公允价值记录`/`外部公允价值快照`，不登录或请求任何外部来源，不要求账户或订阅。
 - 不在未把 Sheet 绑定、内容权威 EMBED 内容替换完成的情况下，就把 Task 标记为"创建完成"——
   占位符残留是安装未完成，不是可以留给用户自己收尾的细节。
 - 不替用户编造"当前现金/资金状态"——用户明确选择不提供时，如实记录为"未提供"，并让 Weekly Task
