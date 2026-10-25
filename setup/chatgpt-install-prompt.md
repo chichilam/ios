@@ -374,12 +374,32 @@ Task 指令内容（每次创建或更新都要重新执行下面的替换，不
    新增一种，经 issue 修改 `manifest.json`）。部署附注只能是这三句之一：它不能放宽、改写或新增任何规则，不能
    把可选外部模块的局部降级扩大成核心失败，也不能替用户启用任何外部来源。Weekly 现金那一行同理：从既有 Task
    读回的值只有是"未提供"或第 4 步的固定失效说明时才沿用；schema_version 1 下的具体描述必须由用户本次重新提供。
+   **外部公允价值确定性引擎（第 357 号 issue）**：快照里的 `<EFV_ENGINE_FILE_ID_PLACEHOLDER：...>` 只替换成下面
+   两种值之一，两份 Task 必须相同：
+   - `未安装`：外部公允价值来源未启用（`_安装状态.external_fair_value_source_id` 为空或不存在），用户本次也不安装
+     引擎。之后若启用来源而引擎仍未安装，Task 会按快照里的固定失败文本写 `未写入`（"确定性引擎不可用：引擎未
+     安装"），不会手工计算。
+   - **已核验的 Drive 文件 ID**：取得 `setup/runtime/dist/external-fair-value-engine.py` 的完整内容，在用户自己的
+     Drive **新建**一个文件（文件名含引擎版本与 SHA-256 前 12 位，例如 `ios-efv-engine-v1-<前12位>.py`；不共享、
+     不改任何权限、不覆盖或改写任何已有文件），再按新文件 ID 读回全部字节，计算 SHA-256，必须与快照里
+     `- efv_engine:` 行的 sha256 逐字相同。不同或读不全：不绑定这个 ID（这个新文件不再使用），告诉用户哪一步失败。
+     能运行 Python 的维护者可用 `python3 setup/runtime/build_task_runtime.py verify-engine <下载的文件>` 逐字节核对。
+   更新既有 Task 时，读回的文件 ID 只有在按这个 ID 读回的字节的 SHA-256 等于本次快照的 `efv_engine` 行时才沿用；
+   引擎版本变化时，先按上面步骤上传并核验新文件，再更新两份 Task；旧文件保留到两份 Task 都读回新 ID 之后。绝不
+   按文件名搜索选文件，也绝不在哈希不符时改为信任另一个文件。
+   **引擎能力探针（只读，不写生产）**：首次绑定或升级引擎后、启用来源之前，用一个临时、只手动运行一次的
+   Scheduled Task（与 Daily/Weekly 相同的模型与连接器；不读写任何 Sheet、不发送外部消息）依次执行：按绑定的
+   文件 ID 读取引擎文件 → 把全部字节放进代码执行环境 → 计算 SHA-256 并与 `efv_engine` 行比较 → 一致才运行
+   `python3 <文件> selftest`。原样记下文件 ID、读到的字节数、算出的 SHA-256、是否一致、`自检` 与 `结果摘要`。
+   全部通过才告诉用户"引擎已在 Scheduled Task 中实测可运行"；任何一步不通（没有代码执行工具、读不到或读不全
+   文件、哈希不符、自检失败）都如实记录具体证据，并告诉用户外部公允价值写入在此环境不可用、不要启用来源。
+   探针结束后删除这个临时 Task。本地或交互会话能运行 Python，不能代替这次 Scheduled Task 实测。
    **保存前自检（每个 Task 各做一次）**：替换完成后的指令全文必须同时满足——(a) 不再含任何
    `<..._PLACEHOLDER...>`、`<你的 GAS Web App URL>` 以外的占位符原文（GAS URL 占位符留到第 6 步替换）；
-   (b) 下面六行各恰好出现一行：`purchase_plan_modes_supported: legacy, three_layer, three_layer_hold`、
+   (b) 下面七行各恰好出现一行：`purchase_plan_modes_supported: legacy, three_layer, three_layer_hold`、
    `price_reference_snapshot: issue-327-v1`、`fund_sleeve_boundary: issue-337-v1`、
    `external_fair_value_snapshot: issue-346-v1`、`external_financial_materials: issue-350-v1`、
-   `external_fair_value_portfolio: issue-352-v1`，另有恰好一行 `- runtime_snapshot: issue-296-v1` 和一行
+   `external_fair_value_portfolio: issue-352-v1`、`external_fair_value_engine: issue-357-v1`，另有恰好一行 `- runtime_snapshot: issue-296-v1` 和一行
    `- runtime_digest:`；(c) 完整绑定后的全文（含部署附注与全部替换值）不超过 80,000 个 UTF-16 code unit
    ——快照文件头的最坏绑定长度只是估算，不能代替对最终全文的这次计数；超出时不保存，也不自行删减规则。
    任何一项不满足：不要保存这个 Task，告诉用户哪一项没通过。
@@ -473,6 +493,12 @@ Task 指令内容（每次创建或更新都要重新执行下面的替换，不
    "两个 Task 已同步外部公允价值组合对照（默认关闭）"。任何一个读不回或没有这一行：在最终验证清单里单独写明
    "Task 未同步：<Daily/Weekly>，未读回外部公允价值组合对照标记"，并把读回到的原样留作证据。这一项不阻断表结构
    升级，不改变 `schema_version`，也不启用组合对照（开关仍由用户自己填写）。
+   **读回外部公允价值确定性引擎（第 357 号 issue）**：同一次读回里，再确认两个 Task 的指令各恰好有一行
+   `external_fair_value_engine: issue-357-v1`、一行与快照相同的 `- efv_engine:`，且两份绑定的引擎文件 ID 相同
+   （`未安装`，或按该 ID 读回的字节 SHA-256 与 `efv_engine` 行一致）。都满足才告诉用户"两个 Task 已同步外部
+   公允价值确定性引擎"，并另外说明能力探针是否已在 Scheduled Task 中实测通过（未实测就写"未实测"）。任何一项
+   不满足：在最终验证清单里单独写明"Task 未同步：<Daily/Weekly>，<哪一项>"，并把读回原样留作证据。这一项不改变
+   `schema_version`，也不启用外部来源。
 6. 把 `_安装状态` 这一行写完整（新建或更新，不能只写一部分字段）：`schema_version`、
    `spreadsheet_id`、`spreadsheet_url`（如果有）、`daily_task_name`/`daily_task_id`（如果平台给了
    id）/`daily_task_schedule`/`daily_task_enabled`、`weekly_task_name`/`weekly_task_id`/
