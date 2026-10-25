@@ -16,21 +16,20 @@ to record an existing portfolio or start from zero, so a fresh `当前持仓`/`�
 empty with no guided next step.
 
 This prompt is self-contained: where it references another file in this repository
-(`setup/daily-task-prompt.md`, `setup/weekly-task-prompt.md`, `agents/daily-agent.md`,
-`agents/weekly-agent.md`, `prompts/daily-investment-report.md`, `prompts/weekly-portfolio-report.md`,
-the Dashboard package's five files), it tells ChatGPT to fetch that file directly if it has
-repository/URL access, and otherwise asks you to paste that specific file's content when needed —
-never blocking the whole install on a capability that may not be available, and never asking you
-to hand-copy anything ChatGPT could fetch itself. Note that this repository is currently private,
-so a plain URL fetch will likely fail unless your ChatGPT session has this specific repository
-connected — expect to paste the referenced files' contents yourself in the common case, not as a
-rare fallback.
+(`setup/runtime/dist/daily-task.md`, `setup/runtime/dist/weekly-task.md`, the Dashboard package's
+five files), it tells ChatGPT to fetch that file directly if it has repository/URL access, and
+otherwise asks you to paste that specific file's content when needed — never blocking the whole
+install on a capability that may not be available, and never asking you to hand-copy anything
+ChatGPT could fetch itself. Note that this repository is currently private, so a plain URL fetch will
+likely fail unless your ChatGPT session has this specific repository connected — expect to paste the
+referenced files' contents yourself in the common case, not as a rare fallback.
 
-Unlike a bare path reference, the four `agents/*.md`/`prompts/*.md` files are not just linked from
-this installer prompt — their full content gets copied verbatim into the Daily/Weekly Task
-instructions themselves (see Step 4), because a Scheduled Task typically has no GitHub access at
-run time and this repository is private. If you can't fetch them, you'll need to paste all four,
-not just the two Task-prompt files.
+Since Issue #296 the Daily/Weekly Task instructions are installed from generated runtime snapshots
+(`setup/runtime/dist/*-task.md`, built by `setup/runtime/build_task_runtime.py`). Each snapshot
+already carries the operative rules of its Task template, Agent spec and Prompt in one condensed text
+(every rule is mapped in `setup/runtime/rule-map.json`), so you paste only these two files — not the
+four `agents/*.md`/`prompts/*.md` files. The full Task templates (`setup/daily-task-prompt.md`,
+`setup/weekly-task-prompt.md`) and the Agent/Prompt files remain the complete human references.
 
 <!-- PASTE-READY START -->
 
@@ -54,8 +53,8 @@ not just the two Task-prompt files.
         v
 创建/更新 Daily + Weekly Scheduled Task：
   - 绑定具体 Sheet ID/URL（替换占位符）
-  - 嵌入 agents/*.md + prompts/*.md 按固定跳过表生成的运行时精简摘录（替换占位符，不只是路径
-    引用；不是完整原文，也不是随意概括——判断规则逐字保留，只跳过说明性/示例/版本历史小节）
+  - 使用 setup/runtime/dist/ 里生成好的运行时快照（规则已按 rule-map 压缩进同一份文本，不再另外
+    嵌入 agents/*.md + prompts/*.md），只替换绑定占位符并填写内容版本与已核验的部署附注
   - 询问并写入 Weekly 现金/资金状态（或明确记录"未提供"）
   - 使用精确、确定性的 Task 名称，写入 _安装状态（不使用模糊名称匹配）
         |
@@ -276,8 +275,8 @@ not just the two Task-prompt files.
   一律不碰。
 - **升级到 schema_version 10 的顺序（中断后每一步都停在安全状态）**：
   1. 先完成上面「升级到 schema_version 9 的顺序」的第 1 到第 3 小步（缺的第 9 版列和 tab、空单元格
-     里的 `legacy`/`1`、两个 Task 按当前模板原地更新并读回）。已经存在的列/tab 按精确名称跳过。
-     从第 9 版升到第 10 版时，第 1 小步仍会按当前模板把两个 Task 原地更新并读回。从第 327 号写入包起，
+     里的 `legacy`/`1`、两个 Task 按当前运行时快照原地更新并读回）。已经存在的列/tab 按精确名称跳过。
+     从第 9 版升到第 10 版时，第 1 小步仍会按当前运行时快照把两个 Task 原地更新并读回。从第 327 号写入包起，
      当前模板含价格参考标记，读回方式见第 4 步"读回价格参考标记"。目标是第 10 版时，**不要**执行第 9 版顺序
      的第 4 小步：不要把 `schema_version` 写成 `9` 就结束。
   2. 追加前分别读回 `周度购买计划` 和 `报告持仓` 的当前表头。任一张不可读，或读回与物理表头不一致：
@@ -332,60 +331,64 @@ Daily 周一至周五每天 09:00，Weekly 每周六 09:00，都在这个具体�
 - 如果是全新安装（或第 1 步确认了这是一次没有既有 Task 的升级），为两个 Task 生成一个确定性的
   精确名称，例如 `IOS Daily — <Sheet ID 最后 6 位>` / `IOS Weekly — <Sheet ID 最后 6 位>`（用
   Sheet ID 的一部分保证多个安装之间不会重名），并把这个名称告诉用户。
-- 精确匹配到的既有 Task：如果指令内容（替换占位符前的模板部分）与下面生成的最新版本一致，跳过；
-  如果是旧版本，更新它而不是新建一个重复的 Task。
+- 精确匹配到的既有 Task：先读取它当前保存的**完整指令全文**，再按下面"Task 指令内容"第 1–3 步用本次获取的
+  快照和这个部署的绑定值重建**期望全文**（"快照来源 commit/版本"与"快照时间"两处沿用既有 Task 里的值），与读回
+  全文逐字比较。只有两者完全一致才跳过。`- runtime_digest:` 那一行相同**不足以**跳过：只要正文任何位置有删改、
+  缺行、多出的行或截断，即使 digest 行没变，也要告诉用户差异出现在哪里，并原位更新。没有这一行（第 296 号 issue
+  之前的旧版本）、digest 不同，或任何绑定值有变化，同样**原位更新这个 Task 的指令**，而不是新建一个重复的
+  Task：保持 Task 名称、id、执行时间、启用状态与 Sheet 绑定不变，不停用、不删除原 Task，也不为"试运行"另建一个
+  Weekly Task。
 
 Task 指令内容（每次创建或更新都要重新执行下面的替换，不能只在首次安装时做一次）：
 
-1. 如果你能直接读取仓库文件，分别获取
-   [`setup/daily-task-prompt.md`](https://github.com/chichilam/ios/blob/main/setup/daily-task-prompt.md)
+1. **获取运行时快照（第 296 号 issue）**：如果你能直接读取仓库文件，分别获取
+   [`setup/runtime/dist/daily-task.md`](https://github.com/chichilam/ios/blob/main/setup/runtime/dist/daily-task.md)
    和
-   [`setup/weekly-task-prompt.md`](https://github.com/chichilam/ios/blob/main/setup/weekly-task-prompt.md)
+   [`setup/runtime/dist/weekly-task.md`](https://github.com/chichilam/ios/blob/main/setup/runtime/dist/weekly-task.md)
    中 `PASTE-READY START`/`PASTE-READY END` 之间的完整内容；如果不能，请用户把这两段内容分别粘贴
-   给你。**不要自己改写或精简这两段指令的模板部分**——它们已经包含了完整的读取/写回协议
-   （`report_write_protocol`）和边界规则，精简会破坏正确性。
+   给你。这两份是由 `setup/runtime/build_task_runtime.py` 从完整的 Task 模板、`agents/*.md` 与
+   `prompts/*.md` 生成的**可直接安装的运行时快照**：判断规则、读取/写回协议（`report_write_protocol`）
+   与边界已经按 `setup/runtime/rule-map.json` 压缩进同一份文本，不再需要另外嵌入任何 Agent/Prompt
+   文件，也不需要套用任何跳过表。**不要自己改写、精简或补充快照正文**——只替换下面几步列出的绑定
+   占位符；对规则有疑问时以仓库里的完整文件为准，并通过 issue 修改快照，而不是在 Task 里手改。
+   `setup/daily-task-prompt.md`/`setup/weekly-task-prompt.md` 仍是完整的人类参考文本，不再直接粘贴进
+   Task。**每个绑定只替换占位符本身**：从 `<` 到与它配对的 `>` 为止，中间可能跨行。占位符前后的文字、反引号和
+   缩进保持不变；下面说的“整行替换”“整段替换”也只指这一段占位符。例如 Weekly 现金那一行，冒号前的
+   “当前现金/资金状态（由用户在安装时提供，可随时更新）：”已经在快照里，替换值只是冒号之后的部分。
 2. **替换 Sheet 绑定与时区占位符**：把模板里的 `<SHEET_ID_OR_URL_PLACEHOLDER：...>` 整行替换成第 1
    步确定的具体 Sheet ID 或完整 URL，把 `<TIMEZONE_PLACEHOLDER：...>` 整行替换成本步骤开头确定的
-   具体 IANA 时区名称（两个 Task 模板都要替换；Daily 模板还依赖这个时区计算"研究窗口"一节的周一/
+   具体 IANA 时区名称（两个 Task 的运行时快照都要替换；Daily 快照还依赖这个时区计算"研究窗口"一节的周一/
    非周一分支，不能留空或写成模糊描述）——这一步现在就能做，不用等到第 6 步。
-3. **嵌入内容权威（不是路径引用，也不是完整原文，而是运行时精简摘录）**：获取以下四个文件的完整
-   原文——
-   [`agents/daily-agent.md`](https://github.com/chichilam/ios/blob/main/agents/daily-agent.md)、
-   [`prompts/daily-investment-report.md`](https://github.com/chichilam/ios/blob/main/prompts/daily-investment-report.md)、
-   [`agents/weekly-agent.md`](https://github.com/chichilam/ios/blob/main/agents/weekly-agent.md)、
-   [`prompts/weekly-portfolio-report.md`](https://github.com/chichilam/ios/blob/main/prompts/weekly-portfolio-report.md)——
-   如果你能直接读取仓库文件就逐字获取；如果不能，明确请用户把这四个文件的内容分别粘贴给你（不要
-   跳过这一步、也不要只保留文件路径了事——本仓库是私有仓库，Scheduled Task 运行时通常没有 GitHub
-   访问权限，无法在运行时临时抓取，指令里只有路径的话到时候会直接 Blocked）。
-
-   第 296 号 issue 记录的运行时不稳定观察表明，每次运行都完整嵌入这四个文件的全文会让 Task 的
-   运行时 context 明显偏大。因此嵌入时按下面固定的、逐节机械跳过规则生成一份**运行时精简摘录**，
-   而不是逐字复制全文——除下面列出的小节外，其余每一个 `##` 级小节（含其下所有内容、表格、代码块）
-   必须逐字原样保留，不得改写、概括或省略任何一条判断规则；跳过的小节要留下清楚的占位说明，不能
-   直接消失让读者以为遗漏：
-
-   | 文件 | 跳过的 `##` 小节（原样保留其余全部小节） |
-   | --- | --- |
-   | `agents/daily-agent.md` | 目的、架构位置、示例流程、Review Checklist、版本策略 |
-   | `prompts/daily-investment-report.md` | Purpose、Version History |
-   | `agents/weekly-agent.md` | 目的、架构位置、示例流程、Review Checklist、版本策略 |
-   | `prompts/weekly-portfolio-report.md` | Purpose、Version History |
-
-   这些小节要么是面向人类维护者的叙述性前言/架构说明（目的、架构位置、Purpose），要么是示例/版本
-   历史/规格审阅清单（示例流程、Review Checklist、版本策略、Version History）——不包含任何 Task
-   执行时需要遵守的判断规则或输出契约，因此可以在运行时快照里跳过。表中未列出的每一个小节（包括
-   单 prompt 边界、输入要求、任务识别、禁止事项、Rules、Sheet Write Contract、Quality Checklist
-   等）都必须完整保留，一字不改。
-
-   跳过一个小节时，在嵌入内容里该小节标题原位置写一行占位说明，格式固定为：
-
-   > （本节为面向人类维护者的说明性内容，运行时快照已省略；完整原文见仓库 `<文件路径>` 的对应
-   > 小节，第 296 号 issue。）
-
-   把生成好的运行时精简摘录替换进各自 Task 模板里的
-   `<AGENT_SPEC_PLACEHOLDER：...>`/`<PROMPT_SPEC_PLACEHOLDER：...>`，并把"内容版本"两个占位符也
-   填上（快照来源写这几个文件在你读取时看到的仓库 commit/日期，快照时间写你执行这一步的时间）——
-   版本信息追溯的是完整原文所在的 commit，即使嵌入的是精简摘录，出问题时仍能定位到权威原文核对。
+3. **填写内容版本与部署附注**：快照里的 `- runtime_snapshot: issue-296-v1` 与 `- runtime_digest: <64 位十六进制>`
+   两行原样保留（digest 标识这份快照正文的确切版本）。把"快照来源 commit/版本"占位符替换成你读取快照时看到
+   的仓库 commit（看不到 commit 时写读取日期与 `runtime_digest` 前 12 位），把"快照时间"占位符替换成你执行
+   这一步的时间（ISO 8601）。把 `<DEPLOYMENT_NOTES_PLACEHOLDER：...>` 整段替换成下面三种**固定句式之一**，逐字照抄，只把
+   `<YYYY-MM-DD>` 换成实际核验日期，不加、不删、不改任何其他文字（`setup/runtime/manifest.json` 的
+   `deployment_notes` 是这三句的权威来源，`build_task_runtime.py` 会拒绝其他任何文字）：
+   - 没有需要记录的部署适配：`无部署附注`
+   - 已核验 appendCells：`已核验的写入适配（<YYYY-MM-DD>）：报告 tab 的 Stage 使用 Google Sheets 原生 appendCells（batchUpdate；Google Drive 连接器中为 batch_update_spreadsheet）。每次调用前用当次 metadata 解析目标 tab 的 sheetId，按当次表头构造完整一行 values，fields=userEnteredValue，由服务端选择追加位置；不使用固定 rowIndex，也不用 insertDimension 或 updateCells 代替。核心 Stage 工具不可用时按第 3 步处理：不暂存，保留旧的摘要指针。`
+   - 已核验 values.append：`已核验的写入适配（<YYYY-MM-DD>）：报告 tab 的 Stage 使用 Sheets spreadsheets.values.append（insertDataOption=INSERT_ROWS），按当次表头构造完整一行 values，由服务端选择追加位置；不按固定行号写入。核心 Stage 工具不可用时按第 3 步处理：不暂存，保留旧的摘要指针。`
+   更新既有 Task 时，先读取它当前实际保存的部署附注：如果正好是上面某一句（日期格式正确），原样沿用，不必
+   重新询问用户；如果是其他任何文字（包括第 296 号 issue 之前写进 Task 的自由文本适配说明），**不要沿用，也不要
+   自己改写成固定句式**：停止更新这个 Task，把原文告诉用户，说明需要人工确认它对应哪一种固定句式（或是否需要
+   新增一种，经 issue 修改 `manifest.json`）。部署附注只能是这三句之一：它不能放宽、改写或新增任何规则，不能
+   把可选外部模块的局部降级扩大成核心失败，也不能替用户启用任何外部来源。Weekly 现金那一行同理：从既有 Task
+   读回的值只有是"未提供"或第 4 步的固定失效说明时才沿用；schema_version 1 下的具体描述必须由用户本次重新提供。
+   **保存前自检（每个 Task 各做一次）**：替换完成后的指令全文必须同时满足——(a) 不再含任何
+   `<..._PLACEHOLDER...>`、`<你的 GAS Web App URL>` 以外的占位符原文（GAS URL 占位符留到第 6 步替换）；
+   (b) 下面六行各恰好出现一行：`purchase_plan_modes_supported: legacy, three_layer, three_layer_hold`、
+   `price_reference_snapshot: issue-327-v1`、`fund_sleeve_boundary: issue-337-v1`、
+   `external_fair_value_snapshot: issue-346-v1`、`external_financial_materials: issue-350-v1`、
+   `external_fair_value_portfolio: issue-352-v1`，另有恰好一行 `- runtime_snapshot: issue-296-v1` 和一行
+   `- runtime_digest:`；(c) 完整绑定后的全文（含部署附注与全部替换值）不超过 80,000 个 UTF-16 code unit
+   ——快照文件头的最坏绑定长度只是估算，不能代替对最终全文的这次计数；超出时不保存，也不自行删减规则。
+   任何一项不满足：不要保存这个 Task，告诉用户哪一项没通过。
+   **保存后读回全文核对**：保存后重新读取 Task 的完整指令全文，与保存前生成的期望全文逐字比较，不能只核对
+   标记和 digest 行。不一致就视为没有保存成功：告诉用户差异出现在哪里，原位重新保存，再读回比较，在一致之前
+   不把这个 Task 记为完成。能运行 Python 的维护者可以做同样的检查：把绑定值写成 JSON 文件，用
+   `python3 setup/runtime/build_task_runtime.py render-installed --task <daily|weekly> --bindings <JSON>` 生成
+   期望全文，用 `python3 setup/runtime/build_task_runtime.py verify-installed --task <daily|weekly> --bindings <JSON> <读回文件>`
+   逐字比较；不带 `--bindings` 时，`verify-installed` 会核对绑定位置以外的全文与快照逐字一致、各绑定值格式正确。
 4. **Weekly 现金/资金状态（仅 Weekly Task）**：这项必要输入只有一个权威来源，由 Sheet 当前的
    schema 版本决定，绝不允许两个来源同时生效——安装时写入的固定描述和 Sheet 里的 `账户状态`
    数据各自独立维护，一旦升级到 schema_version 2 却还允许读取前者，会制造两份互相可能矛盾、
@@ -632,9 +635,12 @@ schema、Daily/Weekly Task 模板、GAS Dashboard 全部硬编码使用 `报告�
       名称完全一致。
 - [ ] 两个 Task 的指令中，Sheet 绑定占位符（`<SHEET_ID_OR_URL_PLACEHOLDER...>`）已替换为具体
       Sheet ID/URL，`<你的 GAS Web App URL>` 占位符已替换为真实链接。
-- [ ] 两个 Task 的指令中，`<AGENT_SPEC_PLACEHOLDER...>`/`<PROMPT_SPEC_PLACEHOLDER...>` 已替换为
-      对应文件按第 3 步固定跳过表生成的运行时精简摘录（不再是占位符或纯路径引用；跳过的小节留有
-      清楚的占位说明，其余小节逐字保留，不是被随意概括或改写），"内容版本"两个占位符也已填写。
+- [ ] 两个 Task 的指令都来自 `setup/runtime/dist/<daily|weekly>-task.md` 的运行时快照（第 296 号
+      issue），正文未被改写或精简：各恰好一行 `- runtime_snapshot: issue-296-v1`，`- runtime_digest:` 与
+      本次获取的快照一致，保存后读回的完整全文与期望全文逐字一致（不只是标记与 digest 行一致）；"内容版本"两个
+      占位符与部署附注都已填写（已有的、经过核验的写入适配原样沿用）；
+      除第 6 步前的 GAS URL 外没有任何残留占位符；全文不超过 80,000 个 UTF-16 code unit。原 Task 是原位
+      更新的，名称、id、执行时间与启用状态不变，没有另建重复的 Weekly Task。
 - [ ] `账户状态` tab 已创建（空表头，安装过程没有替用户填入任何编造的具体数值）。**如果**本次
       运行创建/保持了 `账户状态` tab（即 Sheet 达到 schema_version ≥ 2 的等价结构——现在起每一次
       全新安装或增量升级都是如此，最终记录的 `_安装状态.schema_version` 是当前最新版本 `10`）：
@@ -754,7 +760,7 @@ schema、Daily/Weekly Task 模板、GAS Dashboard 全部硬编码使用 `报告�
   `外部财经材料记录`/`外部财经材料快照`，不登录或请求任何外部来源，不要求账户或订阅。
 - 不替用户启用外部公允价值组合对照（第 352 号 issue）：不写 `external_fair_value_report_currency`，不替用户选择
   报告币种，不取汇率，不登录或请求任何外部来源。
-- 不在未把 Sheet 绑定、内容权威 EMBED 内容替换完成的情况下，就把 Task 标记为"创建完成"——
+- 不在未把 Sheet 绑定、内容版本与部署附注占位符替换完成的情况下，就把 Task 标记为"创建完成"——
   占位符残留是安装未完成，不是可以留给用户自己收尾的细节。
 - 不替用户编造"当前现金/资金状态"——用户明确选择不提供时，如实记录为"未提供"，并让 Weekly Task
   按上游 `agents/weekly-agent.md` 的必要输入规则处理，不悄悄放宽。

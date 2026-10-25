@@ -1,8 +1,12 @@
 # Daily Scheduled Task — Instructions
 
 Canonical source for the IOS v2.1 personal deployment layer's Daily Scheduled Task (Issue #242
-Phase C). Paste everything between the `PASTE-READY START`/`PASTE-READY END` markers below,
-verbatim, into ChatGPT's Scheduled Task "Instructions" field. `setup/chatgpt-install-prompt.md`
+Phase C). This file is the complete human reference for the Daily Task's rules. Since Issue #296
+the installer no longer pastes the body below into ChatGPT's Scheduled Task "Instructions" field;
+it installs the generated runtime snapshot `setup/runtime/dist/daily-task.md`, which condenses this
+body together with the Agent/Prompt files it embeds (see `setup/runtime/README.md`). A change here
+must be reflected in `setup/runtime/fragments/` (CI fails until the snapshot is re-pinned). The
+body below is kept as the full-form reference. `setup/chatgpt-install-prompt.md`
 walks a new user through creating this Task; this file is also the reference if you want to
 inspect, edit, or manually recreate the Task later.
 

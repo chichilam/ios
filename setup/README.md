@@ -19,7 +19,11 @@ See [`docs/v2.1-architecture.md`](../docs/v2.1-architecture.md) for the full des
   only at the one manual Google authorization/deployment step.
 - `daily-task-prompt.md` / `weekly-task-prompt.md` — the Daily/Weekly Scheduled Tasks' own
   instructions (Phase C), the canonical source the installer prompt creates those two Tasks from.
-  Also useful standalone if you want to inspect, edit, or manually recreate a Task later.
+  Also useful standalone if you want to inspect, edit, or manually recreate a Task later. These are
+  the complete human references; since Issue #296 the installer installs the generated runtime
+  snapshots in `runtime/dist/` instead (see below).
+- `runtime/`: the generator, coverage manifest, rule map and generated, installable
+  Daily/Weekly runtime snapshots (Issue #296). See [`runtime/README.md`](runtime/README.md).
 - `onboarding-prompt.md` — the post-install portfolio onboarding conversation (Issue #273) the
   installer hands off to once setup finishes: a low-friction, confirm-before-write path to either
   record an existing portfolio or start from zero with a guided research candidate pool. Optional
