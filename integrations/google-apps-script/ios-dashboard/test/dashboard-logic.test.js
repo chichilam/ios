@@ -502,3 +502,14 @@ test('include_ preserves script source before embedding it in Index.html', () =>
   assert.match(included, /i < PROVENANCE_KEYS_\.length/);
   assert.doesNotThrow(() => new vm.Script(included));
 });
+
+
+test('Code.gs uses no BigInt literals, which the Apps Script parser rejects at clasp push', () => {
+  // Issue #361: `0n` passed every Node test but failed deployment with
+  // "Unexpected token ILLEGAL"; exact integers are written as BigInt(...) instead.
+  const source = fs.readFileSync(path.join(__dirname, '..', 'Code.gs'), 'utf8');
+  const code = source.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*|'(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"|`(?:\\.|[^`\\])*`/g, ' ');
+  const literal = /(?<![\w$.])(?:0[xXoObB][\da-fA-F_]+|\d[\d_]*)n\b/;
+  assert.ok(literal.test('return quantity.n > 0n;'));
+  assert.equal(code.match(literal), null);
+});

@@ -1729,7 +1729,7 @@ function pfReplayFails_(body, p2Rows) {
   if (body['计算版本'] === '2') {
     var scope = body['证据']['持仓'].filter(function (r) {
       var quantity = pfParseQuantity_(r['持有数量']);
-      return quantity && quantity.n > 0n && pfNorm_(r['代码']) !== 'FUND-SLEEVE';
+      return quantity && quantity.n > BigInt(0) && pfNorm_(r['代码']) !== 'FUND-SLEEVE';
     }).map(function (r) {
       return efvListingKey_(r['代码'], r['市场'], r['币种']);
     });
