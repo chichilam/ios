@@ -134,6 +134,11 @@ function buildReportViewModel_(tabs, reportType, explicitReportId, reader) {
     return bound ? Object.assign({}, row, { _iosExternalFairValue: bound }) : row;
   });
 
+  watchlistCandidates = watchlistCandidates.map(function (row, i, all) {
+    var bound = efvHoldingRow_(row, externalFairValue, all);
+    return bound ? Object.assign({}, row, { _iosExternalFairValue: bound }) : row;
+  });
+
   return {
     found: true,
     reportType: reportType,
@@ -1685,12 +1690,12 @@ function pfParseMarker_(note) {
     if (!efvSameKeys_(body, PF_MISSING_KEYS_) || !PF_MISSING_KEYS_.every(function (k) { return typeof body[k] === 'string'; })) {
       return PF_MARKER_INVALID_;
     }
-    if (body['计算版本'] !== PF_CALC_VERSION_ || PF_BATCH_REASONS_.indexOf(body['原因']) === -1 || efvText_(body['说明']) === '') {
+    if ([PF_CALC_VERSION_, '2'].indexOf(body['计算版本']) === -1 || PF_BATCH_REASONS_.indexOf(body['原因']) === -1 || efvText_(body['说明']) === '') {
       return PF_MARKER_INVALID_;
     }
     return body;
   }
-  if (status !== PF_BATCH_WRITTEN_ || !efvSameKeys_(body, PF_WRITTEN_KEYS_) || body['计算版本'] !== PF_CALC_VERSION_) return PF_MARKER_INVALID_;
+  if (status !== PF_BATCH_WRITTEN_ || !efvSameKeys_(body, PF_WRITTEN_KEYS_) || [PF_CALC_VERSION_, '2'].indexOf(body['计算版本']) === -1) return PF_MARKER_INVALID_;
   if (!['报告币种', '来源标识', '读取截止时间', '覆盖范围'].every(function (k) { return typeof body[k] === 'string'; })) return PF_MARKER_INVALID_;
   if (!PF_COUNT_KEYS_.every(function (k) { return pfIsCount_(body[k]); })) return PF_MARKER_INVALID_;
   var money = ['范围市值', '覆盖市值', '覆盖外部公允价值', '覆盖差额', '未覆盖市值'];
@@ -1721,6 +1726,18 @@ function pfScopeFails_(frozen, p2Rows) {
 
 /** replay_errors, as a boolean: true when the body does not follow from its own generation and frozen inputs. */
 function pfReplayFails_(body, p2Rows) {
+  if (body['计算版本'] === '2') {
+    var scope = body['证据']['持仓'].filter(function (r) {
+      var quantity = pfParseQuantity_(r['持有数量']);
+      return quantity && quantity.n > 0n && pfNorm_(r['代码']) !== 'FUND-SLEEVE';
+    }).map(function (r) {
+      return efvListingKey_(r['代码'], r['市场'], r['币种']);
+    });
+    p2Rows = p2Rows.filter(function (r) {
+      var key = efvListingKey_(r['代码'], r['上市市场'], r['报价币种']);
+      return scope.some(function (k) { return pfSameListing_(k, key); });
+    });
+  }
   var currency = body['报告币种'];
   if (!PF_CURRENCY_.test(currency) || efvParseTime_(body['读取截止时间']) === null) return true;
   var items = body['明细'];
@@ -1735,6 +1752,7 @@ function pfReplayFails_(body, p2Rows) {
   var holdings = frozen['持仓'].map(function (row) { return Object.assign({}, row, { 状态: '持有' }); });
   var prices = frozen['报告持仓价格'].map(function (row) { return Object.assign({}, row, { 资产类型: 'holding' }); });
   var again = pfBuild_(currency, body['来源标识'], body['读取截止时间'], p2Rows, holdings, frozen['行情'], frozen['汇率证据'], prices);
+  if (!again.fault) again['计算版本'] = body['计算版本'];
   return Boolean(again.fault) || JSON.stringify(again) !== JSON.stringify(body);
 }
 
@@ -2226,3 +2244,4 @@ if (typeof module !== 'undefined') {
     buildExternalFairValuePortfolioView_: buildExternalFairValuePortfolioView_
   };
 }
+

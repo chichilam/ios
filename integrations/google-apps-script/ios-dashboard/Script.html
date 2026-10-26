@@ -1218,7 +1218,7 @@
   function buildInlineFairValue_(asset, isWatchlist) {
     var vm = currentViewModel();
     var module = vm && vm.externalFairValue;
-    if (isWatchlist || !module || asset['代码'] === 'FUND-SLEEVE') return null;
+    if (!module || asset['代码'] === 'FUND-SLEEVE') return null;
     if (module.state !== '已写入') {
       return text('p', 'ios-asset-line ios-muted ios-inline-fair-value', '公允值: 未采用');
     }
@@ -1592,3 +1592,4 @@
 
   render();
 })();
+

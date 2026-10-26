@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE: do not edit by hand. Edit setup/runtime/fragments/ and run
 python3 setup/runtime/build_task_runtime.py build -->
-<!-- runtime-stats: {"runtime_snapshot":"issue-296-v1","runtime_digest":"6b8bd832b21e53bf05cf91ad5a2fab7899a38d17efafa46ff2692f9f1f46e6d4","utf16_units":57683,"code_points":57683,"utf8_bytes":136759,"worst_case_bound_utf16_units":59298,"budget_utf16_units":80000} -->
+<!-- runtime-stats: {"runtime_snapshot":"issue-296-v1","runtime_digest":"ef76afc6e9a1a61ef850970d7dbd45e66952fea11fb16fb73547080da7db1426","utf16_units":57971,"code_points":57971,"utf8_bytes":137515,"worst_case_bound_utf16_units":59586,"budget_utf16_units":80000} -->
 
 This is the installable runtime snapshot of the Daily Scheduled Task (Issue #296). The
 installer (`setup/chatgpt-install-prompt.md`) pastes everything between the `PASTE-READY START`/
@@ -12,13 +12,13 @@ references; `setup/runtime/rule-map.json` maps every runtime rule back to them.
 
 | Measure | Value |
 | --- | --- |
-| UTF-16 code units (paste-ready body, before binding) | 57683 |
-| Unicode code points | 57683 |
-| UTF-8 bytes | 136759 |
+| UTF-16 code units (paste-ready body, before binding) | 57971 |
+| Unicode code points | 57971 |
+| UTF-8 bytes | 137515 |
 | Embedded authority (no separate embedding step) | 0 |
-| Worst-case bound after binding (UTF-16 code units) | 59298 |
+| Worst-case bound after binding (UTF-16 code units) | 59586 |
 | Engineering budget (UTF-16 code units, not a proven platform limit) | 80000 |
-| runtime_digest | `6b8bd832b21e53bf05cf91ad5a2fab7899a38d17efafa46ff2692f9f1f46e6d4` |
+| runtime_digest | `ef76afc6e9a1a61ef850970d7dbd45e66952fea11fb16fb73547080da7db1426` |
 
 <!-- PASTE-READY START -->
 
@@ -40,7 +40,7 @@ Report 研究，回答"今天发生了什么，值得长期投资者记录或继
 时区名称，例如 Asia/Tokyo——不能是"用户本地时区"这类无法直接计算的描述>`
 
 - runtime_snapshot: issue-296-v1
-- runtime_digest: 6b8bd832b21e53bf05cf91ad5a2fab7899a38d17efafa46ff2692f9f1f46e6d4
+- runtime_digest: ef76afc6e9a1a61ef850970d7dbd45e66952fea11fb16fb73547080da7db1426
 - 快照来源 commit/版本：`<CONTENT_VERSION_PLACEHOLDER：由安装程序填写读取本快照时的仓库 commit>`
 - 快照时间：`<CONTENT_SNAPSHOT_TIME_PLACEHOLDER：由安装程序填写，ISO 8601>`
 
@@ -927,11 +927,11 @@ external_fair_value_snapshot: issue-346-v1
   报告与没有本节时完全相同。
 - **冻结与单次读取**：启用时，在读取 `外部公允价值记录` 之前取一次带时区偏移的当前时间（本 Task 的 IANA 时区）
   作为本 generation 的 `读取截止时间`，然后把记录 tab 整个读取一次。这一次读到的行、这个截止时间与本次读到的
-  `当前持仓` 是本 generation 的冻结输入，之后各步原样复用：不重读、不补读、不等待或重试采集、不登录、不请求
+  `当前持仓` 及本次已读 `观察名单`、本期 `报告持仓` 候选身份是本 generation 的冻结输入，之后各步原样复用：不重读、不补读、不等待或重试采集、不登录、不请求
   任何来源、不写记录 tab。换一个新的 `生成ID` 重来（含发布前检查失败后的重试）就是新的 generation：重新冻结、
   重新读取一次。
 - **范围**：适用持仓是 `当前持仓` 里 `状态=持有` 且 `持有数量 > 0` 的行，排除 `FUND-SLEEVE`，同一证券只写一行；
-  观察名单、基金、现金不写快照。快照行只追加到 `外部公允价值快照`（绝不改写已有行）；外部公允价值不写进
+  本期 `报告持仓` 中 `资产类型=watchlist` 的观察候选也写快照；Daily 仅含本期高优先候选，Weekly 含本期实际覆盖候选，不自动加入未出现在报告中的标的。候选市场取冻结观察名单，报价币种取本期报告行，缺失或市场不唯一则本模块拒绝，不猜测。持仓与候选按完整证券键去重，基金、现金不写快照。快照行只追加到 `外部公允价值快照`（绝不改写已有行）；外部公允价值不写进
   `报告持仓`/`报告风险`/`报告待办` 的任何列，也不写进 `报告摘要` 除批次行以外的任何列；它不改变 IOS 的
   `合理价值区间`、`长期买入上限`、周度购买计划或今日行动。
 - **批次行**：启用时 `报告摘要.备注` 第一行恰好是一行 `外部公允价值快照批次：` 后接规范 JSON（`已写入`，或
@@ -951,13 +951,13 @@ external_fair_value_snapshot: issue-346-v1
 
 external_fair_value_engine: issue-357-v1
 
-- efv_engine: efv-engine-v1 sha256 bcf205310c8380fb18203afa11ef41afcd4987ccb86744cf21fb3e92fbe049a4
+- efv_engine: efv-engine-v2 sha256 40ea1231d38929bcae6a82fd138904dfc4ea678661d4f2f03a01eb8aae280310
 - 引擎文件（Drive 文件 ID）：<EFV_ENGINE_FILE_ID_PLACEHOLDER：安装程序替换为已核验的 Drive 文件 ID，或"未安装">
 
 - **加载**：开关启用时，只按上面的文件 ID 读取引擎文件（绝不按文件名搜索或改用别的文件），把读到的全部字节
   原样放进代码执行环境，先计算 SHA-256，与 `efv_engine` 行逐字相同才执行，绝不先执行后校验。
 - **输入**：一份 generation 输入 JSON：`引擎版本`、`取值方式`、`报告`（四个键）、`安装状态`（守卫读到的那一行）、
-  `读取截止时间`、`当前持仓`、`外部公允价值记录`、`外部公允价值快照`（整表 values；表不存在写 null，读不出写
+  `读取截止时间`、`当前持仓`、`观察名单`（本次已读观察名单的对象列表）、`外部公允价值记录`、`外部公允价值快照`（整表 values；表不存在写 null，读不出写
   `"读取失败"`）、`行情`、
   `汇率`、`报告持仓`（本次规划的行）、`备注`（本次 `报告摘要.备注` 的其他文字，已含外部财经材料批次行）。读 Sheet
   用 `valueRenderOption=UNFORMATTED_VALUE` 与 `dateTimeRenderOption=FORMATTED_STRING`，`取值方式` 写
@@ -968,6 +968,7 @@ external_fair_value_engine: issue-357-v1
   写入 → 读回该 `报告摘要` 行与快照表 → confirm（再加 `报告摘要行`）。引擎输出原样使用，不改写、不补字段、
   不重排。运行状态与通知里的外部公允价值内容只来自 confirm 的 `可展示`，needs-attention 只来自 `通知附加行`。
 - **失败按阶段**（只按实际已完成的最后一步选，只写引擎给出的文本或下面的固定文本，绝不自行转义或拼写）：
+  `<适用持仓数>` 在引擎v2指实际持仓与本期候选的去重总数。
   1. 还没拿到 plan 输出（引擎未安装、读不到文件、哈希不符、无代码执行工具、plan 拒绝或中断）：不追加任何快照
      行，第一行写
      `外部公允价值快照批次：{"批次状态":"未写入","来源标识":"<开关原文>","读取截止时间":"<冻结时间>","快照行数":<适用持仓数>,"原因":"快照写入失败","说明":"确定性引擎不可用：<阶段>"}`；
@@ -1030,6 +1031,8 @@ generation 的持仓数量、行情与汇率证据汇总成"覆盖部分"的组�
 - **只读与证据**：不写 `外部公允价值记录` 或 `外部公允价值快照`，不登录、不请求任何外部公允价值来源；行情与汇率只用本次数据步骤的来源，取不到就是缺失，绝不编造价格、汇率或时间。交给引擎的 `行情` 每项为 `代码`、`上市市场`、`报价币种`、`市场价格`、`价格时间`，必须等于本次 `报告持仓` 该代码非空的 `当前价格`；`汇率` 每项为"1 `基础币种` = `汇率` `计价币种`"与 `汇率时间`，只取范围内证券币种到报告币种，绝不倒数换算。价格与汇率写数据源给出的原值（不四舍五入），时间写数据源给出的带时区 ISO 8601 时间或交易日 `YYYY-MM-DD`，绝不推算。修复 generation 沿用原证据及其日期，不冒充新行情。
 - **范围与展示**：现金、基金（FUND-SLEEVE）、观察名单和 `持有数量` 不是正的普通数量的行不在范围内，绝不当作公允价值为 0；没有覆盖证券时不写合计。展示只用 confirm 的 `可展示`，其中写明"仅覆盖部分，不是组合整体公允价值"（全部覆盖时写"范围内全部证券"）、覆盖证券数与市值覆盖率、"不含现金、基金与观察名单"、来源标识与第三方说明，以及模型日期未提供的已覆盖证券数；绝不称为组合公允价值。之后的持仓、行情、汇率、记录、开关或 generation 变化都不改变已发布的结果。
 - **局部降级与权限**：模块的任何结果都不改变本次报告的发布判定、`核心状态`、`合理价值区间`、`长期买入上限`、周度购买计划、`今日行动`、执行字段、订单或审批、`报告风险`、`报告待办` 与任何门槛，也不写待办或信息缺口；确认组合批次不通过只在运行状态写"外部公允价值组合确认未通过"，不撤回报告、不阻止成功通知，也不引用被拒绝的差额或合计。
+
+候选快照可与持仓同批，但不进入组合范围。引擎按冻结正数量非基金持仓筛选组合行；含候选时输出计算版本2，旧版本1读取规则保持不变。
 
 ## `报告待办` 的跟进类型
 

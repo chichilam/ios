@@ -280,3 +280,15 @@ test('the aggregate is still strictly read into the view model but no longer ren
   assert.ok(!SCRIPT_HTML_SRC.includes('buildExternalFairValuePortfolioSection_'));
   assert.ok(!SCRIPT_HTML_SRC.includes('externalFairValuePortfolio'));
 });
+
+
+test('version2 adopts candidate snapshots but excludes them from the holding aggregate', () => {
+  const c = JSON.parse(fs.readFileSync(path.join(__dirname, 'watchlist-fair-value-golden.json'), 'utf8'));
+  const view = logic.buildExternalFairValuePortfolioView_(c.summary, { readTab: () => c.snapshot_tab });
+  assert.equal(view.state, '已写入');
+  assert.equal(view.items.length, 3);
+  assert.ok(!view.items.some(r => (r.line || '').includes('CCC')));
+  const wrong = JSON.parse(JSON.stringify(c));
+  wrong.summary['备注'] = wrong.summary['备注'].replace('"计算版本":"2"', '"计算版本":"1"');
+  assert.equal(logic.buildExternalFairValuePortfolioView_(wrong.summary, { readTab: () => wrong.snapshot_tab }).state, '批次不一致');
+});

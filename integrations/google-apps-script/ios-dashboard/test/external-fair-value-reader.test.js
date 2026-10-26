@@ -422,7 +422,7 @@ test('each report binds its own frozen listing and value; latest and history nev
   assert.deepEqual(bound(vm, 'weekly'), ['weekly-2026-10-24', 'NYSE', '88']);
   assert.deepEqual(bound({ h: logic.getReport_(tabs, 'daily-2026-10-24') }, 'h'), ['daily-2026-10-24', 'NASDAQ', '123.45']);
   assert.deepEqual(bound({ h: logic.getReport_(tabs, 'weekly-2026-10-24') }, 'h'), ['weekly-2026-10-24', 'NYSE', '88']);
-  assert.equal(vm.daily.watchlistCandidates[0]._iosExternalFairValue, undefined);
+  assert.equal(vm.daily.watchlistCandidates[0]._iosExternalFairValue['代码'], 'SYNA');
 });
 
 // -- Rendering the compact line (Issue #359) ---------------------------------
@@ -467,11 +467,11 @@ test('legacy cards show the same line in the price area', () => {
   assert.ok(lines[at + 1].startsWith('变化'));
 });
 
-test('a holding Code.gs did not bind, a watchlist candidate and FUND-SLEEVE show no line', () => {
+test('unbound holdings and FUND-SLEEVE show no line; bound watchlist candidates show the compact line', () => {
   const unbound = Object.assign(threeLayer(SYNA), { _iosExternalFairValue: undefined });
   assert.equal(fairLine(render({ holdings: [unbound], externalFairValue: WRITTEN_MODULE })), undefined);
   const watch = render({ watchlistCandidates: [threeLayer(SYNA)], externalFairValue: WRITTEN_MODULE });
-  assert.ok(!watch.textContent.includes('公允值'));
+  assert.ok(watch.textContent.includes('公允值（已读取，最近一次采集失败）: 123.45 USD'));
   const sleeve = Object.assign(threeLayer(SYNA), { 代码: 'FUND-SLEEVE' });
   assert.ok(!render({ holdings: [sleeve], externalFairValue: WRITTEN_MODULE }).textContent.includes('公允值'));
 });
@@ -520,3 +520,4 @@ test('styles wrap the compact line on narrow screens', () => {
   assert.match(css, /\.ios-inline-fair-value \{ overflow-wrap: anywhere; \}/);
   assert.ok(!css.includes('.ios-external-reference'));
 });
+
