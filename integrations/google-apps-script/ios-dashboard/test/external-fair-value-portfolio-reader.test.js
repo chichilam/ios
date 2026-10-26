@@ -266,34 +266,17 @@ test('the page shows nothing for a report without the aggregate', () => {
   assert.ok(!content.textContent.includes('外部公允价值组合对照'));
 });
 
-test('已写入 renders the frozen line and one line per item in a separate third-party section', () => {
-  const c = goldenCase('scenario:partial_coverage');
-  const module = logic.buildExternalFairValuePortfolioView_(c.summary, { readTab: () => c.snapshot_tab });
-  const content = render({ externalFairValue: null, externalFairValuePortfolio: module });
-  const [section] = sections(content);
-  assert.equal(content.children.indexOf(section), 1, 'after 当前持仓, before 本期观察候选');
-  assert.ok(section.textContent.startsWith('外部公允价值组合对照（第三方参考）'));
-  assert.equal(section.children[1].textContent, module.line);
-  assert.ok(section.children[1].textContent.endsWith(NOTE));
-  assert.equal(section.children.length, 2 + module.items.length);
-  module.items.forEach((item, i) => {
-    const line = section.children[2 + i];
-    assert.ok(line.classList.contains('ios-external-batch'), 'wraps on narrow screens');
-    assert.equal(line.textContent, item.line);
-  });
-});
-
-test('未写入, 批次不一致 and 批次标记无效 render one module-local line and no item', () => {
-  ['scenario:currency_invalid', 'tampered:total', 'marker:two lines'].forEach((name) => {
+test('the aggregate is still strictly read into the view model but no longer rendered (Issue #359)', () => {
+  ['scenario:partial_coverage', 'scenario:currency_invalid', 'tampered:total', 'marker:two lines'].forEach((name) => {
     const c = goldenCase(name);
     const module = logic.buildExternalFairValuePortfolioView_(c.summary, { readTab: () => tabOf(c) });
-    const [section] = sections(render({ externalFairValue: null, externalFairValuePortfolio: module }));
-    assert.equal(section.children.length, 2, name);
-    assert.equal(section.children[1].textContent, c.expected.line, name);
+    assert.equal(module.state, c.expected.state, name);
+    assert.equal(module.line, c.expected.line, name);
+    const content = render({ externalFairValue: null, externalFairValuePortfolio: module });
+    assert.equal(sections(content).length, 0, name);
+    assert.ok(!content.textContent.includes('外部公允价值组合对照'), name);
+    assert.ok(!content.textContent.includes(module.line), name);
   });
-});
-
-test('styles wrap the module lines on narrow screens', () => {
-  const css = fs.readFileSync(path.join(__dirname, '..', 'Styles.html'), 'utf8');
-  assert.match(css, /\.ios-external-batch \{ overflow-wrap: anywhere; \}/);
+  assert.ok(!SCRIPT_HTML_SRC.includes('buildExternalFairValuePortfolioSection_'));
+  assert.ok(!SCRIPT_HTML_SRC.includes('externalFairValuePortfolio'));
 });

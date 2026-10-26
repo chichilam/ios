@@ -411,11 +411,9 @@ body {
    fallback (a table that's still visible at an in-between width scrolls
    inside its own box rather than the whole page overflowing), not the
    primary mobile fix, which is switching to cards entirely. */
-/* External fair value (Issue #348): a dashed, untinted section so the
-   third-party reference never reads as one of the IOS cards above it. */
-.ios-external-reference { border-style: dashed; box-shadow: none; }
-.ios-external-card .ios-asset-line, .ios-external-card .ios-asset-name, .ios-external-batch { overflow-wrap: anywhere; }
-.ios-badge-external { background: #f1f5f9; color: #475569; }
+/* External fair value (Issue #348, #359): one compact line inside the
+   holding card, wrapping rather than overflowing on narrow screens. */
+.ios-inline-fair-value { overflow-wrap: anywhere; }
 
 .ios-table-wrap { overflow-x: auto; }
 .ios-allocation-cards { display: none; }

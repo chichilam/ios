@@ -314,8 +314,6 @@
 
     if (STATE.activeTab === 'portfolio') {
       container.appendChild(buildAssetSection('当前持仓', vm.holdings, false, vm.todos));
-      if (vm.externalFairValue) container.appendChild(buildExternalFairValueSection_(vm.externalFairValue));
-      if (vm.externalFairValuePortfolio) container.appendChild(buildExternalFairValuePortfolioSection_(vm.externalFairValuePortfolio));
       container.appendChild(buildAssetSection('本期观察候选', vm.watchlistCandidates, true, vm.todos));
     } else if (STATE.activeTab === 'risks') {
       container.appendChild(buildRisksSection(vm.risks));
@@ -881,6 +879,10 @@
     lines.push(buildQuoteLine_(asset));
     if (isThreeLayerRow_(asset)) {
       lines.push(labelledLine_('基准估值（长期合理价值）', asset['长期合理价值'], '未提供'));
+    }
+    var fairValueLine = buildInlineFairValue_(asset, isWatchlist);
+    if (fairValueLine) lines.push(fairValueLine);
+    if (isThreeLayerRow_(asset)) {
       lines.push(labelledLine_('长期买入上限', asset['长期买入上限快照'], '未提供'));
     }
     buildRangeLines_(asset, verdict).forEach(function (line) { lines.push(line); });
@@ -1168,6 +1170,8 @@
       buildPriceLine(asset),
       buildReferenceLine(asset)
     ];
+    var fairValueLine = buildInlineFairValue_(asset, isWatchlist);
+    if (fairValueLine) lines.push(fairValueLine);
     buildEntryPlanExplanationLines(asset).forEach(function (line) { lines.push(line); });
     buildOrderPrepLines(asset).forEach(function (line) { lines.push(line); });
     if (asset['关键变化']) {
@@ -1208,57 +1212,29 @@
     return el('section', { className: 'ios-card' }, children);
   }
 
-  // -- External fair value (Issue #348): a third-party reference Code.gs
-  // read from this report's own frozen snapshot. Rendered apart from the IOS
-  // cards, and nothing above (verdicts, ranges, actions) ever consults it.
-  function buildExternalFairValueSection_(module) {
-    var children = [
-      text('h2', null, '外部公允价值（第三方参考）'),
-      text('p', 'ios-hint', module.note + '；只显示本报告生成时冻结的快照。')
-    ];
+  // Only consume the selected report's strictly validated snapshot view, as
+  // Code.gs bound it to this holding's whole listing (Issue #359). The
+  // compact reference never participates in verdicts or purchase ranges.
+  function buildInlineFairValue_(asset, isWatchlist) {
+    var vm = currentViewModel();
+    var module = vm && vm.externalFairValue;
+    if (isWatchlist || !module || asset['代码'] === 'FUND-SLEEVE') return null;
     if (module.state !== '已写入') {
-      children.push(text('p', 'ios-asset-line ios-external-batch', module.batchLine));
-    } else if (module.rows.length === 0) {
-      children.push(text('p', 'ios-empty-note', '本次快照已写入 0 行：生成时没有适用持仓。'));
-    } else {
-      var grid = el('div', { className: 'ios-card-grid' });
-      module.rows.forEach(function (row) { grid.appendChild(buildExternalFairValueCard_(row)); });
-      children.push(grid);
+      return text('p', 'ios-asset-line ios-muted ios-inline-fair-value', '公允值: 未采用');
     }
-    return el('section', { className: 'ios-card ios-external-reference' }, children);
-  }
-
-  function buildExternalFairValueCard_(row) {
-    var lines = [
-      el('div', { className: 'ios-asset-head' }, [
-        text('strong', null, row['代码']),
-        text('span', 'ios-badge ios-badge-external', row['记录状态'])
-      ]),
-      text('p', 'ios-asset-name', row['上市市场'] + ' · ' + row['报价币种'] + ' · 来源 ' + row['来源标识']),
-      text('p', 'ios-asset-line', row.displayLine)
-    ];
-    if (!isBlank(row['外部区间下沿'])) {
-      lines.push(text('p', 'ios-asset-line ios-muted',
-        '外部区间 ' + row['外部区间下沿'] + ' – ' + row['外部区间上沿'] + ' ' + row['报价币种']));
-    }
-    if (!isBlank(row['最近尝试失败说明'])) {
-      lines.push(text('p', 'ios-asset-line ios-muted', '最近尝试说明：' + row['最近尝试失败说明']));
-    }
-    return el('div', { className: 'ios-asset-card ios-external-card' }, lines);
-  }
-
-  // -- External fair value portfolio comparison (Issue #352): Code.gs shows it
-  // only after replaying the frozen line against this report's own snapshot.
-  // A covered subset, never the portfolio's fair value; nothing else reads it.
-  function buildExternalFairValuePortfolioSection_(module) {
-    var children = [
-      text('h2', null, '外部公允价值组合对照（第三方参考）'),
-      text('p', 'ios-asset-line ios-external-batch', module.line)
-    ];
-    module.items.forEach(function (item) {
-      children.push(text('p', 'ios-asset-line ios-muted ios-external-batch', item.line));
-    });
-    return el('section', { className: 'ios-card ios-external-reference' }, children);
+    var row = asset._iosExternalFairValue;
+    if (!row) return null;
+    var usable = ['已读取', '已读取，最近一次采集失败', '已读取，最新记录版本不支持'];
+    var value = usable.indexOf(row['记录状态']) !== -1 ? row['外部公允价值'] : '';
+    var states = [];
+    if (row['记录状态'] !== '已读取') states.push(row['记录状态']);
+    if (row['采集新鲜度'] === '过期') states.push('过期');
+    var label = '公允值' + (states.length ? '（' + states.join('，') + '）' : '');
+    if (!value) return text('p', 'ios-asset-line ios-muted ios-inline-fair-value', label + ': 未采用');
+    var parts = [value + ' ' + row['报价币种']];
+    if (row['来源名称'] || row['来源标识']) parts.push(row['来源名称'] || row['来源标识']);
+    if (row['值记录获取时间']) parts.push('获取 ' + row['值记录获取时间'].slice(0, 10));
+    return text('p', 'ios-asset-line ios-inline-fair-value', label + ': ' + parts.join(' · '));
   }
 
   function buildRisksSection(risks) {

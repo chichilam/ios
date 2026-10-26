@@ -129,6 +129,10 @@ function buildReportViewModel_(tabs, reportType, explicitReportId, reader) {
   var externalFairValue = buildExternalFairValueView_(summary, efvInputs);
   // Issue #352: the covered-subset aggregate, replayed against the same rows.
   var externalFairValuePortfolio = buildExternalFairValuePortfolioView_(summary, efvInputs);
+  holdings = holdings.map(function (row, i, all) {
+    var bound = efvHoldingRow_(row, externalFairValue, all);
+    return bound ? Object.assign({}, row, { _iosExternalFairValue: bound }) : row;
+  });
 
   return {
     found: true,
@@ -1217,6 +1221,27 @@ function buildExternalFairValueView_(summary, inputs) {
   };
 }
 
+/**
+ * Issue #359: the one snapshot row a holding card may show, or null, from
+ * this generation's own frozen rows only. 报告持仓 carries no market, but the
+ * snapshot holds exactly one row per held listing (代码, 上市市场, 报价币种), so
+ * the listing is fixed only when the generation has exactly one holding and
+ * exactly one snapshot row with that (代码, 报价币种); anything else binds nothing.
+ */
+function efvHoldingRow_(asset, module, reportHoldings) {
+  if (!module || module.state !== EFV_BATCH_WRITTEN_) return null;
+  var key = efvListingKey_(asset['代码'], '', asset['报价币种']);
+  if (key[0] === '' || key[2] === '' || key[0] === 'FUND-SLEEVE') return null;
+  var same = function (code, currency) {
+    var other = efvListingKey_(code, '', currency);
+    return other[0] === key[0] && other[2] === key[2];
+  };
+  var holdings = reportHoldings.filter(function (row) { return same(row['代码'], row['报价币种']); });
+  var matches = module.rows.filter(function (row) { return same(row['代码'], row['报价币种']); });
+  if (holdings.length !== 1 || matches.length !== 1) return null;
+  return efvText_(matches[0]['上市市场']) === '' ? null : matches[0];
+}
+
 /** The reader's snapshot input for a plain-data `tabs` object: {header, rows} as tabs['外部公允价值快照'] carries it. */
 function externalFairValueFromTabs_(tabs) {
   return {
@@ -2182,6 +2207,7 @@ if (typeof module !== 'undefined') {
     efvReadPublishedBatch_: efvReadPublishedBatch_,
     efvBatchLine_: efvBatchLine_,
     efvDisplayLine_: efvDisplayLine_,
+    efvHoldingRow_: efvHoldingRow_,
     efvCellText_: efvCellText_,
     buildExternalFairValueView_: buildExternalFairValueView_,
     externalFairValueFromTabs_: externalFairValueFromTabs_,

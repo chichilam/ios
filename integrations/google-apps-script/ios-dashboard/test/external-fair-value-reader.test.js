@@ -297,54 +297,226 @@ test('the page shows nothing for a report without a batch line', () => {
   assert.ok(!content.textContent.includes('外部公允价值'));
 });
 
-test('已写入 renders one card per holding in a separate third-party section, after the IOS holdings', () => {
-  const c = goldenCase('written:mixed_with_other_note_text');
-  const module = logic.buildExternalFairValueView_(c.summary, { readTab: () => c.snapshot_tab });
-  const content = render({ externalFairValue: module });
-  const section = moduleSection(content);
-  assert.equal(content.children.indexOf(section), 1, 'after 当前持仓, before 本期观察候选');
-  assert.ok(section.textContent.startsWith('外部公允价值（第三方参考）' + NOTE));
-  const cards = section.children[2].children;
-  assert.equal(cards.length, module.rows.length);
-  cards.forEach((card, i) => {
-    assert.ok(card.classList.contains('ios-external-card'));
-    assert.ok(!card.classList.contains('ios-watchlist-card'));
-    assert.ok(card.textContent.includes(module.rows[i].displayLine));
-    assert.ok(card.textContent.includes(module.rows[i]['记录状态']));
-    assert.ok(card.textContent.includes('来源 ' + module.rows[i]['来源标识']));
+// -- Holding binding (Issue #359) -------------------------------------------
+
+const WRITTEN = goldenCase('written:mixed_with_other_note_text');
+const WRITTEN_MODULE = logic.buildExternalFairValueView_(WRITTEN.summary, { readTab: () => WRITTEN.snapshot_tab });
+const SYNA = WRITTEN_MODULE.rows.find((r) => r['代码'] === 'SYNA');
+
+function asset(code, currency) {
+  return { 代码: code, 报价币种: currency };
+}
+
+function withRows(rows) {
+  return Object.assign({}, WRITTEN_MODULE, { rows });
+}
+
+function bind(a, module, holdings) {
+  return logic.efvHoldingRow_(a, module, holdings || [a]);
+}
+
+test('a holding binds the one frozen snapshot row of its (代码, 报价币种), which fixes the whole listing', () => {
+  assert.equal(SYNA['上市市场'], 'NASDAQ');
+  assert.equal(bind(asset('SYNA', 'USD'), WRITTEN_MODULE), SYNA);
+  assert.equal(bind(asset(' ｓｙｎａ ', 'usd'), WRITTEN_MODULE), SYNA, 'NFKC, trimming and upper-casing, nothing else');
+  assert.equal(bind(asset('SYNA', 'USD'), WRITTEN_MODULE, [asset('SYNA', 'USD'), asset('SYNA', 'JPY')]), SYNA,
+    'another currency is another listing');
+});
+
+test('two frozen listings of one (代码, 报价币种) bind nothing: 报告持仓 freezes no market to choose between them', () => {
+  const nyse = Object.assign({}, SYNA, { 上市市场: 'NYSE', 外部公允价值: '999' });
+  assert.equal(bind(asset('SYNA', 'USD'), withRows([SYNA, nyse])), null);
+  assert.equal(bind(asset('SYNA', 'USD'), withRows([nyse, SYNA])), null);
+  assert.equal(bind(asset('SYNA', 'USD'), withRows([SYNA, Object.assign({}, SYNA)])), null, 'whole listing twice');
+  assert.equal(bind(asset('SYNA', 'USD'), WRITTEN_MODULE, [asset('SYNA', 'USD'), asset('syna', 'USD')]), null,
+    'two holdings of the generation share it');
+});
+
+test('a currency mismatch or a missing identity field never binds a row', () => {
+  assert.equal(bind(asset('SYNA', 'JPY'), WRITTEN_MODULE), null);
+  assert.equal(bind(asset('SYNA', 'USD'), withRows([Object.assign({}, SYNA, { 报价币种: 'JPY' })])), null);
+  assert.equal(bind(asset('', 'USD'), WRITTEN_MODULE), null);
+  assert.equal(bind(asset('SYNA', ''), WRITTEN_MODULE), null);
+  assert.equal(bind(asset('SYNA', 'USD'), withRows([Object.assign({}, SYNA, { 上市市场: '' })])), null);
+  assert.equal(bind(asset('SYNC', 'USD'), WRITTEN_MODULE), null, 'no snapshot row');
+});
+
+test('no batch, an unpublished batch and FUND-SLEEVE bind nothing', () => {
+  assert.equal(bind(asset('SYNA', 'USD'), null), null);
+  ['未写入', '批次不完整', '批次标记无效'].forEach((state) => {
+    assert.equal(bind(asset('SYNA', 'USD'), Object.assign({}, WRITTEN_MODULE, { state })), null, state);
+  });
+  assert.equal(bind(asset('FUND-SLEEVE', 'USD'), withRows([Object.assign({}, SYNA, { 代码: 'FUND-SLEEVE' })])), null);
+});
+
+function reportAsset(type, code, currency) {
+  const c = goldenCase(type === 'daily' ? 'written:mixed_with_other_note_text' : 'weekly:mixed');
+  return { 报告ID: c.summary['报告ID'], 生成ID: c.summary['生成ID'], 报告类型: type, 报告日期: c.summary['报告日期'],
+    资产类型: 'holding', 代码: code, 名称: 'Example', 报价币种: currency, 排序: 1 };
+}
+
+function cell(cells, name) {
+  return cells[logic.EFV_SNAPSHOT_FIELDS_.indexOf(name)];
+}
+
+function setCell(cells, name, value) {
+  cells[logic.EFV_SNAPSHOT_FIELDS_.indexOf(name)] = value;
+}
+
+function bindingTabs() {
+  const rows = snapshotRows().map((cells) => cells.slice());
+  const tabs = tabsWith(report('daily'), report('weekly'), rows);
+  tabs['报告持仓'] = [reportAsset('daily', 'SYNA', 'USD'), reportAsset('weekly', 'SYNA', 'USD'),
+    Object.assign(reportAsset('daily', 'SYNA', 'USD'), { 资产类型: 'watchlist' })];
+  return { tabs, rows };
+}
+
+function bound(vm, type) {
+  const fv = vm[type].holdings[0]._iosExternalFairValue;
+  return fv ? [fv['报告ID'], fv['上市市场'], fv['外部公允价值']] : null;
+}
+
+test('the ledger is never read: deleting, selling, moving or adding a holding leaves every published page as it was', () => {
+  const { tabs } = bindingTabs();
+  const before = logic.buildDashboardBootstrap_(tabs);
+  const history = logic.getReport_(tabs, 'daily-2026-10-24');
+  assert.deepEqual(bound(before, 'daily'), ['daily-2026-10-24', 'NASDAQ', '123.45']);
+  assert.deepEqual(bound(before, 'weekly'), ['weekly-2026-10-24', 'NASDAQ', '123.45']);
+  [
+    [],
+    [{ 代码: 'SYNA', 名称: 'x', 市场: 'NASDAQ', 持有数量: 0, 币种: 'USD', 状态: '已卖出' }],
+    [{ 代码: 'SYNA', 名称: 'x', 市场: 'NYSE', 持有数量: 5, 币种: 'USD', 状态: '持有' }],
+    [{ 代码: 'SYNA', 名称: 'x', 市场: 'NASDAQ', 持有数量: 5, 币种: 'USD', 状态: '持有' },
+      { 代码: 'SYNA', 名称: 'x', 市场: 'NYSE', 持有数量: 5, 币种: 'USD', 状态: '持有' }]
+  ].forEach((ledgerRows, i) => {
+    tabs['当前持仓'] = ledgerRows;
+    const after = logic.buildDashboardBootstrap_(tabs);
+    assert.deepEqual(after.daily.holdings, before.daily.holdings, i);
+    assert.deepEqual(after.weekly.holdings, before.weekly.holdings, i);
+    assert.deepEqual(logic.getReport_(tabs, 'daily-2026-10-24').holdings, history.holdings, i);
+  });
+  assert.ok(!logic.efvHoldingRow_.toString().includes('当前持仓'));
+});
+
+test('a frozen snapshot with the same 代码 and 报价币种 on two markets never binds either, whatever the ledger says now', () => {
+  const { tabs, rows } = bindingTabs();
+  const dailySynb = rows.find((cells) => cells[0] === 'daily-2026-10-24' && cell(cells, '代码') === 'SYNB');
+  assert.equal(cell(dailySynb, '上市市场'), 'NYSE');
+  setCell(dailySynb, '代码', 'SYNA');
+  tabs['当前持仓'] = [{ 代码: 'SYNA', 名称: 'x', 市场: 'NYSE', 持有数量: 5, 币种: 'USD', 状态: '持有' }];
+  const vm = logic.buildDashboardBootstrap_(tabs);
+  assert.equal(vm.daily.externalFairValue.state, '已写入');
+  assert.equal(vm.daily.externalFairValue.rows.filter((r) => r['代码'] === 'SYNA').length, 2);
+  assert.equal(bound(vm, 'daily'), null);
+  assert.deepEqual(bound(vm, 'weekly'), ['weekly-2026-10-24', 'NASDAQ', '123.45'], 'weekly keeps its own single listing');
+});
+
+test('each report binds its own frozen listing and value; latest and history never leak into each other', () => {
+  const { tabs, rows } = bindingTabs();
+  const weeklySyna = rows.find((cells) => cells[0] === 'weekly-2026-10-24' && cell(cells, '代码') === 'SYNA');
+  setCell(weeklySyna, '外部公允价值', '88');
+  setCell(weeklySyna, '上市市场', 'NYSE');
+  const vm = logic.buildDashboardBootstrap_(tabs);
+  assert.equal(vm.weekly.externalFairValue.state, '已写入');
+  assert.deepEqual(bound(vm, 'daily'), ['daily-2026-10-24', 'NASDAQ', '123.45']);
+  assert.deepEqual(bound(vm, 'weekly'), ['weekly-2026-10-24', 'NYSE', '88']);
+  assert.deepEqual(bound({ h: logic.getReport_(tabs, 'daily-2026-10-24') }, 'h'), ['daily-2026-10-24', 'NASDAQ', '123.45']);
+  assert.deepEqual(bound({ h: logic.getReport_(tabs, 'weekly-2026-10-24') }, 'h'), ['weekly-2026-10-24', 'NYSE', '88']);
+  assert.equal(vm.daily.watchlistCandidates[0]._iosExternalFairValue, undefined);
+});
+
+// -- Rendering the compact line (Issue #359) ---------------------------------
+
+function threeLayer(row) {
+  return { 代码: row['代码'], 报价币种: row['报价币种'], 名称: 'Example', 当前价格: '110',
+    今日行动: '等待', _iosPurchaseMode: 'three_layer', _iosThreeLayer: true, 长期合理价值: '10–20 USD',
+    长期买入上限快照: '12', _iosOrderable: { ok: true, message: null }, _iosExternalFairValue: row };
+}
+
+function legacy(row) {
+  return { 代码: row['代码'], 报价币种: row['报价币种'], 名称: 'Example', IOS状态: '持有', 当前价格: '110',
+    '参考买入价/区间': '100-120', 价格位置: '区间内', 关键变化: '无', _iosExternalFairValue: row };
+}
+
+function cardLines(content) {
+  const section = content.children[0];
+  const card = section.children.find((child) => child.classList && child.classList.contains('ios-card-grid')).children[0];
+  return card.children.map((line) => line.textContent);
+}
+
+function fairLine(content) {
+  return cardLines(content).find((line) => line.startsWith('公允值'));
+}
+
+test('three-layer cards show one compact line between 基准估值 and 长期买入上限: value, currency, source, date', () => {
+  const content = render({ holdings: [threeLayer(SYNA)], externalFairValue: WRITTEN_MODULE });
+  const lines = cardLines(content);
+  const at = lines.indexOf('公允值（已读取，最近一次采集失败）: 123.45 USD · Example Source · 获取 2026-10-20');
+  assert.notEqual(at, -1, lines.join('\n'));
+  assert.ok(lines[at - 1].startsWith('基准估值（长期合理价值）'));
+  assert.ok(lines[at + 1].startsWith('长期买入上限'));
+  assert.ok(!content.textContent.includes('模型'));
+  assert.ok(!content.textContent.includes('example.invalid'));
+});
+
+test('legacy cards show the same line in the price area', () => {
+  const lines = cardLines(render({ holdings: [legacy(SYNA)], externalFairValue: WRITTEN_MODULE }));
+  const at = lines.indexOf('公允值（已读取，最近一次采集失败）: 123.45 USD · Example Source · 获取 2026-10-20');
+  assert.notEqual(at, -1, lines.join('\n'));
+  assert.ok(lines[at - 2].startsWith('价格'));
+  assert.ok(lines[at + 1].startsWith('变化'));
+});
+
+test('a holding Code.gs did not bind, a watchlist candidate and FUND-SLEEVE show no line', () => {
+  const unbound = Object.assign(threeLayer(SYNA), { _iosExternalFairValue: undefined });
+  assert.equal(fairLine(render({ holdings: [unbound], externalFairValue: WRITTEN_MODULE })), undefined);
+  const watch = render({ watchlistCandidates: [threeLayer(SYNA)], externalFairValue: WRITTEN_MODULE });
+  assert.ok(!watch.textContent.includes('公允值'));
+  const sleeve = Object.assign(threeLayer(SYNA), { 代码: 'FUND-SLEEVE' });
+  assert.ok(!render({ holdings: [sleeve], externalFairValue: WRITTEN_MODULE }).textContent.includes('公允值'));
+});
+
+test('an unpublished batch shows only 未采用 and never a number, even on a bound holding', () => {
+  ['未写入', '批次不完整', '批次标记无效'].forEach((state) => {
+    const content = render({ holdings: [threeLayer(SYNA)], externalFairValue: { state, rows: [] } });
+    assert.equal(fairLine(content), '公允值: 未采用', state);
+    assert.ok(!content.textContent.includes('123.45'), state);
   });
 });
 
-test('a range and a latest-attempt failure note are shown only when the snapshot row carries them', () => {
-  const ranged = GOLDEN.cases.flatMap((c) => c.expected.rows).find((r) => r['外部区间下沿'] !== '');
-  const failed = GOLDEN.cases.flatMap((c) => c.expected.rows).find((r) => r['最近尝试失败说明'] !== '');
-  const rows = [ranged, failed].map((r) => Object.assign({}, r, { displayLine: logic.efvDisplayLine_(r) }));
-  const section = moduleSection(render({ externalFairValue: { state: '已写入', batchLine: '', note: NOTE, rows } }));
-  const [rangeCard, failedCard] = section.children[2].children;
-  assert.ok(rangeCard.textContent.includes('外部区间 ' + ranged['外部区间下沿'] + ' – ' + ranged['外部区间上沿']));
-  assert.ok(failedCard.textContent.includes('最近尝试说明：' + failed['最近尝试失败说明']));
-  assert.ok(!failedCard.textContent.includes('外部区间'));
-});
-
-test('未写入, 批次不完整, 批次标记无效 and 已写入 0 each render one module-local line and no card', () => {
-  const cases = {
-    'missing:append_fails': '外部公允价值：本次快照未写入（快照写入失败：追加写入失败或写入工具不支持原子追加），未采用；' + NOTE,
-    'incomplete:row_missing': '外部公允价值：本次快照批次不完整，未采用；' + NOTE,
-    'marker_invalid:two_lines': '外部公允价值：本次快照批次标记无效，未采用；' + NOTE,
-    'written:zero_holdings': '本次快照已写入 0 行：生成时没有适用持仓。'
-  };
-  Object.entries(cases).forEach(([name, line]) => {
-    const c = goldenCase(name);
-    const module = logic.buildExternalFairValueView_(c.summary, { readTab: () => tabOf(c) });
-    const section = moduleSection(render({ externalFairValue: module }));
-    assert.equal(section.children.length, 3, name);
-    assert.equal(section.children[2].textContent, line, name);
+test('statuses: 已读取 is plain; stale, latest-failed and latest-unsupported keep a short label; the rest never adopt a value', () => {
+  const read = Object.assign({}, SYNA, { 记录状态: '已读取' });
+  const line = (row) => fairLine(render({ holdings: [threeLayer(row)], externalFairValue: withRows([row]) }));
+  assert.equal(line(read), '公允值: 123.45 USD · Example Source · 获取 2026-10-20');
+  assert.equal(line(Object.assign({}, read, { 采集新鲜度: '过期' })), '公允值（过期）: 123.45 USD · Example Source · 获取 2026-10-20');
+  assert.equal(line(Object.assign({}, SYNA, { 采集新鲜度: '过期' })),
+    '公允值（已读取，最近一次采集失败，过期）: 123.45 USD · Example Source · 获取 2026-10-20');
+  assert.equal(line(Object.assign({}, read, { 记录状态: '已读取，最新记录版本不支持' })),
+    '公允值（已读取，最新记录版本不支持）: 123.45 USD · Example Source · 获取 2026-10-20');
+  ['读取失败', '无记录', '记录异常', '快照校验失败', '消费读取失败', '协议版本不支持', '未覆盖', '币种或证券不匹配'].forEach((status) => {
+    const shown = line(Object.assign({}, SYNA, { 记录状态: status }));
+    assert.equal(shown, '公允值（' + status + '）: 未采用', status);
   });
 });
 
-test('styles keep the module visually apart and wrap long values on narrow screens', () => {
+test('a missing source name or fetch time leaves no stray separator', () => {
+  const read = Object.assign({}, SYNA, { 记录状态: '已读取' });
+  const line = (row) => fairLine(render({ holdings: [threeLayer(row)], externalFairValue: withRows([row]) }));
+  assert.equal(line(Object.assign({}, read, { 来源名称: '', 值记录获取时间: '' })), '公允值: 123.45 USD · example_source');
+  assert.equal(line(Object.assign({}, read, { 来源名称: '', 来源标识: '', 值记录获取时间: '' })), '公允值: 123.45 USD');
+  assert.equal(line(Object.assign({}, SYNA, { 记录状态: '读取失败', 来源名称: '', 来源标识: '', 外部公允价值: '' })), '公允值（读取失败）: 未采用');
+});
+
+test('neither standalone fair value section is rendered any more', () => {
+  const content = render({ holdings: [threeLayer(SYNA)], externalFairValue: WRITTEN_MODULE });
+  assert.equal(moduleSection(content), undefined);
+  assert.ok(!content.textContent.includes('外部公允价值（第三方参考）'));
+  assert.ok(!SCRIPT_HTML_SRC.includes('buildExternalFairValueSection_'));
+  assert.ok(!SCRIPT_HTML_SRC.includes('buildExternalFairValueCard_'));
+});
+
+test('styles wrap the compact line on narrow screens', () => {
   const css = fs.readFileSync(path.join(__dirname, '..', 'Styles.html'), 'utf8');
-  assert.match(css, /\.ios-external-reference \{ border-style: dashed;/);
-  assert.match(css, /\.ios-external-card \.ios-asset-line, \.ios-external-card \.ios-asset-name, \.ios-external-batch \{ overflow-wrap: anywhere; \}/);
-  assert.match(css, /@media \(max-width: 720px\) \{\n  \.ios-card-grid \{ grid-template-columns: minmax\(0, 1fr\); \}/);
+  assert.match(css, /\.ios-inline-fair-value \{ overflow-wrap: anywhere; \}/);
+  assert.ok(!css.includes('.ios-external-reference'));
 });
