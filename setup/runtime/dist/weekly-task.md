@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE: do not edit by hand. Edit setup/runtime/fragments/ and run
 python3 setup/runtime/build_task_runtime.py build -->
-<!-- runtime-stats: {"runtime_snapshot":"issue-296-v1","runtime_digest":"bba10a37e2866766ada64f3bf654be7ac1a95b8721ef3885db371e6891922397","utf16_units":73713,"code_points":73713,"utf8_bytes":175703,"worst_case_bound_utf16_units":75753,"budget_utf16_units":80000} -->
+<!-- runtime-stats: {"runtime_snapshot":"issue-296-v1","runtime_digest":"33497755287dbacf8474e7044e00d9324e00cf5ac8db1ceaf90b0de7d0309cce","utf16_units":73784,"code_points":73784,"utf8_bytes":175894,"worst_case_bound_utf16_units":75824,"budget_utf16_units":80000} -->
 
 This is the installable runtime snapshot of the Weekly Scheduled Task (Issue #296). The
 installer (`setup/chatgpt-install-prompt.md`) pastes everything between the `PASTE-READY START`/
@@ -12,13 +12,13 @@ references; `setup/runtime/rule-map.json` maps every runtime rule back to them.
 
 | Measure | Value |
 | --- | --- |
-| UTF-16 code units (paste-ready body, before binding) | 73713 |
-| Unicode code points | 73713 |
-| UTF-8 bytes | 175703 |
+| UTF-16 code units (paste-ready body, before binding) | 73784 |
+| Unicode code points | 73784 |
+| UTF-8 bytes | 175894 |
 | Embedded authority (no separate embedding step) | 0 |
-| Worst-case bound after binding (UTF-16 code units) | 75753 |
+| Worst-case bound after binding (UTF-16 code units) | 75824 |
 | Engineering budget (UTF-16 code units, not a proven platform limit) | 80000 |
-| runtime_digest | `bba10a37e2866766ada64f3bf654be7ac1a95b8721ef3885db371e6891922397` |
+| runtime_digest | `33497755287dbacf8474e7044e00d9324e00cf5ac8db1ceaf90b0de7d0309cce` |
 
 <!-- PASTE-READY START -->
 
@@ -40,7 +40,7 @@ Report 复盘，回答"这个组合在未来 3–12 个月是否需要维护动�
 时区名称，例如 Asia/Tokyo——不能是"用户本地时区"这类无法直接计算的描述>`
 
 - runtime_snapshot: issue-296-v1
-- runtime_digest: bba10a37e2866766ada64f3bf654be7ac1a95b8721ef3885db371e6891922397
+- runtime_digest: 33497755287dbacf8474e7044e00d9324e00cf5ac8db1ceaf90b0de7d0309cce
 - 快照来源 commit/版本：`<CONTENT_VERSION_PLACEHOLDER：由安装程序填写读取本快照时的仓库 commit>`
 - 快照时间：`<CONTENT_SNAPSHOT_TIME_PLACEHOLDER：由安装程序填写，ISO 8601>`
 
@@ -1286,7 +1286,7 @@ external_fair_value_snapshot: issue-346-v1
   任何来源、不写记录 tab。换一个新的 `生成ID` 重来（含发布前检查失败后的重试）就是新的 generation：重新冻结、
   重新读取一次。
 - **范围**：适用持仓是 `当前持仓` 里 `状态=持有` 且 `持有数量 > 0` 的行，排除 `FUND-SLEEVE`，同一证券只写一行；
-  本期 `报告持仓` 中 `资产类型=watchlist` 的观察候选也写快照；Daily 仅含本期高优先候选，Weekly 含本期实际覆盖候选，不自动加入未出现在报告中的标的。候选市场取冻结观察名单，报价币种取本期报告行，缺失或市场不唯一则本模块拒绝，不猜测。持仓与候选按完整证券键去重，基金、现金不写快照。快照行只追加到 `外部公允价值快照`（绝不改写已有行）；外部公允价值不写进
+  本期 `报告持仓` 中 `资产类型=watchlist` 的观察候选也写快照；Daily 仅含本期高优先候选，Weekly 含本期实际覆盖候选，不自动加入未出现在报告中的标的。候选市场取冻结观察名单，报价币种取本期报告行，不猜测；代码有效且观察名单市场唯一、但 `当前价格` 与 `报价币种` 都为空（本期无报价）的候选不写快照，引擎列为 `未纳入候选`；其余币种缺失或市场不唯一则本模块拒绝。持仓与候选按完整证券键去重，基金、现金不写快照。快照行只追加到 `外部公允价值快照`（绝不改写已有行）；外部公允价值不写进
   `报告持仓`/`报告风险`/`报告待办` 的任何列，也不写进 `报告摘要` 除批次行以外的任何列；它不改变 IOS 的
   `合理价值区间`、`长期买入上限`、周度购买计划或今日行动。
 - **批次行**：启用时 `报告摘要.备注` 第一行恰好是一行 `外部公允价值快照批次：` 后接规范 JSON（`已写入`，或
@@ -1306,7 +1306,7 @@ external_fair_value_snapshot: issue-346-v1
 
 external_fair_value_engine: issue-357-v1
 
-- efv_engine: efv-engine-v2 sha256 40ea1231d38929bcae6a82fd138904dfc4ea678661d4f2f03a01eb8aae280310
+- efv_engine: efv-engine-v3 sha256 d7be7a1a14b6d6cc43040ebd374caac37d8f3416fcdda68328ecf55e2647e0b6
 - 引擎文件（Drive 文件 ID）：<EFV_ENGINE_FILE_ID_PLACEHOLDER：安装程序替换为已核验的 Drive 文件 ID，或"未安装">
 
 - **加载**：开关启用时，只按上面的文件 ID 读取引擎文件（绝不按文件名搜索或改用别的文件），把读到的全部字节
@@ -1323,7 +1323,7 @@ external_fair_value_engine: issue-357-v1
   写入 → 读回该 `报告摘要` 行与快照表 → confirm（再加 `报告摘要行`）。引擎输出原样使用，不改写、不补字段、
   不重排。运行状态与通知里的外部公允价值内容只来自 confirm 的 `可展示`，needs-attention 只来自 `通知附加行`。
 - **失败按阶段**（只按实际已完成的最后一步选，只写引擎给出的文本或下面的固定文本，绝不自行转义或拼写）：
-  `<适用持仓数>` 在引擎v2指实际持仓与本期候选的去重总数。
+  `<适用持仓数>` 自引擎v2起指实际持仓与本期有报价候选的去重总数。
   1. 还没拿到 plan 输出（引擎未安装、读不到文件、哈希不符、无代码执行工具、plan 拒绝或中断）：不追加任何快照
      行，第一行写
      `外部公允价值快照批次：{"批次状态":"未写入","来源标识":"<开关原文>","读取截止时间":"<冻结时间>","快照行数":<适用持仓数>,"原因":"快照写入失败","说明":"确定性引擎不可用：<阶段>"}`；
