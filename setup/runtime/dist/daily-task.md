@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE: do not edit by hand. Edit setup/runtime/fragments/ and run
 python3 setup/runtime/build_task_runtime.py build -->
-<!-- runtime-stats: {"runtime_snapshot":"issue-296-v1","runtime_digest":"fc4374754408a7e9203dfd4884dd1c00d4f8fd2041e24d8624a0be639ef69790","utf16_units":58042,"code_points":58042,"utf8_bytes":137706,"worst_case_bound_utf16_units":59657,"budget_utf16_units":80000} -->
+<!-- runtime-stats: {"runtime_snapshot":"issue-296-v1","runtime_digest":"b3bfafa894c8d28a4495b70a5b2aecd13edfdb1b5372f239c3b662ca32d6cb90","utf16_units":58146,"code_points":58146,"utf8_bytes":137858,"worst_case_bound_utf16_units":59761,"budget_utf16_units":80000} -->
 
 This is the installable runtime snapshot of the Daily Scheduled Task (Issue #296). The
 installer (`setup/chatgpt-install-prompt.md`) pastes everything between the `PASTE-READY START`/
@@ -12,13 +12,13 @@ references; `setup/runtime/rule-map.json` maps every runtime rule back to them.
 
 | Measure | Value |
 | --- | --- |
-| UTF-16 code units (paste-ready body, before binding) | 58042 |
-| Unicode code points | 58042 |
-| UTF-8 bytes | 137706 |
+| UTF-16 code units (paste-ready body, before binding) | 58146 |
+| Unicode code points | 58146 |
+| UTF-8 bytes | 137858 |
 | Embedded authority (no separate embedding step) | 0 |
-| Worst-case bound after binding (UTF-16 code units) | 59657 |
+| Worst-case bound after binding (UTF-16 code units) | 59761 |
 | Engineering budget (UTF-16 code units, not a proven platform limit) | 80000 |
-| runtime_digest | `fc4374754408a7e9203dfd4884dd1c00d4f8fd2041e24d8624a0be639ef69790` |
+| runtime_digest | `b3bfafa894c8d28a4495b70a5b2aecd13edfdb1b5372f239c3b662ca32d6cb90` |
 
 <!-- PASTE-READY START -->
 
@@ -40,7 +40,7 @@ Report 研究，回答"今天发生了什么，值得长期投资者记录或继
 时区名称，例如 Asia/Tokyo——不能是"用户本地时区"这类无法直接计算的描述>`
 
 - runtime_snapshot: issue-296-v1
-- runtime_digest: fc4374754408a7e9203dfd4884dd1c00d4f8fd2041e24d8624a0be639ef69790
+- runtime_digest: b3bfafa894c8d28a4495b70a5b2aecd13edfdb1b5372f239c3b662ca32d6cb90
 - 快照来源 commit/版本：`<CONTENT_VERSION_PLACEHOLDER：由安装程序填写读取本快照时的仓库 commit>`
 - 快照时间：`<CONTENT_SNAPSHOT_TIME_PLACEHOLDER：由安装程序填写，ISO 8601>`
 
@@ -761,11 +761,12 @@ T1–T8 的 `执行状态` 留空，`资金结论=不适用`，`计划买入下�
 ## 本周价格参考快照（第 327 号 issue）
 
 price_reference_snapshot: issue-327-v1
+price_reference_schema_predicate: gte-10
 
-上面这一行声明本 Task 实现第 327 号 issue 的本周价格参考快照，安装程序更新本 Task 后会读回它，不要改动。
+上面这两行声明本 Task 实现第 327 号 issue 的本周价格参考快照，且写入条件是 `schema_version` ≥ 10（第 364 号 issue P1）；安装程序更新本 Task 后会读回它们，升到 11 前必须读回第二行，不要改动。
 
 本节只适用于以 `three_layer` 或 `three_layer_hold` 生成、且"购买计划模式守卫"读到的 `_安装状态.schema_version`
-是 10 的报告：写 `报告持仓` 的十三列 `价格参考结论` 到 `价格参考位置`。`schema_version` 是 9 时 `报告持仓` 没有
+≥ 10 的报告：写 `报告持仓` 的十三列 `价格参考结论` 到 `价格参考位置`。`schema_version` 是 9 时 `报告持仓` 没有
 这些列：不写、不建列、不把内容挪进别的列。`legacy` 下这十三列一律留空，报告不提及、不引用任何技术参考。
 Daily 与 Weekly 同输入同结论：同一 `代码`、同一组输入必须写出相同的十三列。十三列与其他报告列同一次暂存、
 校验、切换；检查 8 另核对这十三列等于由选定周计划行按本节得出的结果（Q4 按存储边界与 `长期买入上限` 重算，
@@ -912,7 +913,7 @@ external_fair_value_snapshot: issue-346-v1
 
 上面这一行声明本 Task 实现第 346 号 issue 的外部公允价值快照，安装程序更新本 Task 后会读回它，不要改动。外部
 公允价值是可选的第三方参考，默认关闭。本节在 `legacy`、`three_layer`、`three_layer_hold` 下相同，与
-`schema_version` 无关（不影响 `schema_version` 是 10 时才写的价格参考列），Daily 与 Weekly 同输入同结论。两份
+`schema_version` 无关（不影响 `schema_version` ≥ 10 时才写的价格参考列），Daily 与 Weekly 同输入同结论。两份
 报告可能同时运行，各写各的快照批次：都只追加、只按自己的（`报告ID`, `生成ID`）读回，绝不读取、修复或改写
 另一份报告的快照行。
 

@@ -887,7 +887,7 @@ T1–T8 的 `执行状态` 留空，`资金结论=不适用`，`计划买入下�
 
 ### 本周价格参考的快照与核对（第 327 号 issue，three_layer/three_layer_hold）
 
-本节只适用于以 `three_layer` 或 `three_layer_hold` 生成、且 `_安装状态.schema_version` 是 10 的报告。
+本节只适用于以 `three_layer` 或 `three_layer_hold` 生成、且 `_安装状态.schema_version` ≥ 10 的报告。
 `schema_version` 是 9 时 `报告持仓` 没有这些列，本节不写任何东西。`legacy` 下本节完全不适用：`报告持仓`
 的十三列 `价格参考*` 一律留空，报告不提及、不引用任何技术参考。Daily 与 Weekly 同输入同结论：同一
 `代码`、同一组输入必须写出相同的十三列；本节就是两份报告共用的唯一规则（契约见
@@ -968,7 +968,7 @@ join，绝不换成更新或更旧的版本，绝不重算区间，绝不把区�
 
 外部公允价值是可选的第三方参考（`setup/schema/sheet-schema.json` 的 `optional_modules.external_fair_value`，
 契约见 `docs/external-fair-value-source-validation.md`）。本节在 `legacy`、`three_layer`、`three_layer_hold`
-下相同，与 `schema_version` 无关（不影响 `schema_version` 是 10 时才写的第 327 号 issue 价格参考列），Daily 与
+下相同，与 `schema_version` 无关（不影响 `schema_version` ≥ 10 时才写的第 327 号 issue 价格参考列），Daily 与
 Weekly 逐字相同、同输入同结论。两份报告各写各的快照批次，互不读取、互不修复。选择、快照校验与批次判定只有
 一套规则，可执行规范是 `tests/external_fair_value_spec.py`。
 
@@ -1190,6 +1190,7 @@ Weekly 逐字相同、同输入同结论。两份报告各写各的快照批次�
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 0.9.1 | 2026-10-30 | 第 364 号 issue P1：第 327 号 issue 价格参考列的写入条件由 `schema_version` 等于 10 改为 ≥ 10，使 schema_version 11 的加性升级不会让价格参考停写；不改其他规则 |
 | 0.9.0 | 2026-10-24 | 第 352 号 issue（第 342 号 issue P5）：新增"外部公允价值组合对照"（与 Weekly 完整 prompt 同一节逐字相同）：独立开关 `external_fair_value_report_currency`（报告币种）默认关闭；启用时只用本 generation 已写入的外部公允价值快照行与本次的持仓数量、行情和汇率证据，逐项精确计算、合计最后舍入一次，冻结范围、覆盖、差额、覆盖率与逐项明细到 `报告摘要.备注` 的组合批次行；部分覆盖始终标为覆盖部分，未覆盖值不补 0，读取端从冻结证据逐字节重算，模块故障只局部降级，不改变估值、计划、今日行动或门槛 |
 | 0.8.0 | 2026-10-24 | 第 350 号 issue（第 342 号 issue P4）：新增"外部财经材料"（与 Weekly 完整 prompt 同一节逐字相同）：独立开关 `external_materials_source_id` 默认关闭；启用时在研究前冻结一个 `读取截止时间`、只读一次 `外部财经材料记录`，按范围证券（代码＋上市市场）绑定，只采用完整、受支持的记录，链接与转载去重、核心字段冲突不合并，三个时间各自冻结；研究按现有相关性过滤、事实/观点分离与一手来源核实规则写研究字段，第三方说法始终标注来源；每个 generation 冻结自己的 `外部财经材料快照` 与 `报告摘要.备注` 材料批次行，模块故障只局部降级，材料不直接改变估值、计划、今日行动或门槛 |
 | 0.7.0 | 2026-10-24 | 第 346 号 issue（第 342 号 issue P2）：新增"外部公允价值快照"（与 Weekly 完整 prompt 同一节逐字相同）：开关只读一次、默认关闭时完全跳过；启用时冻结一个 `读取截止时间`、只读一次 `外部公允价值记录`，按 P1 契约选择与校验，每个适用持仓一行 `外部公允价值快照`，随 report_write_protocol 暂存、整批校验、切换、确认；`报告摘要.备注` 的批次行记录 `已写入`/`未写入`（原因），模块故障只局部降级，不改变报告发布判定 |
