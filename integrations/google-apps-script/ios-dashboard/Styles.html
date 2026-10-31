@@ -415,6 +415,26 @@ body {
    holding card, wrapping rather than overflowing on narrow screens. */
 .ios-inline-fair-value { overflow-wrap: anywhere; }
 
+/* Report layering (Issue #364 P3): Weekly outcome sections and Daily change
+   groups. Cards and badges only; every text wraps so nothing overflows a
+   phone, and folds use <details> so they work on phone and desktop alike. */
+.ios-layering { display: grid; gap: 12px; margin: 12px 0; }
+.ios-layer-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.ios-layer-fact { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border: 1px solid var(--ios-border);
+  border-radius: 8px; background: #fff; overflow-wrap: anywhere; }
+.ios-layer-section h2 { margin-top: 0; }
+.ios-layer-group { display: grid; gap: 8px; margin: 8px 0; }
+.ios-layer-group-title { margin: 4px 0 0; font-size: 0.95rem; }
+.ios-layer-row { overflow-wrap: anywhere; }
+.ios-layer-row-error { border-left: 3px solid var(--ios-severity-high); }
+.ios-layer-baseline, .ios-layer-legacy { margin: 0; overflow-wrap: anywhere; }
+.ios-layer-legacy { padding: 8px 10px; border: 1px dashed var(--ios-border); border-radius: 8px; }
+.ios-layer-fold { margin: 6px 0; }
+.ios-layer-fold-title { cursor: pointer; font-weight: 600; padding: 6px 0; }
+.ios-layer-unmarked { display: grid; gap: 4px; }
+.ios-layer-verdict { display: grid; gap: 4px; padding: 8px 0; border-top: 1px solid var(--ios-border); overflow-wrap: anywhere; }
+.ios-layer-verdict .ios-asset-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+
 .ios-table-wrap { overflow-x: auto; }
 .ios-allocation-cards { display: none; }
 
@@ -424,6 +444,7 @@ body {
 
 @media (max-width: 720px) {
   .ios-card-grid { grid-template-columns: minmax(0, 1fr); }
+  .ios-layer-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ios-allocation-table { display: none; }
   .ios-allocation-cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
 }

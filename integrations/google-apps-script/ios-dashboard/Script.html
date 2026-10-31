@@ -209,6 +209,8 @@
     container.appendChild(buildSummaryGrid(vm));
     container.appendChild(buildHeadlineCard(vm));
     container.appendChild(buildReportCaption(vm));
+    var layering = buildLayeringSection(vm);
+    if (layering) { container.appendChild(layering); }
   }
 
   /**
@@ -287,6 +289,247 @@
     return text('p', 'ios-report-caption',
       summary['报告ID'] + ' · ' + (summary['周期开始'] || summary['报告日期']) + ' – ' +
       (summary['周期结束'] || summary['报告日期']) + ' · ' + summary['生成时间']);
+  }
+
+  // -- Report layering (Issue #364 P3): Weekly's five outcomes and Daily's
+  // change groups, from the generation's own rows (vm.layering, built by
+  // buildLayeringView_ in Code.gs). Rendering only: no change, baseline or
+  // completion is inferred here. --
+
+  var LAYER_STATUS_BADGE_CLASS_ = {
+    '已变化': 'ios-severity-medium',
+    '维持': '',
+    '停止跟踪': '',
+    '不可比较': 'ios-badge-muted',
+    '已完成': 'ios-severity-low',
+    '需更新假设': 'ios-severity-medium',
+    '等待具体证据': 'ios-severity-medium',
+    '待独立DeepDive': 'ios-severity-medium',
+    '完成状态不可核验': 'ios-severity-high',
+    '研究优先': '',
+    '条件性资本优先': 'ios-severity-low',
+    '增强': 'ios-severity-medium',
+    '削弱': 'ios-severity-low'
+  };
+
+  function layerLine_(label, value) {
+    if (isBlank(value)) { return null; }
+    return el('p', { className: 'ios-asset-line' }, [text('span', 'ios-muted', label + '：'), document.createTextNode(String(value))]);
+  }
+
+  function layerFoldable_(title, children, open) {
+    var attrs = open ? { open: 'open' } : null;
+    return el('details', { className: 'ios-layer-fold', attrs: attrs },
+      [text('summary', 'ios-layer-fold-title', title)].concat(children));
+  }
+
+  function buildLayerHeader_(layering) {
+    var header = layering.header;
+    var facts = [
+      ['覆盖', header.coverage],
+      ['行情截至', header.quoteCutoff || '未提供'],
+      ['研究截至', header.researchCutoff || '未提供']
+    ];
+    if (layering.reportType === 'weekly') { facts.push(['下一适用交易周', header.nextWeek || '未提供']); }
+    return el('div', { className: 'ios-layer-facts' }, facts.map(function (pair) {
+      return el('div', { className: 'ios-layer-fact' }, [text('span', 'ios-muted', pair[0]), text('strong', null, pair[1])]);
+    }));
+  }
+
+  function buildResearchRow_(row) {
+    var status = row['状态'];
+    var head = [text('strong', null, isBlank(row['标题']) ? row['结论'] : row['标题'])];
+    if (!isBlank(status)) {
+      head.push(text('span', badgeClass('ios-badge', LAYER_STATUS_BADGE_CLASS_[status]), status));
+    }
+    if (row._iosShapeErrors) {
+      head.push(text('span', 'ios-badge ios-severity-high ios-shape-error', vmText_().shapeError));
+    }
+    var lines = [el('div', { className: 'ios-asset-head' }, head)];
+    if (!isBlank(row['标题'])) { lines.push(text('p', 'ios-asset-line', row['结论'])); }
+    if (status === '完成状态不可核验') { lines.push(text('p', 'ios-asset-line ios-entry-plan-incomplete', vmText_().unresolved)); }
+    if (status === '不可比较' && !isBlank(row['比较依据'])) {
+      lines.push(text('p', 'ios-asset-line ios-muted', vmText_().comparison[row['比较依据']] || row['比较依据']));
+    }
+    [
+      ['上周判断', row['原判断']],
+      ['本周证据', row['本周证据']],
+      ['影响', row['影响']],
+      ['下一证据或触发', row['下一证据或触发']],
+      ['关联代码', row['关联代码']],
+      ['来源', row['来源记录']],
+      ['解除记录', row['解除记录']],
+      ['依据性质', row['依据性质']]
+    ].forEach(function (pair) {
+      var line = layerLine_(pair[0], pair[1]);
+      if (line) { lines.push(line); }
+    });
+    if (row._iosShapeErrors) {
+      lines.push(text('p', 'ios-asset-line ios-entry-plan-incomplete', '格式问题：' + row._iosShapeErrors.join('；')));
+    }
+    return el('div', { className: 'ios-card ios-layer-row' + (row._iosShapeErrors ? ' ios-layer-row-error' : '') }, lines);
+  }
+
+  function layerGroup_(title, rows, emptyNote) {
+    var children = [text('h3', 'ios-layer-group-title', title + ' (' + rows.length + ')')];
+    if (rows.length === 0 && emptyNote) { children.push(text('p', 'ios-empty-note', emptyNote)); }
+    rows.forEach(function (row) { children.push(buildResearchRow_(row)); });
+    return el('div', { className: 'ios-layer-group' }, children);
+  }
+
+  var LAYER_TEXT_FALLBACK_ = {
+    shapeError: '周度研究格式异常',
+    unresolved: '完成状态不可核验：未完成，也未关闭',
+    unmarked: '未标记变化',
+    comparison: {}
+  };
+
+  function vmText_() {
+    var vm = currentViewModel();
+    return (vm && vm.layering && vm.layering.text) || LAYER_TEXT_FALLBACK_;
+  }
+
+  function buildWeeklyLayering_(vm) {
+    var weekly = vm.layering.weekly;
+    var sections = [];
+    var judgments = weekly.judgments;
+    var first = [text('h2', null, '① 本周结论与较上周变化'), text('p', 'ios-layer-baseline', weekly.baseline.text)];
+    weekly.headlines.forEach(function (row) { first.push(buildResearchRow_(row)); });
+    first.push(layerGroup_('判断已变化', judgments.changed, '本周没有判断发生变化。'));
+    if (judgments.other.length) { first.push(layerGroup_('停止跟踪或不可比较', judgments.other)); }
+    if (judgments.maintained.length) {
+      first.push(layerFoldable_('判断维持 (' + judgments.maintained.length + ')', judgments.maintained.map(buildResearchRow_), false));
+    }
+    sections.push(el('section', { className: 'ios-card ios-layer-section' }, first));
+
+    var capital = weekly.capital;
+    var second = [text('h2', null, '② 资本配置比较与组合风险'),
+      layerGroup_('研究优先', capital.research),
+      layerGroup_('条件性资本优先', capital.conditional)];
+    if (capital.other.length) { second.push(layerGroup_('保留现金或不排序', capital.other)); }
+    second.push(layerGroup_('共同风险', weekly.commonRisks, '本周未写出共同风险。'));
+    sections.push(el('section', { className: 'ios-card ios-layer-section' }, second));
+
+    var third = [text('h2', null, '③ 本周事件与估值复核')];
+    if (weekly.reviews.length === 0) { third.push(text('p', 'ios-empty-note', '本周没有复核成果。')); }
+    weekly.reviews.forEach(function (group) { third.push(layerGroup_(group.status, group.rows)); });
+    sections.push(el('section', { className: 'ios-card ios-layer-section' }, third));
+
+    var fourth = [text('h2', null, '④ 下周重点与适用周购买结论'),
+      layerGroup_('下周重点', weekly.focus, '本周未标出下周重点。'),
+      text('p', 'ios-muted', '适用周：' + (vm.layering.header.nextWeek || '未提供'))];
+    var verdicts = el('ul', { className: 'ios-list ios-layer-verdicts' });
+    (vm.holdings || []).concat(vm.watchlistCandidates || []).forEach(function (asset) {
+      if (isBlank(asset['今日行动'])) { return; }
+      verdicts.appendChild(buildWeeklyVerdictItem_(asset, vm.todos));
+    });
+    fourth.push(verdicts.children.length ? verdicts : text('p', 'ios-empty-note', '本报告没有写出今日行动的资产。'));
+    fourth.push(text('p', 'ios-muted', '估值与完整购买计划依据见下方「组合」卡片。'));
+    sections.push(el('section', { className: 'ios-card ios-layer-section' }, fourth));
+
+    if (weekly.unplaced.length) {
+      sections.push(el('section', { className: 'ios-card ios-layer-section' },
+        [text('h2', null, vmText_().shapeError)].concat(weekly.unplaced.map(buildResearchRow_))));
+    }
+    sections.push(text('p', 'ios-muted ios-layer-next', '⑤ 全部持仓、观察候选、风险与待办明细见下方标签页。'));
+    return sections;
+  }
+
+  /**
+   * ④ one asset: the fixed first-screen verdict, the 适用周 and range lines and
+   * the #327 价格参考 snapshot, through the same functions as the 组合 card
+   * (reader gate, pause and consistency checks included). Nothing is computed
+   * here; an order limit appears only under 适合买入.
+   */
+  function buildWeeklyVerdictItem_(asset, todos) {
+    var verdict = todayVerdict_(asset);
+    var gateProblem = readerGateProblem_(asset);
+    var children = [
+      el('div', { className: 'ios-asset-head' }, [
+        text('strong', null, asset['代码']),
+        text('span', badgeClass('ios-badge ios-badge-today-verdict', TODAY_VERDICT_BADGE_CLASS_[verdict]), verdict),
+        text('span', 'ios-muted', ' ' + asset['今日行动'])
+      ])
+    ];
+    if (gateProblem) {
+      children.push(text('p', 'ios-asset-line ios-entry-plan-incomplete ios-reader-gate', gateProblem));
+    }
+    var readyProblem = readyActionProblem_(asset);
+    if (readyProblem) { children.push(text('p', 'ios-asset-line ios-entry-plan-incomplete', readyProblem.message)); }
+    if (isThreeLayerRow_(asset)) { children.push(labelledLine_('适用周', asset['周计划适用周'], '未提供')); }
+    buildRangeLines_(asset, verdict).forEach(function (line) { children.push(line); });
+    var reason = buildReasonLine_(asset, verdict);
+    if (reason) { children.push(reason); }
+    var reference = buildPriceReferenceBlock_(asset, gateProblem, !!STATE.viewingReportId);
+    if (reference) { children.push(reference); }
+    return el('li', { className: 'ios-layer-verdict' }, children);
+  }
+
+  function buildRiskItem_(risk) {
+    var severity = risk['严重度'] || 'unknown';
+    var itemChildren = [
+      text('span', 'ios-badge ios-severity-' + severity, risk['严重度'] || '未知'),
+      text('strong', null, risk['风险'])
+    ];
+    if (risk['影响资产']) {
+      itemChildren.push(text('span', 'ios-muted', ' — ' + risk['影响资产']));
+    }
+    if (risk['本期动作']) {
+      itemChildren.push(text('p', 'ios-muted', '本期动作: ' + risk['本期动作']));
+    }
+    return el('li', null, itemChildren);
+  }
+
+  function buildDailyItem_(item, vm) {
+    var node;
+    if (item.kind === 'risk') {
+      node = el('ul', { className: 'ios-list' }, [buildRiskItem_(item.row)]);
+    } else {
+      node = buildAssetCard(item.row, item.kind === 'watchlist', vm.todos);
+    }
+    if (!item.unmarked) { return node; }
+    return el('div', { className: 'ios-layer-unmarked' }, [text('span', 'ios-badge ios-severity-medium', vmText_().unmarked), node]);
+  }
+
+  function buildDailyLayering_(vm) {
+    var daily = vm.layering.daily;
+    var changed = [text('h2', null, '本期有变化 (' + daily.changed.length + ')')];
+    if (daily.changed.length === 0) { changed.push(text('p', 'ios-empty-note', '本窗口内没有标记为有变化的持仓、观察候选或风险。')); }
+    daily.changed.forEach(function (item) { changed.push(buildDailyItem_(item, vm)); });
+    var open = (vm.todos || []).filter(function (todo) { return !isTodoCompleted(todo['状态'] || '待处理'); });
+    var followUps = [text('h2', null, '跟进 (' + open.length + ')')];
+    if (open.length === 0) { followUps.push(text('p', 'ios-empty-note', '没有未完成的待办。')); }
+    var list = el('ul', { className: 'ios-todo-list' });
+    open.forEach(function (todo) { list.appendChild(buildTodoItem(todo)); });
+    if (open.length) { followUps.push(list); }
+    return [
+      el('section', { className: 'ios-card ios-layer-section' }, changed),
+      el('section', { className: 'ios-card ios-layer-section' }, followUps),
+      el('section', { className: 'ios-card ios-layer-section' }, [
+        layerFoldable_('无变化 (' + daily.unchanged.length + ')', daily.unchanged.map(function (item) { return buildDailyItem_(item, vm); }), false),
+        layerFoldable_('无可比基线 (' + daily.noBaseline.length + ')', daily.noBaseline.map(function (item) { return buildDailyItem_(item, vm); }), false)
+      ])
+    ];
+  }
+
+  function buildLayeringSection(vm) {
+    var layering = vm.layering;
+    if (!layering) { return null; }
+    var children = [buildLayerHeader_(layering)];
+    if (layering.legacy) {
+      children.push(text('p', 'ios-layer-legacy', layering.legacyLine));
+    } else if (layering.unreadable) {
+      children.push(text('p', 'ios-layer-legacy ios-entry-plan-incomplete', layering.unreadableLine));
+    } else if (layering.weekly) {
+      if (layering.weekly.shapeErrorCount) {
+        children.push(text('p', 'ios-entry-plan-incomplete',
+          vmText_().shapeError + '：' + layering.weekly.shapeErrorCount + ' 行，已在下方标出，内容照常显示。'));
+      }
+      buildWeeklyLayering_(vm).forEach(function (node) { children.push(node); });
+    } else if (layering.daily) {
+      buildDailyLayering_(vm).forEach(function (node) { children.push(node); });
+    }
+    return el('div', { className: 'ios-layering' }, children);
   }
 
   // -- Tab content (组合 portfolio / 资本配置 capital allocation / 风险 risks / 待办 todos) --
@@ -1243,20 +1486,7 @@
       children.push(text('p', 'ios-empty-note', '本期报告未标记任何风险——这是合法的空结果，不是错误。'));
     } else {
       var list = el('ul', { className: 'ios-list' });
-      risks.forEach(function (risk) {
-        var severity = risk['严重度'] || 'unknown';
-        var itemChildren = [
-          text('span', 'ios-badge ios-severity-' + severity, risk['严重度'] || '未知'),
-          text('strong', null, risk['风险'])
-        ];
-        if (risk['影响资产']) {
-          itemChildren.push(text('span', 'ios-muted', ' — ' + risk['影响资产']));
-        }
-        if (risk['本期动作']) {
-          itemChildren.push(text('p', 'ios-muted', '本期动作: ' + risk['本期动作']));
-        }
-        list.appendChild(el('li', null, itemChildren));
-      });
+      risks.forEach(function (risk) { list.appendChild(buildRiskItem_(risk)); });
       children.push(list);
     }
     return el('section', { className: 'ios-card' }, children);

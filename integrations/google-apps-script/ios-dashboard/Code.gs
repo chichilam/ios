@@ -139,10 +139,16 @@ function buildReportViewModel_(tabs, reportType, explicitReportId, reader) {
     return bound ? Object.assign({}, row, { _iosExternalFairValue: bound }) : row;
   });
 
+  // Issue #364 P3: undefined (tab absent, schema_version < 11) reads as no rows; null is an unreadable tab.
+  var researchTab = tabs[WEEKLY_RESEARCH_TAB_];
+  var research = researchTab === null ? null : filterLiveDetailRows_(researchTab || [], reportId, generationId);
+  var layering = buildLayeringView_(reportType, summary, research, holdings, watchlistCandidates, risks, tabs['报告摘要']);
+
   return {
     found: true,
     reportType: reportType,
     summary: summary,
+    layering: layering,
     readerGate: gated.gate,
     holdings: sortByOrder_(holdings),
     watchlistCandidates: sortByOrder_(watchlistCandidates),
@@ -232,6 +238,238 @@ function getReport_(tabs, reportId, reader) {
     return { found: false, reportType: null };
   }
   return buildReportViewModel_(tabs, reportType, reportId, reader);
+}
+
+// ---------------------------------------------------------------------------
+// Report layering (Issue #364 P3): what changed this window (Daily) and the
+// five weekly outcomes (Weekly), rendered from the selected generation's own
+// rows only. Nothing here derives a change, a baseline or a completion -- the
+// writer did (tests/weekly_research_spec.py); the Dashboard only groups the
+// rows and labels what one generation shows to be malformed.
+// ---------------------------------------------------------------------------
+
+var WEEKLY_RESEARCH_TAB_ = '报告周度研究';
+/** Mirrors setup/schema/sheet-schema.json's required 报告周度研究 fields (an optional tab before schema_version 11). */
+var WEEKLY_RESEARCH_REQUIRED_ = ['报告ID', '生成ID', '报告类型', '报告日期', '条目ID', '分区', '结论'];
+var LAYER_PARTITION_STATUS_ = {
+  本周结论: [],
+  判断变化: ['已变化', '维持', '停止跟踪', '不可比较'],
+  复核成果: ['已完成', '需更新假设', '等待具体证据', '待独立DeepDive', '完成状态不可核验'],
+  资本配置: ['研究优先', '条件性资本优先', '保留现金', '不排序'],
+  共同风险: ['增强', '削弱', '未变'],
+  下周重点: []
+};
+var LAYER_BASIS_ = ['事实', '机械计算', '研究判断'];
+var LAYER_COMPARISON_ = ['基线同键', '无基线', '基线无周度研究', '基线不可核验', '基线无此键', '基线键重复'];
+var LAYER_BASELINE_STATES_ = ['有基线', '无基线', '基线无周度研究', '基线不可核验'];
+var LAYER_CHANGE_FLAGS_ = ['有变化', '无变化', '无可比基线'];
+var LAYER_TEXT_ = {
+  legacy: '本报告版本未提供周度研究（生成于 #364 之前）',
+  shapeError: '周度研究格式异常',
+  unreadable: '周度研究读取失败，以下只显示报告其余内容',
+  unmarked: '未标记变化',
+  baseline: {
+    无基线: '无可比较的上周基线',
+    基线无周度研究: '上周报告版本未提供周度研究',
+    基线不可核验: '上周基线不可核验（历史读取不完整或报告指针冲突）'
+  },
+  comparison: {
+    无基线: '无可比较的上周基线',
+    基线无周度研究: '上周报告版本未提供周度研究',
+    基线不可核验: '上周基线不可核验',
+    基线无此键: '上周没有这一判断',
+    基线键重复: '上周同一判断出现多行，无法比较'
+  },
+  unresolved: '完成状态不可核验：未完成，也未关闭'
+};
+var LAYER_REVIEW_ORDER_ = ['已完成', '需更新假设', '等待具体证据', '待独立DeepDive', '完成状态不可核验'];
+
+/** Sheet cell as display text: a native Date (Apps Script reads datetime cells that way) as ISO 8601. */
+function layerText_(value) {
+  if (value == null) return '';
+  if (Object.prototype.toString.call(value) === '[object Date]') {
+    return isNaN(value.getTime()) ? '' : value.toISOString();
+  }
+  return String(value).trim();
+}
+
+function layerSplit_(value) {
+  return layerText_(value).split('、');
+}
+
+/**
+ * Generation-local shape checks only (contract "Old and malformed reports"):
+ * closed values, a duplicate 判断键 or 复核键 inside this generation, and
+ * 原判断 only beside 基线同键. Returns {条目ID: [reason, ...]}.
+ */
+function weeklyResearchShapeErrors_(rows) {
+  var errors = {};
+  var add = function (row, reason) {
+    var id = layerText_(row['条目ID']) || '(无条目ID)';
+    (errors[id] = errors[id] || []).push(reason);
+  };
+  // Every occurrence of a duplicated identity is labelled, not only the later one.
+  var count = function (name, partition) {
+    var seen = {};
+    (rows || []).forEach(function (row) {
+      if (partition && layerText_(row['分区']) !== partition) return;
+      var value = layerText_(row[name]);
+      seen[value] = (seen[value] || 0) + 1;
+    });
+    return function (row) { var value = layerText_(row[name]); return value === '' || seen[value] > 1; };
+  };
+  var badEntry = count('条目ID');
+  var badJudgment = count('判断键', '判断变化');
+  var badReview = count('复核键', '复核成果');
+  (rows || []).forEach(function (row) {
+    var partition = layerText_(row['分区']);
+    var status = layerText_(row['状态']);
+    if (badEntry(row)) add(row, '条目ID缺失或重复');
+    if (!Object.prototype.hasOwnProperty.call(LAYER_PARTITION_STATUS_, partition)) {
+      add(row, '分区不在封闭值内');
+      return;
+    }
+    var allowed = LAYER_PARTITION_STATUS_[partition];
+    if (allowed.length ? allowed.indexOf(status) === -1 : status !== '') add(row, '状态不在本分区封闭值内');
+    var basis = layerSplit_(row['依据性质']);
+    var basisOk = basis.length > 0 && basis.every(function (b) { return LAYER_BASIS_.indexOf(b) !== -1; }) &&
+      basis.filter(function (b, i) { return basis.indexOf(b) === i; }).length === basis.length;
+    if (!basisOk) add(row, '依据性质缺失或不在封闭值内');
+    if (layerText_(row['结论']) === '') add(row, '结论为空');
+    var comparison = layerText_(row['比较依据']);
+    if (partition === '判断变化') {
+      if (LAYER_COMPARISON_.indexOf(comparison) === -1) add(row, '比较依据不在封闭值内');
+      if (layerText_(row['原判断']) !== '' && comparison !== '基线同键') add(row, '原判断只能出现在基线同键');
+      if (badJudgment(row)) add(row, '判断键缺失或在本期重复');
+    } else if (comparison !== '' || layerText_(row['原判断']) !== '' || layerText_(row['判断键']) !== '') {
+      add(row, '判断字段出现在判断变化之外');
+    }
+    if (partition === '复核成果') {
+      if (badReview(row)) add(row, '复核键缺失或在本期重复');
+    }
+  });
+  return errors;
+}
+
+function layerRow_(row, errors) {
+  var reasons = errors[layerText_(row['条目ID']) || '(无条目ID)'];
+  return reasons ? Object.assign({}, row, { _iosShapeErrors: reasons }) : row;
+}
+
+function layerOrder_(rows) {
+  return sortByOrder_(rows);
+}
+
+/** The Weekly's five outcomes, grouped for the page order in the contract's "Weekly page order". */
+function buildWeeklyLayering_(summary, research, summaries) {
+  var errors = weeklyResearchShapeErrors_(research);
+  var rows = (research || []).map(function (row) { return layerRow_(row, errors); });
+  var of = function (partition) {
+    return layerOrder_(rows.filter(function (row) { return layerText_(row['分区']) === partition; }));
+  };
+  var withStatus = function (list, statuses) {
+    return list.filter(function (row) { return statuses.indexOf(layerText_(row['状态'])) !== -1; });
+  };
+  var judgments = of('判断变化');
+  var capital = of('资本配置');
+  var reviews = of('复核成果');
+  var state = layerText_(summary['基线状态']);
+  var baseline = { state: state, reportId: layerText_(summary['基线报告ID']), researchCutoff: '', text: '' };
+  if (state === '有基线') {
+    var pointed = (summaries || []).filter(function (row) {
+      return row['报告ID'] === summary['基线报告ID'] && row['生成ID'] === summary['基线生成ID'];
+    });
+    baseline.researchCutoff = pointed.length === 1 ? layerText_(pointed[0]['研究截至']) : '';
+    baseline.text = '较上周基线：' + baseline.reportId + '（研究截至 ' + (baseline.researchCutoff || '未知') + '）';
+  } else {
+    baseline.text = LAYER_TEXT_.baseline[state] || (LAYER_TEXT_.shapeError + '：基线状态无法识别');
+  }
+  var reviewGroups = LAYER_REVIEW_ORDER_.map(function (status) {
+    return { status: status, rows: withStatus(reviews, [status]) };
+  }).filter(function (group) { return group.rows.length > 0; });
+  var unknownReviews = reviews.filter(function (row) { return LAYER_REVIEW_ORDER_.indexOf(layerText_(row['状态'])) === -1; });
+  if (unknownReviews.length) reviewGroups.push({ status: LAYER_TEXT_.shapeError, rows: unknownReviews });
+  var known = ['本周结论', '判断变化', '复核成果', '资本配置', '共同风险', '下周重点'];
+  return {
+    baseline: baseline,
+    headlines: of('本周结论'),
+    judgments: {
+      changed: withStatus(judgments, ['已变化']),
+      maintained: withStatus(judgments, ['维持']),
+      other: judgments.filter(function (row) { return ['已变化', '维持'].indexOf(layerText_(row['状态'])) === -1; })
+    },
+    capital: {
+      research: withStatus(capital, ['研究优先']),
+      conditional: withStatus(capital, ['条件性资本优先']),
+      other: capital.filter(function (row) { return ['研究优先', '条件性资本优先'].indexOf(layerText_(row['状态'])) === -1; })
+    },
+    commonRisks: of('共同风险'),
+    reviews: reviewGroups,
+    focus: of('下周重点'),
+    unplaced: rows.filter(function (row) { return known.indexOf(layerText_(row['分区'])) === -1; }),
+    shapeErrorCount: Object.keys(errors).length
+  };
+}
+
+/** The Daily's change groups (contract "Daily page order"); a blank or unknown flag stays in the changed group, labelled. */
+function buildDailyLayering_(holdings, watchlist, risks) {
+  var groups = { changed: [], unchanged: [], noBaseline: [] };
+  var place = function (kind) {
+    return function (row) {
+      var flag = layerText_(row['变化标记']);
+      var item = { kind: kind, row: row, unmarked: LAYER_CHANGE_FLAGS_.indexOf(flag) === -1 };
+      if (flag === '无变化') groups.unchanged.push(item);
+      else if (flag === '无可比基线') groups.noBaseline.push(item);
+      else groups.changed.push(item);
+    };
+  };
+  (holdings || []).forEach(place('holding'));
+  (watchlist || []).forEach(place('watchlist'));
+  (risks || []).forEach(place('risk'));
+  return groups;
+}
+
+/**
+ * The layering view for one generation. `research` is this generation's live
+ * 报告周度研究 rows, or null when the tab could not be read. A report written
+ * before #364 is `legacy` by the contract's per-type rule ("Old and malformed
+ * reports"): a Weekly with blank 基线状态 and no research rows; a Daily with
+ * blank 研究截至 and every 变化标记 blank (a Daily never writes 基线状态). The
+ * page keeps its current layout plus one line, and nothing is back-filled.
+ */
+function buildLayeringView_(reportType, summary, research, holdings, watchlist, risks, summaries) {
+  var header = {
+    coverage: (layerText_(summary['周期开始']) || layerText_(summary['报告日期'])) + ' – ' +
+      (layerText_(summary['周期结束']) || layerText_(summary['报告日期'])),
+    quoteCutoff: layerText_(summary['行情截至']),
+    researchCutoff: layerText_(summary['研究截至']),
+    nextWeek: layerText_(summary['下一适用交易周'])
+  };
+  var view = { reportType: reportType, header: header, text: LAYER_TEXT_, legacy: false, legacyLine: '', unreadable: false };
+  if (reportType === 'weekly') {
+    if (research === null) {
+      view.unreadable = true;
+      view.unreadableLine = LAYER_TEXT_.unreadable;
+      return view;
+    }
+    if (layerText_(summary['基线状态']) === '' && research.length === 0) {
+      view.legacy = true;
+      view.legacyLine = LAYER_TEXT_.legacy;
+      return view;
+    }
+    view.weekly = buildWeeklyLayering_(summary, research, summaries);
+    return view;
+  }
+  var flagged = (holdings || []).concat(watchlist || [], risks || []).some(function (row) {
+    return layerText_(row['变化标记']) !== '';
+  });
+  if (!flagged && header.researchCutoff === '') {
+    view.legacy = true;
+    view.legacyLine = LAYER_TEXT_.legacy;
+    return view;
+  }
+  view.daily = buildDailyLayering_(holdings, watchlist, risks);
+  return view;
 }
 
 /**
@@ -1919,7 +2157,31 @@ function readTab_(spreadsheet, tabName) {
 function readAllTabs_(spreadsheet) {
   var tabs = {};
   SHEET_TABS_.forEach(function (tabName) { tabs[tabName] = readTab_(spreadsheet, tabName); });
+  tabs[WEEKLY_RESEARCH_TAB_] = readWeeklyResearchTab_(spreadsheet);
   return tabs;
+}
+
+/**
+ * The optional 报告周度研究 tab (Issue #364): undefined when absent (an
+ * installation below schema_version 11), null when present but unreadable or
+ * missing a required column. Never Blocks the rest of the page.
+ */
+function readWeeklyResearchTab_(spreadsheet) {
+  try {
+    var sheet = spreadsheet.getSheetByName(WEEKLY_RESEARCH_TAB_);
+    if (!sheet) return undefined;
+    var values = sheet.getDataRange().getValues();
+    var headers = values.length > 0 ? values[0] : [];
+    var missing = WEEKLY_RESEARCH_REQUIRED_.filter(function (name) { return headers.indexOf(name) === -1; });
+    if (missing.length > 0) return null;
+    return values.slice(1).map(function (row) {
+      var record = {};
+      headers.forEach(function (header, index) { record[header] = row[index]; });
+      return record;
+    });
+  } catch (err) {
+    return null;
+  }
 }
 
 /**
@@ -2209,6 +2471,18 @@ if (typeof module !== 'undefined') {
     findMissingRequiredHeaders_: findMissingRequiredHeaders_,
     isUnconfiguredSpreadsheetId_: isUnconfiguredSpreadsheetId_,
     SHEET_TABS_: SHEET_TABS_,
+    WEEKLY_RESEARCH_TAB_: WEEKLY_RESEARCH_TAB_,
+    WEEKLY_RESEARCH_REQUIRED_: WEEKLY_RESEARCH_REQUIRED_,
+    LAYER_PARTITION_STATUS_: LAYER_PARTITION_STATUS_,
+    LAYER_BASIS_: LAYER_BASIS_,
+    LAYER_COMPARISON_: LAYER_COMPARISON_,
+    LAYER_BASELINE_STATES_: LAYER_BASELINE_STATES_,
+    LAYER_CHANGE_FLAGS_: LAYER_CHANGE_FLAGS_,
+    LAYER_TEXT_: LAYER_TEXT_,
+    weeklyResearchShapeErrors_: weeklyResearchShapeErrors_,
+    buildLayeringView_: buildLayeringView_,
+    readWeeklyResearchTab_: readWeeklyResearchTab_,
+    readAllTabs_: readAllTabs_,
     REPORT_TABS_: REPORT_TABS_,
     REQUIRED_HEADERS_: REQUIRED_HEADERS_,
     SPREADSHEET_ID_PLACEHOLDER_: SPREADSHEET_ID_PLACEHOLDER_,

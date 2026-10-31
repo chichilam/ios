@@ -209,10 +209,11 @@ test('initial render shows the Daily summary grid + headline and marks the Daily
   assert.match(tabText(document), /DEMO1/, '组合 (portfolio) tab is the default active tab and shows holdings');
 
   const summaryContainer = document.getElementById('ios-summary-content');
-  assert.equal(summaryContainer.children.length, 3, 'summary grid + headline card + report caption, in that order');
+  assert.equal(summaryContainer.children.length, 4, 'summary grid + headline card + report caption + layering (Issue #364), in that order');
   assert.ok(summaryContainer.children[0].classList.contains('ios-summary-grid'));
   assert.ok(summaryContainer.children[1].classList.contains('ios-headline-card'));
   assert.ok(summaryContainer.children[2].classList.contains('ios-report-caption'));
+  assert.ok(summaryContainer.children[3].classList.contains('ios-layering'));
 });
 
 test('the summary grid has exactly the 4 v1.1 metrics (当前持仓/观察名单/核心状态/Review) with their explanatory subtitles, not tab-count shortcuts', () => {
