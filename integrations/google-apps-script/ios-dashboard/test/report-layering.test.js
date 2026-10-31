@@ -415,3 +415,44 @@ test('④ with no 今日行动 rows says so; Daily and Weekly never mix generati
   const weekly = layering(load(view('daily'), view('weekly'), 'weekly'));
   assert.ok(!/本期有变化|ZZZ/.test(weekly.textContent));
 });
+
+// -- P4 acceptance feedback: copy that must not overstate --
+
+test('① never calls uncomparable judgments "unchanged"', () => {
+  const allUncomparable = view('weekly', null, (t) => {
+    t['报告周度研究'].filter((r) => r['生成ID'] === 'gen-w2-b' && r['分区'] === '判断变化')
+      .forEach((r) => { Object.assign(r, { 状态: '不可比较', 比较依据: '基线无周度研究', 原判断: '' }); });
+    t['报告摘要'][2]['基线状态'] = '基线无周度研究';
+  });
+  const n = allUncomparable.layering.weekly.judgments.other.length;
+  assert.ok(n > 0);
+  const root = layering(load(null, allUncomparable, 'weekly'));
+  assert.ok(!/本周没有判断发生变化/.test(root.textContent));
+  assert.match(root.textContent, new RegExp('本周没有可与上周比较的判断：' + n + ' 条不可比较'));
+  const withMaintained = layering(load(null, view('weekly', null, (t) => {
+    t['报告周度研究'].filter((r) => r['生成ID'] === 'gen-w2-b' && r['状态'] === '已变化')
+      .forEach((r) => { r['状态'] = '维持'; });
+  }), 'weekly'));
+  assert.match(withMaintained.textContent, /本周没有判断发生变化（\d+ 条维持）/);
+});
+
+test('a 沿用定投 fund row says price reference is not applicable, never "before #327"', () => {
+  const fund = weeklyAsset({
+    代码: 'FUND-SLEEVE', 名称: '基金聚合', 今日行动: '沿用定投', 今日行动说明: '沿用既有定投，不是额外申购授权',
+    入场计划ID: '', 周计划ID: '', 周计划版本: '', 周计划状态: '无周计划', 周计划结论: '', 周计划执行路径: '',
+    周计划适用周: '', 周计划研究截至: '', 周计划复核时间: '', 周计划复核方式: '', 价格参考结论: '', 价格参考下沿: '',
+    价格参考上沿: '', 价格参考缺口: '', 价格参考确认条件: '', 价格参考否定条件: '', 执行状态: '', 准备状态: '',
+    建议限价: '', 建议订单规模说明: '', 计划订单有效期: '', 计划买入下限: '', 计划买入上限: '', 当前阻碍: '', 阻塞待办ID: '无'
+  });
+  const [item] = fourth([fund]);
+  assert.match(item.textContent, /沿用定投/);
+  assert.match(item.textContent, /不适用（沿用既有定投，不做技术价格参考）/);
+  assert.ok(!/#327 之前/.test(item.textContent));
+  const vmodel = view('weekly');
+  vmodel.holdings = [fund];
+  vmodel.watchlistCandidates = [];
+  const document = load(null, vmodel, 'weekly');
+  const cards = findAll(document.body || document.documentElement || document.getElementById('ios-summary-content'), () => true)
+    .filter((n) => /#327 之前/.test(n.textContent || '') && n.children.length === 0);
+  assert.equal(cards.length, 0, 'no element anywhere says the fund row predates #327');
+});

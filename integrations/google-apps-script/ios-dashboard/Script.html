@@ -384,6 +384,18 @@
     comparison: {}
   };
 
+  /**
+   * Empty note for 判断已变化: no change is claimed unless some judgment was
+   * actually compared (维持). Rows that could not be compared are counted,
+   * never read as "unchanged".
+   */
+  function judgmentEmptyNote_(judgments) {
+    if (judgments.maintained.length) { return '本周没有判断发生变化（' + judgments.maintained.length + ' 条维持）。'; }
+    var uncomparable = judgments.other.filter(function (row) { return row['状态'] === '不可比较'; }).length;
+    if (uncomparable) { return '本周没有可与上周比较的判断：' + uncomparable + ' 条不可比较，见下。'; }
+    return judgments.other.length ? '本周没有判断发生变化。' : '本周未写出判断变化行。';
+  }
+
   function vmText_() {
     var vm = currentViewModel();
     return (vm && vm.layering && vm.layering.text) || LAYER_TEXT_FALLBACK_;
@@ -395,7 +407,7 @@
     var judgments = weekly.judgments;
     var first = [text('h2', null, '① 本周结论与较上周变化'), text('p', 'ios-layer-baseline', weekly.baseline.text)];
     weekly.headlines.forEach(function (row) { first.push(buildResearchRow_(row)); });
-    first.push(layerGroup_('判断已变化', judgments.changed, '本周没有判断发生变化。'));
+    first.push(layerGroup_('判断已变化', judgments.changed, judgmentEmptyNote_(judgments)));
     if (judgments.other.length) { first.push(layerGroup_('停止跟踪或不可比较', judgments.other)); }
     if (judgments.maintained.length) {
       first.push(layerFoldable_('判断维持 (' + judgments.maintained.length + ')', judgments.maintained.map(buildResearchRow_), false));
@@ -1253,6 +1265,7 @@
   var PRICE_REFERENCE_TEXT_ = {
     statement: '技术研究，不是买入授权，也不是订单价格。',
     oldReport: '本报告版本未提供本周价格参考（生成于 #327 之前）',
+    tsumitate: '不适用（沿用既有定投，不做技术价格参考）',
     aboveCap: '本周技术关注区高于长期买入上限，本周不执行新增购买；技术研究结果保留如下。'
   };
 
@@ -1351,7 +1364,9 @@
    * block within 今日行动依据 that is never styled as a buy signal. Not shown on a row
    * of a legacy generation. A three-layer row whose snapshot is absent (no
    * column, or a blank 结论 and a blank 缺口) shows the fixed old-report line
-   * and is never filled from a plan tab. Nothing here feeds the verdict.
+   * and is never filled from a plan tab. A 沿用定投 row carries no price
+   * reference by design (#337), so it says not applicable instead of the
+   * old-report line. Nothing here feeds the verdict.
    */
   function buildPriceReferenceBlock_(asset, gateProblem, historical) {
     if (asset._iosPurchaseMode === 'legacy') { return null; }
@@ -1359,6 +1374,10 @@
       text('h3', 'ios-detail-heading', '本周价格参考'),
       text('p', 'ios-asset-line ios-muted ios-price-reference-statement', PRICE_REFERENCE_TEXT_.statement)
     ];
+    if (asset['今日行动'] === '沿用定投') {
+      block.push(text('p', 'ios-asset-line ios-muted', PRICE_REFERENCE_TEXT_.tsumitate));
+      return el('div', { className: 'ios-price-reference' }, block);
+    }
     var conclusion = asset['价格参考结论'];
     var gap = asset['价格参考缺口'];
     if (isBlank(conclusion) && isBlank(gap)) {
