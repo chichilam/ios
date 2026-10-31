@@ -327,6 +327,10 @@ Prompt 输出必须保持以下结构：
 ## 7. 下一步
 ```
 
+Prompt 输出结构不变。`schema_version` ≥ 11 时，写入 Sheet 的报告另带 `研究截至`、`行情截至` 与 `变化标记`
+（第 364 号 issue，规则见 Daily Investment Report 的“变化标记与研究截至”）。这只是写入要求：不新增判断，
+不重算 Weekly 的结论，也不读取 Weekly 的周度研究。
+
 ### 2. Agent 元数据
 
 Agent 元数据附加在 prompt 输出之后。

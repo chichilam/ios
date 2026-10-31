@@ -148,6 +148,17 @@ Weekly Agent 的输入分为三类。
 
 建议输入缺失时，Weekly Agent 可以继续运行，但必须在信息缺口中记录。
 
+**自身已发布的周报历史（第 364 号 issue）。** Weekly Agent 可以只读自己已发布的 Weekly 历史，范围严格限于
+`docs/weekly-research-layering-contract.md` 的 "Inputs the Weekly may consume"：
+
+- 只算 `报告摘要` 指向的 Weekly generation，且 `报告日期` 在比本次更早的周一至周日周；
+- 用途只有两个：“上周”基线（一个 generation，按精确的 `报告ID` + `生成ID`）用于 `判断变化`，以及全部计入的
+  generation 用于 `复核成果` 的完成历史；
+- 只接受完整读取；读取不完整时写 `基线不可核验` / `完成状态不可核验`，不猜测；
+- 除 `原判断` 外，不把历史中的任何结论、价格或计划复制到本周。
+
+这是 Weekly 自己的输出，不是其他 Agent 的输出。读取 Daily 输出或合并任何其他 Agent 的输出仍然禁止。
+
 ### 3. 禁止输入处理
 
 Weekly Agent 不得：
@@ -355,6 +366,9 @@ Prompt 输出必须保持以下结构：
 ## 8. 下周待办
 ```
 
+Prompt 输出的八节结构不变。写入 Sheet 的 `报告周度研究` 行（第 364 号 issue）是第 1、3、4、5、7、8 节的结构化投影，
+不包含八节之外的任何判断。
+
 ### 2. Agent 元数据
 
 Agent 元数据附加在 prompt 输出之后。
@@ -418,7 +432,8 @@ Weekly Agent 的独立运行含义是：
 
 Weekly Agent 可以接收人工提供的上周待办事项。
 
-Weekly Agent 不得自动读取、合并或调用其他 Agent 的输出。
+Weekly Agent 不得自动读取、合并或调用其他 Agent 的输出。读取自己已发布的周报历史只按上面“输入要求”中第 364 号
+issue 的范围进行。
 
 ---
 

@@ -230,7 +230,7 @@ four `agents/*.md`/`prompts/*.md` files. The full Task templates (`setup/daily-t
   追加列：`报告摘要` 在 `暂停载体行数` 之后追加 `研究截至`/`行情截至`/`下一适用交易周`/`基线报告ID`/
   `基线生成ID`/`基线状态`；`报告持仓` 在 `价格参考位置` 之后、`报告风险` 在 `排序` 之后各追加 `变化标记`；
   `报告待办` 在 `待办ID` 之后追加 `复核键`。不回填，不改 `purchase_plan_mode` 或
-  `purchase_plan_mode_epoch`，不改外部模块开关，**也不改变报告行为**：没有第 364 号标记的 Task 不写这些列、
+  `purchase_plan_mode_epoch`，不改外部模块开关，**也不改变报告行为**：没有第 364 号标记（`report_layering: issue-364-v1`）的 Task 不写这些列、
   不写 `报告周度研究`，旧报告照常显示为「本报告版本未提供周度研究（生成于 #364 之前）」。安装/升级步骤绝不
   往这些列或这个 tab 写值。第 327 号价格参考列在 `schema_version` ≥ 10 时写，升到 11 不会让它停写。
 - `_安装状态` 末尾的 `external_fair_value_source_id`（第 344 号 issue，第 342 号 issue 的 P1）是可选
@@ -427,10 +427,11 @@ Task 指令内容（每次创建或更新都要重新执行下面的替换，不
    探针结束后删除这个临时 Task。本地或交互会话能运行 Python，不能代替这次 Scheduled Task 实测。
    **保存前自检（每个 Task 各做一次）**：替换完成后的指令全文必须同时满足——(a) 不再含任何
    `<..._PLACEHOLDER...>`、`<你的 GAS Web App URL>` 以外的占位符原文（GAS URL 占位符留到第 6 步替换）；
-   (b) 下面八行各恰好出现一行：`purchase_plan_modes_supported: legacy, three_layer, three_layer_hold`、
+   (b) 下面九行各恰好出现一行：`purchase_plan_modes_supported: legacy, three_layer, three_layer_hold`、
    `price_reference_snapshot: issue-327-v1`、`price_reference_schema_predicate: gte-10`、`fund_sleeve_boundary: issue-337-v1`、
    `external_fair_value_snapshot: issue-346-v1`、`external_financial_materials: issue-350-v1`、
-   `external_fair_value_portfolio: issue-352-v1`、`external_fair_value_engine: issue-357-v1`，另有恰好一行 `- runtime_snapshot: issue-296-v1` 和一行
+   `external_fair_value_portfolio: issue-352-v1`、`external_fair_value_engine: issue-357-v1`、
+   `report_layering: issue-364-v1`，另有恰好一行 `- runtime_snapshot: issue-296-v1` 和一行
    `- runtime_digest:`；(c) 完整绑定后的全文（含部署附注与全部替换值）不超过 80,000 个 UTF-16 code unit
    ——快照文件头的最坏绑定长度只是估算，不能代替对最终全文的这次计数；超出时不保存，也不自行删减规则。
    任何一项不满足：不要保存这个 Task，告诉用户哪一项没通过。
@@ -536,6 +537,11 @@ Task 指令内容（每次创建或更新都要重新执行下面的替换，不
    公允价值确定性引擎"，并另外说明能力探针是否已在 Scheduled Task 中实测通过（未实测就写"未实测"）。任何一项
    不满足：在最终验证清单里单独写明"Task 未同步：<Daily/Weekly>，<哪一项>"，并把读回原样留作证据。这一项不改变
    `schema_version`，也不启用外部来源。
+   **读回报告分层标记（第 364 号 issue）**：同一次读回里，再确认两个 Task 的指令各恰好有一行
+   `report_layering: issue-364-v1`（在"报告分层：变化标记与周度研究"一节里）。两个都有，才告诉用户"两个 Task 已同步报告分层"。
+   任何一个读不回或没有这一行：在最终验证清单里单独写明"Task 未同步：<Daily/Weekly>，未读回报告分层标记"，并把读回原样
+   留作证据。这一项不阻断表结构升级，也不改变 `schema_version`；Task 只在 `schema_version` ≥ 11 时按这一节写新列和
+   `报告周度研究`，`schema_version` 是 11 也不能证明 Task 已同步。
 6. 把 `_安装状态` 这一行写完整（新建或更新，不能只写一部分字段）：`schema_version`、
    `spreadsheet_id`、`spreadsheet_url`（如果有）、`daily_task_name`/`daily_task_id`（如果平台给了
    id）/`daily_task_schedule`/`daily_task_enabled`、`weekly_task_name`/`weekly_task_id`/
@@ -774,11 +780,13 @@ schema、Daily/Weekly Task 模板、GAS Dashboard 全部硬编码使用 `报告�
       已单独写明"Task 未同步"并附读回原样；`external_materials_source_id` 仍未被安装程序写值。
 - [ ] 两个 Task 的指令都读回了恰好一行 `external_fair_value_portfolio: issue-352-v1`；没有读回的那个 Task
       已单独写明"Task 未同步"并附读回原样；`external_fair_value_report_currency` 仍未被安装程序写值。
+- [ ] 两个 Task 的指令都读回了恰好一行 `report_layering: issue-364-v1`；没有读回的那个 Task 已单独写明
+      "Task 未同步"并附读回原样，没有用 `schema_version` 代替这项证据。
 - [ ] `_安装状态.purchase_plan_mode` 是 `legacy`（或用户此前经"购买计划模式切换"一节确认写入的
       `three_layer`/`three_layer_hold`，原样保留）、`purchase_plan_mode_epoch` 是正整数（全新安装或
       首次升级为 `1`；重复升级保持原值，没有被重置）；两个 Task 的指令都已读回，都含"购买计划模式
       守卫"一节，`purchase_plan_modes_supported:` 声明了 `legacy`；完整升级的 `schema_version` 是
-      `10`，写在列追加之后，而不是停在 `9`。
+      `11`，写在列追加、五表读回与 Task 写入条件标记读回之后，而不是停在 `9` 或 `10`。
 - [ ] `_安装状态` 的每一个必需字段都已写入（不是部分字段）：`schema_version`、`spreadsheet_id`、
       两个 Task 的 name/schedule/enabled、`timezone`（具体 IANA 时区，不是"用户本地时区"这类描述）、
       四个 `report_table_names_*`（必须是 schema 默认值 `报告摘要`/`报告持仓`/`报告风险`/`报告待办`，
