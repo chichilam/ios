@@ -49,6 +49,11 @@ credentials anywhere — every value in [`demo/demo-sheet.json`](demo/demo-sheet
   `buildLayeringView_` in `Code.gs` and the Weekly/Daily page order, old-report line, shape-error
   labels and folds in `Script.html`, against the synthetic fixture
   `test/report-layering-fixture.json`.
+- `test/no-horizontal-overflow.test.js` — Issue #370: renders the real `Index.html`/`Styles.html`/
+  `Script.html` in headless Chrome at 320/375/390/430px and desktop, with every report string made long
+  and unbreakable, and asserts no Daily/Weekly tab scrolls sideways (desktop keeps two card columns).
+  Uses the system Chrome/Chromium (`CHROME_BIN` to point at one); skipped locally without a browser,
+  required under CI.
 - `test/fake-dom.js` — a minimal hand-rolled DOM stand-in used only by `dashboard-script.test.js`
   (no browser, no third-party dependency).
 
@@ -62,6 +67,7 @@ node integrations/google-apps-script/ios-dashboard/test/dashboard-script.test.js
 node integrations/google-apps-script/ios-dashboard/test/external-fair-value-reader.test.js
 node integrations/google-apps-script/ios-dashboard/test/external-fair-value-portfolio-reader.test.js
 node integrations/google-apps-script/ios-dashboard/test/report-layering.test.js
+node integrations/google-apps-script/ios-dashboard/test/no-horizontal-overflow.test.js
 ```
 
 This is the only part of this package that can be verified without a real Google account —

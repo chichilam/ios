@@ -250,8 +250,8 @@ body {
 
 .ios-watchlist-card { background: var(--ios-watchlist-bg); }
 .ios-asset-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
-.ios-asset-name { color: var(--ios-muted); font-size: 0.85rem; margin: 4px 0; overflow-wrap: break-word; }
-.ios-asset-line { font-size: 0.85rem; margin: 4px 0; overflow-wrap: break-word; }
+.ios-asset-name { color: var(--ios-muted); font-size: 0.85rem; margin: 4px 0; overflow-wrap: anywhere; }
+.ios-asset-line { font-size: 0.85rem; margin: 4px 0; overflow-wrap: anywhere; }
 .ios-price-info { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .ios-badge-price-position { background: #e0f2fe; color: #0369a1; }
 
@@ -388,10 +388,10 @@ body {
 .ios-todo-head { display: flex; align-items: flex-start; gap: 8px; }
 .ios-todo-indicator { flex-shrink: 0; color: var(--ios-muted); line-height: 1.4; }
 .ios-todo-done .ios-todo-indicator { color: var(--ios-severity-low); }
-.ios-todo-text { flex: 1; min-width: 0; overflow-wrap: break-word; }
+.ios-todo-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .ios-todo-done .ios-todo-text { text-decoration: line-through; color: var(--ios-muted); }
 .ios-todo-meta { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 0 26px; }
-.ios-todo-note { margin: 4px 0 0 26px; color: var(--ios-muted); font-size: 0.8rem; overflow-wrap: break-word; }
+.ios-todo-note { margin: 4px 0 0 26px; color: var(--ios-muted); font-size: 0.8rem; overflow-wrap: anywhere; }
 
 /* Ongoing-monitoring/waiting-for-evidence open items (Issue #267): only the
    indicator dot is tinted -- same restrained treatment .ios-todo-done gives
@@ -434,6 +434,12 @@ body {
 .ios-layer-unmarked { display: grid; gap: 4px; }
 .ios-layer-verdict { display: grid; gap: 4px; padding: 8px 0; border-top: 1px solid var(--ios-border); overflow-wrap: anywhere; }
 .ios-layer-verdict .ios-asset-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+/* Issue #370: an implicit grid track is `auto`, so one long unbroken token
+   (an ID, a time range, a source) sized the whole layering column wider than
+   a phone. Pin every layering grid to one shrinkable column and let its
+   items shrink, the same rule #332 gave the report cards. */
+.ios-layering, .ios-layer-group, .ios-layer-unmarked, .ios-layer-verdict { grid-template-columns: minmax(0, 1fr); }
+.ios-layering > *, .ios-layer-group > *, .ios-layer-unmarked > *, .ios-layer-verdict > *, .ios-layer-fact > * { min-width: 0; }
 
 .ios-table-wrap { overflow-x: auto; }
 .ios-allocation-cards { display: none; }
