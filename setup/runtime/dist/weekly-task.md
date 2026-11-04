@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE: do not edit by hand. Edit setup/runtime/fragments/ and run
 python3 setup/runtime/build_task_runtime.py build -->
-<!-- runtime-stats: {"runtime_snapshot":"issue-296-v1","runtime_digest":"2c6424f4f125bf20ec18d5eb59a3e87b4cf25af84a321f390ebf6df0e9417e7a","utf16_units":77907,"code_points":77907,"utf8_bytes":185299,"worst_case_bound_utf16_units":79947,"budget_utf16_units":80000} -->
+<!-- runtime-stats: {"runtime_snapshot":"issue-296-v1","runtime_digest":"e6d286fb94ad7c253a167b8c3cdbff5d8e1160314ce481b0d2e02ac6d29a4ff1","utf16_units":77954,"code_points":77954,"utf8_bytes":185432,"worst_case_bound_utf16_units":79994,"budget_utf16_units":80000} -->
 
 This is the installable runtime snapshot of the Weekly Scheduled Task (Issue #296). The
 installer (`setup/chatgpt-install-prompt.md`) pastes everything between the `PASTE-READY START`/
@@ -12,13 +12,13 @@ references; `setup/runtime/rule-map.json` maps every runtime rule back to them.
 
 | Measure | Value |
 | --- | --- |
-| UTF-16 code units (paste-ready body, before binding) | 77907 |
-| Unicode code points | 77907 |
-| UTF-8 bytes | 185299 |
+| UTF-16 code units (paste-ready body, before binding) | 77954 |
+| Unicode code points | 77954 |
+| UTF-8 bytes | 185432 |
 | Embedded authority (no separate embedding step) | 0 |
-| Worst-case bound after binding (UTF-16 code units) | 79947 |
+| Worst-case bound after binding (UTF-16 code units) | 79994 |
 | Engineering budget (UTF-16 code units, not a proven platform limit) | 80000 |
-| runtime_digest | `2c6424f4f125bf20ec18d5eb59a3e87b4cf25af84a321f390ebf6df0e9417e7a` |
+| runtime_digest | `e6d286fb94ad7c253a167b8c3cdbff5d8e1160314ce481b0d2e02ac6d29a4ff1` |
 
 <!-- PASTE-READY START -->
 
@@ -40,7 +40,7 @@ Report 复盘，回答"这个组合在未来 3–12 个月是否需要维护动�
 时区名称，例如 Asia/Tokyo——不能是"用户本地时区"这类无法直接计算的描述>`
 
 - runtime_snapshot: issue-296-v1
-- runtime_digest: 2c6424f4f125bf20ec18d5eb59a3e87b4cf25af84a321f390ebf6df0e9417e7a
+- runtime_digest: e6d286fb94ad7c253a167b8c3cdbff5d8e1160314ce481b0d2e02ac6d29a4ff1
 - 快照来源 commit/版本：`<CONTENT_VERSION_PLACEHOLDER：由安装程序填写读取本快照时的仓库 commit>`
 - 快照时间：`<CONTENT_SNAPSHOT_TIME_PLACEHOLDER：由安装程序填写，ISO 8601>`
 
@@ -1466,8 +1466,8 @@ Daily 不读。再读最新状态所在 generation 的 `报告待办`。除 `原
   `已完成`；文字（"已复核"）不能完成任何键。其他状态 `解除记录` 留空；`等待具体证据`/`待独立DeepDive`（`记录` 键还有
   `需更新假设`）需一条同键未完成待办，`已完成` 不得有。
 - 状态含义：`需更新假设` 须已读官方文件或记录并完成有界复核，`结论` 写要改的原假设，`本周证据` 写新事实（非仅来源与日期），
-  `影响` 写对计划或估值的影响；未读的事件写 `等待具体证据`（`下一证据或触发` 写缺什么、何时可得）；`待独立DeepDive` 写
-  范围与理由。不同 `复核键` 的 `结论`、`下一证据或触发` 不得相同。
+  `影响` 写对计划或估值的影响；`等待具体证据` 只用于未发布的文件或数据，`下一证据或触发` 写缺什么与晚于 `研究截至`
+  的日期、月、旬或下周/下月，不写已发布的；已发布的本次读取并有界复核，或写 `待独立DeepDive`（范围与理由）。不同 `复核键` 的 `结论`、`下一证据或触发` 不得相同。
 - `资本配置`：账户数据过期或 `可用现金` 未知时不写金额、权重或回报数字，缺口写一次；`研究优先` 是研究先后，不受此限。只写
   `保留现金`/`不排序` 时 `关联代码` 列出比较对象，`本周证据` 写比较依据或缺口，不凑数排名。
 - `共同风险`：任何精确数量（相关系数、百分比、权重、倍数、金额、敞口）只在 `依据性质` 含 `机械计算` 且 `来源记录` 写明输入时
