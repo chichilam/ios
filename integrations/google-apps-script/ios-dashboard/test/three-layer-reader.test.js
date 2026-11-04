@@ -715,7 +715,54 @@ test('#63/#58 research-time labels: before the event, expired, superseded valuat
     return result;
   };
   const event = label({ row: Object.assign({}, REFERENCE_360, { 周计划状态: '事件暂停', 今日行动: '暂停新增待复核', 今日行动说明: '业绩发布，待复核' }) });
-  assert.match(event, /^技术研究截至 2026-10-17T16:00（事件前的研究，待周中复核，不是事件后的复核）$/);
+  assert.match(event, /^技术研究截至 2026-10-17T16:00（事件暂停中，研究与事件的先后未能确认；暂停尚未解除，不是事件后的复核）$/,
+    'without event days the order is never guessed from the status alone');
+  const eventRow = (extra) => Object.assign({}, REFERENCE_360, { 周计划状态: '事件暂停', 今日行动: '暂停新增待复核', 今日行动说明: '业绩发布，待复核' }, extra);
+  const UNKNOWN = /（事件暂停中，研究与事件的先后未能确认；暂停尚未解除，不是事件后的复核[；）]/;
+  const ids = (...list) => JSON.stringify(list);
+  const before = label({ row: eventRow({ 已核验暂停记录ID: ids('AAA|业绩或指引|TDNET-1|2026-10-20') }) });
+  assert.match(before, /（事件（2026-10-20）前的研究，待周中复核，不是事件后的复核）$/);
+  const sameDay = label({ row: eventRow({ 已核验暂停记录ID: ids('AAA|业绩或指引|TDNET-1|2026-10-17') }) });
+  assert.match(sameDay, UNKNOWN, 'the same day is neither provably before nor after');
+  const nextDayUnzoned = label({ row: eventRow({ 已核验暂停记录ID: ids('AAA|业绩或指引|TDNET-1|2026-10-18') }) });
+  assert.match(nextDayUnzoned, UNKNOWN, 'a time without offset may fall on the event day in another zone');
+  const after = label({ row: eventRow({ 周计划研究截至: '2026-11-04T22:42:54+09:00',
+    已核验暂停记录ID: ids('AAA|业绩或指引|TDNET-1|2026-10-28', 'AAA|重大公司行动|TDNET-2|2026-10-29') }) });
+  assert.match(after, /^技术研究截至 2026-11-04T22:42:54\+09:00（事件（2026-10-29）后的研究，暂停尚未解除，不表示可以买入）$/);
+  const production = label({ row: eventRow({ 周计划研究截至: '2026-11-04T22:42:54.131125+09:00',
+    已核验暂停记录ID: ids('MSFT|计划列明事件|https://example.com/q1|2026-10-28'),
+    暂停事件载荷: JSON.stringify([{ 暂停记录ID: 'MSFT|计划列明事件|https://example.com/q1|2026-10-28', 代码: 'MSFT', 事件时间: '2026-10-28' }]) }) });
+  assert.match(production, /事件（2026-10-28）后的研究/, 'the 2026-11-04 production case: event 10/28, research 11/04');
+  const crossZone = label({ row: eventRow({ 周计划研究截至: '2026-10-29T08:00:00+09:00', 已核验暂停记录ID: ids('AAA|业绩或指引|SEC-1|2026-10-28') }) });
+  assert.match(crossZone, UNKNOWN, 'a JST morning may still be the US event day');
+  const exactInstant = label({ row: eventRow({ 周计划研究截至: '2026-10-29T08:00:00+09:00', 已核验暂停记录ID: ids('AAA|业绩或指引|SEC-1|2026-10-28'),
+    暂停事件载荷: JSON.stringify([{ 暂停记录ID: 'AAA|业绩或指引|SEC-1|2026-10-28', 事件时间: '2026-10-28T16:05:00-04:00' }]) }) });
+  assert.match(exactInstant, /事件（2026-10-28）后的研究/, 'two exact instants are ordered exactly');
+  const fromPayload = label({ row: eventRow({ 周计划研究截至: '2026-11-04T22:42:54+09:00',
+    暂停事件载荷: JSON.stringify([{ 暂停记录ID: 'x', 事件时间: '2026-10-28' }]) }) });
+  assert.match(fromPayload, /事件（2026-10-28）后的研究，暂停尚未解除/);
+  // One ID readable, another broken whose payload record is later than the research: never "after".
+  const partial = label({ row: eventRow({ 周计划研究截至: '2026-10-25T12:00:00+09:00',
+    已核验暂停记录ID: ids('AAA|业绩或指引|TDNET-1|2026-10-20', 'AAA|重大公司行动|TDNET-2'),
+    暂停事件载荷: JSON.stringify([{ 暂停记录ID: 'AAA|重大公司行动|TDNET-2', 事件时间: '2026-10-30' }]) }) });
+  assert.match(partial, /事件（2026-10-30）前的研究/, 'the payload fills the ID without a day');
+  const partialUnreadable = label({ row: eventRow({ 周计划研究截至: '2026-10-25T12:00:00+09:00',
+    已核验暂停记录ID: ids('AAA|业绩或指引|TDNET-1|2026-10-20', 'AAA|重大公司行动|TDNET-2') }) });
+  assert.match(partialUnreadable, UNKNOWN, 'one unreadable event makes the order unknown');
+  const cases = {
+    invalidDay: { 周计划研究截至: '2026-11-04T22:42:54+09:00', 已核验暂停记录ID: ids('AAA|业绩或指引|TDNET-1|2026-99-99') },
+    feb30: { 周计划研究截至: '2026-11-04T22:42:54+09:00', 已核验暂停记录ID: ids('AAA|业绩或指引|TDNET-1|2026-02-30') },
+    disagree: { 周计划研究截至: '2026-11-04T22:42:54+09:00', 已核验暂停记录ID: ids('AAA|业绩或指引|TDNET-1|2026-10-20'),
+      暂停事件载荷: JSON.stringify([{ 暂停记录ID: 'AAA|业绩或指引|TDNET-1|2026-10-20', 事件时间: '2026-10-21' }]) },
+    brokenPayload: { 周计划研究截至: '2026-11-04T22:42:54+09:00', 已核验暂停记录ID: ids('AAA|业绩或指引|TDNET-1|2026-10-20'), 暂停事件载荷: '{bad' },
+    payloadWithoutId: { 周计划研究截至: '2026-11-04T22:42:54+09:00', 暂停事件载荷: JSON.stringify([{ 事件时间: '2026-10-28' }]) },
+    invalidResearch: { 周计划研究截至: '2026-13-01', 已核验暂停记录ID: ids('AAA|业绩或指引|TDNET-1|2026-10-20') },
+    nonStringId: { 周计划研究截至: '2026-11-04T22:42:54+09:00', 已核验暂停记录ID: JSON.stringify([7]) },
+  };
+  for (const [name, extra] of Object.entries(cases)) assert.match(label({ row: eventRow(extra) }), UNKNOWN, name);
+  const broken = label({ row: eventRow({ 已核验暂停记录ID: '{bad' }) });
+  assert.match(broken, UNKNOWN);
+  for (const text of [before, sameDay, after, production, exactInstant, fromPayload, partial, broken]) assert.doesNotMatch(text, /(?<!不表示)可以买|允许下单|(?<!不表示)暂停已解除|事件后已复核/);
   assert.match(label({ row: Object.assign({}, REFERENCE_360, { 周计划状态: '已过期', 今日行动: '周计划过期待复核' }) }), /周计划已过期，为过期研究/);
   assert.match(label({ row: Object.assign({}, REFERENCE_360, { 周计划状态: '引用失效', 今日行动: '先核对缺项' }) }), /长期估值已更新，本研究未随新估值复核/);
   const hold = label({ row: REFERENCE_360, summary: { 购买计划模式: 'three_layer_hold', 模式纪元: 3 },

@@ -1326,11 +1326,125 @@
       notes.push('三层购买计划暂停中，此为暂停前的研究，不表示恢复购买');
     }
     var status = asset['周计划状态'];
-    if (status === '事件暂停') { notes.push('事件前的研究，待周中复核，不是事件后的复核'); }
+    if (status === '事件暂停') { notes.push(eventResearchOrderNote_(asset)); }
     if (status === '已过期') { notes.push('周计划已过期，为过期研究'); }
     if (status === '引用失效') { notes.push('长期估值已更新，本研究未随新估值复核'); }
     if (gateProblem && asset._iosPurchaseMode !== 'three_layer_hold') { notes.push('报告建议非当前行动，不表示暂停已解除'); }
     return label + (notes.length > 0 ? '（' + notes.join('；') + '）' : '');
+  }
+
+  /**
+   * Under 事件暂停, whether the snapshot's research comes provably before or
+   * after every verified pause event (#364 P4 final acceptance). Each ID in
+   * 已核验暂停记录ID must resolve to one calendar-valid time: its own
+   * `|YYYY-MM-DD` suffix and the 事件时间 of the 暂停事件载荷 record with the
+   * same 暂停记录ID (they must agree on the day when both exist); with an
+   * empty or blank ID list, every payload record must carry a valid 暂停记录ID and 事件时间. A
+   * bare day or a time without offset is the window it can cover in any time
+   * zone (UTC+14 to UTC-12). Only research strictly later than every event's
+   * window is "after", only research strictly earlier than the latest event's
+   * window is "before"; anything else (one unreadable event, a disagreement,
+   * the same day, an overlapping zone) says the order is not known. None of
+   * them says the pause is lifted.
+   */
+  function eventResearchOrderNote_(asset) {
+    var unknown = '事件暂停中，研究与事件的先后未能确认；暂停尚未解除，不是事件后的复核';
+    var research = timeWindow_(asset['周计划研究截至']);
+    var events = pauseEventWindows_(asset);
+    if (!research || !events || events.length === 0) { return unknown; }
+    var latest = events[0];
+    var researchAfterAll = true;
+    for (var i = 0; i < events.length; i++) {
+      if (events[i].lo > latest.lo) { latest = events[i]; }
+      if (!(research.lo > events[i].hi)) { researchAfterAll = false; }
+    }
+    if (researchAfterAll) {
+      var last = events[0];
+      for (var k = 1; k < events.length; k++) { if (events[k].hi > last.hi) { last = events[k]; } }
+      return '事件（' + last.day + '）后的研究，暂停尚未解除，不表示可以买入';
+    }
+    if (research.hi < latest.lo) {
+      return '事件（' + latest.day + '）前的研究，待周中复核，不是事件后的复核';
+    }
+    return unknown;
+  }
+
+  /** One window per verified event, or null when any event cannot be read. */
+  function pauseEventWindows_(asset) {
+    var idCell = asset['已核验暂停记录ID'];
+    var payloadCell = asset['暂停事件载荷'];
+    var payload = isBlank(payloadCell) ? [] : parseJsonArray_(payloadCell);
+    if (!isBlank(payloadCell) && payload === null) { return null; }
+    var byId = {};
+    for (var j = 0; j < payload.length; j++) {
+      var rec = payload[j];
+      if (!rec || typeof rec['暂停记录ID'] !== 'string' || rec['暂停记录ID'] === '') { return null; }
+      if (Object.prototype.hasOwnProperty.call(byId, rec['暂停记录ID'])) { return null; }
+      byId[rec['暂停记录ID']] = rec;
+    }
+    var ids = isBlank(idCell) ? [] : parseJsonArray_(idCell);
+    if (ids === null) { return null; }
+    if (ids.length === 0) { ids = Object.keys(byId); }
+    var out = [];
+    for (var i = 0; i < ids.length; i++) {
+      var id = ids[i];
+      if (typeof id !== 'string' || id === '') { return null; }
+      var suffix = id.match(/\|(\d{4}-\d{2}-\d{2})$/);
+      var fromId = suffix ? timeWindow_(suffix[1]) : null;
+      if (suffix && !fromId) { return null; }
+      var rec2 = Object.prototype.hasOwnProperty.call(byId, id) ? byId[id] : null;
+      var fromPayload = rec2 ? timeWindow_(rec2['事件时间']) : null;
+      if (rec2 && !fromPayload) { return null; }
+      if (fromId && fromPayload && fromId.day !== fromPayload.day) { return null; }
+      var w = fromPayload || fromId;
+      if (!w) { return null; }
+      out.push(w);
+    }
+    return out;
+  }
+
+  var ZONE_EARLIEST_MS_ = 14 * 3600 * 1000;  // UTC+14
+  var ZONE_LATEST_MS_ = 12 * 3600 * 1000;    // UTC-12
+
+  /**
+   * {day, lo, hi} in UTC milliseconds for `YYYY-MM-DD`, a time with an offset
+   * (an exact instant) or a time without one; null for anything else,
+   * including a day that is not on the calendar.
+   */
+  function timeWindow_(value) {
+    if (typeof value !== 'string') { return null; }
+    var m = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?(Z|[+-]\d{2}:\d{2})?)?$/);
+    if (!m) { return null; }
+    var y = +m[1], mo = +m[2], d = +m[3];
+    var base = Date.UTC(y, mo - 1, d);
+    var check = new Date(base);
+    if (check.getUTCFullYear() !== y || check.getUTCMonth() !== mo - 1 || check.getUTCDate() !== d) { return null; }
+    var day = m[1] + '-' + m[2] + '-' + m[3];
+    if (m[4] === undefined) {
+      return { day: day, lo: base - ZONE_EARLIEST_MS_, hi: base + 24 * 3600 * 1000 + ZONE_LATEST_MS_ };
+    }
+    var hh = +m[4], mi = +m[5], ss = m[6] === undefined ? 0 : +m[6];
+    if (hh > 23 || mi > 59 || ss > 59) { return null; }
+    var local = base + ((hh * 60 + mi) * 60 + ss) * 1000;
+    if (m[7] === undefined) { return { day: day, lo: local - ZONE_EARLIEST_MS_, hi: local + ZONE_LATEST_MS_ }; }
+    var offset = 0;
+    if (m[7] !== 'Z') {
+      var oh = +m[7].slice(1, 3), om = +m[7].slice(4, 6);
+      if (oh > 14 || om > 59) { return null; }
+      offset = (m[7][0] === '-' ? -1 : 1) * (oh * 60 + om) * 60000;
+    }
+    return { day: day, lo: local - offset, hi: local - offset };
+  }
+
+  /** A JSON array, or null when the cell is not one. */
+  function parseJsonArray_(value) {
+    if (typeof value !== 'string') { return null; }
+    try {
+      var parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : null;
+    } catch (e) {
+      return null;
+    }
   }
 
   /** Display the snapshot's research conditions, never a new execution gate. */

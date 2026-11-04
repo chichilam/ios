@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE: do not edit by hand. Edit setup/runtime/fragments/ and run
 python3 setup/runtime/build_task_runtime.py build -->
-<!-- runtime-stats: {"runtime_snapshot":"issue-296-v1","runtime_digest":"d582728273bfb016e07084d0335c89b2c2d6c895ea6e9f74d2c40967da6248b7","utf16_units":59238,"code_points":59238,"utf8_bytes":140320,"worst_case_bound_utf16_units":60853,"budget_utf16_units":80000} -->
+<!-- runtime-stats: {"runtime_snapshot":"issue-296-v1","runtime_digest":"fa8fa15f7734b40bce370cf658d7dc221eece4cbf421d55a7c764b07a93c93bf","utf16_units":59064,"code_points":59064,"utf8_bytes":139876,"worst_case_bound_utf16_units":60679,"budget_utf16_units":80000} -->
 
 This is the installable runtime snapshot of the Daily Scheduled Task (Issue #296). The
 installer (`setup/chatgpt-install-prompt.md`) pastes everything between the `PASTE-READY START`/
@@ -12,13 +12,13 @@ references; `setup/runtime/rule-map.json` maps every runtime rule back to them.
 
 | Measure | Value |
 | --- | --- |
-| UTF-16 code units (paste-ready body, before binding) | 59238 |
-| Unicode code points | 59238 |
-| UTF-8 bytes | 140320 |
+| UTF-16 code units (paste-ready body, before binding) | 59064 |
+| Unicode code points | 59064 |
+| UTF-8 bytes | 139876 |
 | Embedded authority (no separate embedding step) | 0 |
-| Worst-case bound after binding (UTF-16 code units) | 60853 |
+| Worst-case bound after binding (UTF-16 code units) | 60679 |
 | Engineering budget (UTF-16 code units, not a proven platform limit) | 80000 |
-| runtime_digest | `d582728273bfb016e07084d0335c89b2c2d6c895ea6e9f74d2c40967da6248b7` |
+| runtime_digest | `fa8fa15f7734b40bce370cf658d7dc221eece4cbf421d55a7c764b07a93c93bf` |
 
 <!-- PASTE-READY START -->
 
@@ -40,7 +40,7 @@ Report 研究，回答"今天发生了什么，值得长期投资者记录或继
 时区名称，例如 Asia/Tokyo——不能是"用户本地时区"这类无法直接计算的描述>`
 
 - runtime_snapshot: issue-296-v1
-- runtime_digest: d582728273bfb016e07084d0335c89b2c2d6c895ea6e9f74d2c40967da6248b7
+- runtime_digest: fa8fa15f7734b40bce370cf658d7dc221eece4cbf421d55a7c764b07a93c93bf
 - 快照来源 commit/版本：`<CONTENT_VERSION_PLACEHOLDER：由安装程序填写读取本快照时的仓库 commit>`
 - 快照时间：`<CONTENT_SNAPSHOT_TIME_PLACEHOLDER：由安装程序填写，ISO 8601>`
 
@@ -811,7 +811,7 @@ Daily 绝不写 `周度购买计划` 的任何技术列。
 - `仅有条件观察`：两个边界都为空；`参考确认条件` 与 `参考否定条件` 至少一条不为空（`支撑参考`/`阻力参考`
   不能代替）；`数据来源`、`技术取价口径`、`技术回看窗口` 不为空。
 - `技术数据不足`：两个边界、`支撑参考`、`阻力参考` 都为空；`技术数据缺口` 按本行取数写 `已取得：<项或 无>；缺：<项>`
-  （项限 `逐日OHLCV`/`成交量`/`基准对照`/`行业对照`），可附原因；`缺` 非空、两边不重复、`数据来源` 写明已取得的列入 `已取得`，
+  （项限 `逐日OHLCV`/`成交量`/`基准对照`/`行业对照`），可附原因；`缺` 非空、两边不重复、`数据来源` 原样写出本行 `代码` 与本次尝试的结果、不与他行共用，已取得的列入 `已取得`，
   OHLCV 与成交量都已取得写 `仅有条件观察`（写入检查，读者不据此判形状错误）。
 - `支撑参考`/`阻力参考` 不为空时是规范 JSON 数组，每个元素有数字 `价位` 和 `YYYY-MM-DD` 的 `观察日期`；
   任何数字 `价位` 都要求 `技术参考币种` 不为空。
@@ -954,7 +954,7 @@ external_fair_value_snapshot: issue-346-v1
 
 external_fair_value_engine: issue-357-v1
 
-- efv_engine: efv-engine-v3 sha256 d7be7a1a14b6d6cc43040ebd374caac37d8f3416fcdda68328ecf55e2647e0b6
+- efv_engine: efv-engine-v4 sha256 159085592c7602dba8dcf0df234bbf56104ca005ed5df6972e94b36f2afc42da
 - 引擎文件（Drive 文件 ID）：<EFV_ENGINE_FILE_ID_PLACEHOLDER：安装程序替换为已核验的 Drive 文件 ID，或"未安装">
 
 - **加载**：开关启用时，只按上面的文件 ID 读取引擎文件（绝不按文件名搜索或改用别的文件），把读到的全部字节
@@ -1171,12 +1171,9 @@ report_layering: issue-364-v1
 - 不把 `未知`、缺少反馈记录或过期未更新的挂单当作 `未下单`；不为部分成交的剩余部分重新给出订单规模。
 - 三层模式下不把 `入场计划.区间N价格` 当作可执行区间或回退买点，不让过期、暂停、异常或 `three_layer_hold` 掩盖在途
   或无法确认的订单，不删除任何 `报告持仓`/`周计划暂停记录` 行，不把分析师评级、媒体或传闻记录成暂停事件。
-- 外部公允价值快照、外部财经材料与外部公允价值组合对照都默认关闭、各自独立开关：开关为空时不读模块 tab、不写批次
-  行；启用时不登录、不请求来源、不等待或重试采集、不写记录 tab；模块结果不改变估值、计划、`今日行动`、执行字段、
-  门槛、发布判定或 `核心状态`；未经一手来源核实的第三方材料不写成事实；不把部分覆盖写成组合整体公允价值、不把
-  未覆盖值补 0；切换之后不补写、改写或删除本 `生成ID` 的模块快照行。
-- 基金聚合行（`FUND-SLEEVE`）不写 `可人工准备限价单`，不为它写或关联"先完成长期估值""建立入场计划"类待办，不把
-  `投资信托明细.当前市值` 合计和 `FUND-SLEEVE` 行自己的字段相加。
+- 外部模块（快照、材料、组合对照）只按各自一节运行，结果不改变任何判断、计划或发布判定。
+- `FUND-SLEEVE` 行不写 `可人工准备限价单`；`关键变化`/`长期逻辑或估值`/`下一验证点` 每句都写定投或基金数据，不写任何个股研究或
+  估值。
 - 不创建、修改或重新估算 `入场计划` 的任何字段（长期估值锚点、计划新增仓位说明、区间、占比、技术确认条件、不追高
   条件、失效条件、订单执行参数与人工确认）——Daily 只读取并评估已有的活跃计划；Daily 不写 `周度购买计划`、不写
   `已处理暂停记录`、不解除暂停。

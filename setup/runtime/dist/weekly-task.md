@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE: do not edit by hand. Edit setup/runtime/fragments/ and run
 python3 setup/runtime/build_task_runtime.py build -->
-<!-- runtime-stats: {"runtime_snapshot":"issue-296-v1","runtime_digest":"e6d286fb94ad7c253a167b8c3cdbff5d8e1160314ce481b0d2e02ac6d29a4ff1","utf16_units":77954,"code_points":77954,"utf8_bytes":185432,"worst_case_bound_utf16_units":79994,"budget_utf16_units":80000} -->
+<!-- runtime-stats: {"runtime_snapshot":"issue-296-v1","runtime_digest":"877b7eead09ea35654a3fb7c163402bdfab2c5d2d17377342933155bd47bd775","utf16_units":77955,"code_points":77955,"utf8_bytes":185399,"worst_case_bound_utf16_units":79995,"budget_utf16_units":80000} -->
 
 This is the installable runtime snapshot of the Weekly Scheduled Task (Issue #296). The
 installer (`setup/chatgpt-install-prompt.md`) pastes everything between the `PASTE-READY START`/
@@ -12,13 +12,13 @@ references; `setup/runtime/rule-map.json` maps every runtime rule back to them.
 
 | Measure | Value |
 | --- | --- |
-| UTF-16 code units (paste-ready body, before binding) | 77954 |
-| Unicode code points | 77954 |
-| UTF-8 bytes | 185432 |
+| UTF-16 code units (paste-ready body, before binding) | 77955 |
+| Unicode code points | 77955 |
+| UTF-8 bytes | 185399 |
 | Embedded authority (no separate embedding step) | 0 |
-| Worst-case bound after binding (UTF-16 code units) | 79994 |
+| Worst-case bound after binding (UTF-16 code units) | 79995 |
 | Engineering budget (UTF-16 code units, not a proven platform limit) | 80000 |
-| runtime_digest | `e6d286fb94ad7c253a167b8c3cdbff5d8e1160314ce481b0d2e02ac6d29a4ff1` |
+| runtime_digest | `877b7eead09ea35654a3fb7c163402bdfab2c5d2d17377342933155bd47bd775` |
 
 <!-- PASTE-READY START -->
 
@@ -40,7 +40,7 @@ Report 复盘，回答"这个组合在未来 3–12 个月是否需要维护动�
 时区名称，例如 Asia/Tokyo——不能是"用户本地时区"这类无法直接计算的描述>`
 
 - runtime_snapshot: issue-296-v1
-- runtime_digest: e6d286fb94ad7c253a167b8c3cdbff5d8e1160314ce481b0d2e02ac6d29a4ff1
+- runtime_digest: 877b7eead09ea35654a3fb7c163402bdfab2c5d2d17377342933155bd47bd775
 - 快照来源 commit/版本：`<CONTENT_VERSION_PLACEHOLDER：由安装程序填写读取本快照时的仓库 commit>`
 - 快照时间：`<CONTENT_SNAPSHOT_TIME_PLACEHOLDER：由安装程序填写，ISO 8601>`
 
@@ -1161,7 +1161,7 @@ Weekly 按"周度购买计划"一节的"本周价格参考"写十三列技术列
 - `仅有条件观察`：两个边界都为空；`参考确认条件` 与 `参考否定条件` 至少一条不为空（`支撑参考`/`阻力参考`
   不能代替）；`数据来源`、`技术取价口径`、`技术回看窗口` 不为空。
 - `技术数据不足`：两个边界、`支撑参考`、`阻力参考` 都为空；`技术数据缺口` 按本行取数写 `已取得：<项或 无>；缺：<项>`
-  （项限 `逐日OHLCV`/`成交量`/`基准对照`/`行业对照`），可附原因；`缺` 非空、两边不重复、`数据来源` 写明已取得的列入 `已取得`，
+  （项限 `逐日OHLCV`/`成交量`/`基准对照`/`行业对照`），可附原因；`缺` 非空、两边不重复、`数据来源` 原样写出本行 `代码` 与本次尝试的结果、不与他行共用，已取得的列入 `已取得`，
   OHLCV 与成交量都已取得写 `仅有条件观察`（写入检查，读者不据此判形状错误）。
 - `支撑参考`/`阻力参考` 不为空时是规范 JSON 数组，每个元素有数字 `价位` 和 `YYYY-MM-DD` 的 `观察日期`；
   任何数字 `价位` 都要求 `技术参考币种` 不为空。
@@ -1304,7 +1304,7 @@ external_fair_value_snapshot: issue-346-v1
 
 external_fair_value_engine: issue-357-v1
 
-- efv_engine: efv-engine-v3 sha256 d7be7a1a14b6d6cc43040ebd374caac37d8f3416fcdda68328ecf55e2647e0b6
+- efv_engine: efv-engine-v4 sha256 159085592c7602dba8dcf0df234bbf56104ca005ed5df6972e94b36f2afc42da
 - 引擎文件（Drive 文件 ID）：<EFV_ENGINE_FILE_ID_PLACEHOLDER：安装程序替换为已核验的 Drive 文件 ID，或"未安装">
 
 - **加载**：开关启用时，只按上面的文件 ID 读取引擎文件（绝不按文件名搜索或改用别的文件），把读到的全部字节
@@ -1443,7 +1443,7 @@ Daily 不读。再读最新状态所在 generation 的 `报告待办`。除 `原
   自由现金流/长期成长/估值/市场环境/行为纪律 之一，本 generation 内唯一。只按 `判断键` 匹配基线行，绝不按标题、
   `关联代码`、`排序` 或文字：基线恰好一行同键为 `基线同键`，可写 `已变化`/`维持`/`停止跟踪`，`原判断` 逐字复制该行
   `结论`；`基线状态` 不是 `有基线` 时 `比较依据` 等于 `基线状态`；基线无此键为 `基线无此键`；同键多行为 `基线键重复`
-  （链接一条点名基线的数据异常待办）。后四种写 `不可比较`、`原判断` 留空。`已变化`/`维持` 必须有 `本周证据`；持仓、价格
+  （链接一条点名基线的数据异常待办）。后四种写 `不可比较`、`原判断` 留空。`已变化`/`维持` 必须有各自不同的 `本周证据`；`已变化` 的 `结论` 写出原→新、方向或幅度（重申、缺失不算）；持仓、价格
   或权重变化本身不是判断变化。基线中未 `停止跟踪`、范围仍在本次 `报告持仓`（或为 `组合`）的每个键本周都必须出现。
 - `复核成果`：`复核键` 本 generation 内唯一。官方事件为 `事件|代码|事件类别|来源标识|事件日期`（即 `事件|` 加第 316 号
   issue 的暂停记录 ID）；没有官方来源（媒体、传闻、价格变动）就没有事件键。研究记录触发为
@@ -1451,6 +1451,8 @@ Daily 不读。再读最新状态所在 generation 的 `报告待办`。除 `原
   入场计划时 `入场计划|无|估值缺失`，`周度购买计划|<周计划ID>|周计划复核`，`观察名单|<最近研究日期>|观察候选DeepDive`
   （与该 `代码` 唯一一行观察名单的 `最近研究日期` 完全相同）；`来源记录` 引用该记录。新证据、新版本或新研究日期是新键，
   可在 `前序复核键` 指回较早的键（须在计入的更早 generation 中唯一解析到同 `代码` 的 `复核成果` 行；读取不完整时留空）。
+- 覆盖：`事件暂停` 行的每个 `已核验暂停记录ID`、有 `入场计划ID` 而 `长期买入上限快照` 为空的 `估值缺失` 键、计入 generation
+  中本次 `代码` 的未完成键，本周都须有 `复核成果` 行（已完成者除外）。`关键变化` 逐行写本行事实。
 - 完成历史：每个本周要复核或开待办的键，在全部计入 generation 中取 `报告日期` 最晚、含该键 `复核成果` 行者为上一状态。
   上一状态 `已完成`（`记录` 键还要求 `解除记录` 指向的版本仍存在）：本周不写该键、不开同键待办；该版本已不存在时写
   `完成状态不可核验`。最新那份同键两行、`已完成` 却有同键未完成待办、同一 `来源标识` 在本次或计入 generation 中出现于两个 `代码` 下、指针冲突或
@@ -1580,12 +1582,9 @@ Daily 不读。再读最新状态所在 generation 的 `报告待办`。除 `原
 - 不把 `未知`、缺少反馈记录或过期未更新的挂单当作 `未下单`；不为部分成交的剩余部分重新给出订单规模。
 - 三层模式下不把 `入场计划.区间N价格` 当作可执行区间或回退买点，不让过期、暂停、异常或 `three_layer_hold` 掩盖在途
   或无法确认的订单，不删除任何 `报告持仓`/`周计划暂停记录` 行，不把分析师评级、媒体或传闻记录成暂停事件。
-- 外部公允价值快照、外部财经材料与外部公允价值组合对照都默认关闭、各自独立开关：开关为空时不读模块 tab、不写批次
-  行；启用时不登录、不请求来源、不等待或重试采集、不写记录 tab；模块结果不改变估值、计划、`今日行动`、执行字段、
-  门槛、发布判定或 `核心状态`；未经一手来源核实的第三方材料不写成事实；不把部分覆盖写成组合整体公允价值、不把
-  未覆盖值补 0；切换之后不补写、改写或删除本 `生成ID` 的模块快照行。
-- 基金聚合行（`FUND-SLEEVE`）不写 `可人工准备限价单`，不为它写或关联"先完成长期估值""建立入场计划"类待办，不把
-  `投资信托明细.当前市值` 合计和 `FUND-SLEEVE` 行自己的字段相加。
+- 外部模块（快照、材料、组合对照）只按各自一节运行，结果不改变任何判断、计划或发布判定。
+- `FUND-SLEEVE` 行不写 `可人工准备限价单`；`关键变化`/`长期逻辑或估值`/`下一验证点` 每句都写定投或基金数据，不写任何个股研究或
+  估值。
 - 不在"当前现金或资金状态"未提供时只把资本配置相关的小节标记不可执行、其余照常生成——不可执行约束的是整次运行。
 - 不跳过 `观察名单` 里任何一行的本周优先级复盘；`优先级` 只写中文 canonical 值。
 - 不为填满 `入场计划` 而编造估值锚点、计划新增仓位说明、区间价格或条件；不原地修改已有 `入场计划`/`周度购买计划`
