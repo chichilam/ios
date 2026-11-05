@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE: do not edit by hand. Edit setup/runtime/fragments/ and run
 python3 setup/runtime/build_task_runtime.py build -->
-<!-- runtime-stats: {"runtime_snapshot":"issue-296-v1","runtime_digest":"877b7eead09ea35654a3fb7c163402bdfab2c5d2d17377342933155bd47bd775","utf16_units":77955,"code_points":77955,"utf8_bytes":185399,"worst_case_bound_utf16_units":79995,"budget_utf16_units":80000} -->
+<!-- runtime-stats: {"runtime_snapshot":"issue-296-v1","runtime_digest":"bd699a8b728deb5f103f3dfe613b4b3e518747ca22535d025bcfa10be9686d65","utf16_units":77955,"code_points":77955,"utf8_bytes":185399,"worst_case_bound_utf16_units":79995,"budget_utf16_units":80000} -->
 
 This is the installable runtime snapshot of the Weekly Scheduled Task (Issue #296). The
 installer (`setup/chatgpt-install-prompt.md`) pastes everything between the `PASTE-READY START`/
@@ -18,7 +18,7 @@ references; `setup/runtime/rule-map.json` maps every runtime rule back to them.
 | Embedded authority (no separate embedding step) | 0 |
 | Worst-case bound after binding (UTF-16 code units) | 79995 |
 | Engineering budget (UTF-16 code units, not a proven platform limit) | 80000 |
-| runtime_digest | `877b7eead09ea35654a3fb7c163402bdfab2c5d2d17377342933155bd47bd775` |
+| runtime_digest | `bd699a8b728deb5f103f3dfe613b4b3e518747ca22535d025bcfa10be9686d65` |
 
 <!-- PASTE-READY START -->
 
@@ -40,7 +40,7 @@ Report 复盘，回答"这个组合在未来 3–12 个月是否需要维护动�
 时区名称，例如 Asia/Tokyo——不能是"用户本地时区"这类无法直接计算的描述>`
 
 - runtime_snapshot: issue-296-v1
-- runtime_digest: 877b7eead09ea35654a3fb7c163402bdfab2c5d2d17377342933155bd47bd775
+- runtime_digest: bd699a8b728deb5f103f3dfe613b4b3e518747ca22535d025bcfa10be9686d65
 - 快照来源 commit/版本：`<CONTENT_VERSION_PLACEHOLDER：由安装程序填写读取本快照时的仓库 commit>`
 - 快照时间：`<CONTENT_SNAPSHOT_TIME_PLACEHOLDER：由安装程序填写，ISO 8601>`
 
@@ -1304,7 +1304,7 @@ external_fair_value_snapshot: issue-346-v1
 
 external_fair_value_engine: issue-357-v1
 
-- efv_engine: efv-engine-v4 sha256 159085592c7602dba8dcf0df234bbf56104ca005ed5df6972e94b36f2afc42da
+- efv_engine: efv-engine-v5 sha256 054d36a2e4c6d8c02117361edd6ea172bf06b7a26fd947286c8de1cd06da3a28
 - 引擎文件（Drive 文件 ID）：<EFV_ENGINE_FILE_ID_PLACEHOLDER：安装程序替换为已核验的 Drive 文件 ID，或"未安装">
 
 - **加载**：开关启用时，只按上面的文件 ID 读取引擎文件（绝不按文件名搜索或改用别的文件），把读到的全部字节
