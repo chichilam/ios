@@ -157,7 +157,11 @@ body {
   border-radius: var(--ios-radius);
   box-shadow: var(--ios-shadow);
 }
-.ios-metric-value { font-size: 1.4rem; font-weight: 700; }
+.ios-metric-value { font-size: 1.4rem; font-weight: 700; max-width: 100%; overflow-wrap: anywhere; }
+/* 核心状态/数据检查 hold free text (Issue #376): full card width, body-sized
+   wrapping prose, so a Weekly sentence is never clipped at its end. */
+.ios-metric-card-prose { align-items: stretch; }
+.ios-metric-value-prose { font-size: 1.05rem; line-height: 1.45; }
 .ios-metric-label { font-size: 0.85rem; font-weight: 600; }
 .ios-metric-subtitle { color: var(--ios-muted); font-size: 0.75rem; }
 
@@ -458,4 +462,6 @@ body {
 @media (max-width: 600px) {
   body { padding: 12px; }
   .ios-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ios-metric-card-prose { grid-column: 1 / -1; }
+  .ios-metric-value-prose { font-size: 0.95rem; }
 }

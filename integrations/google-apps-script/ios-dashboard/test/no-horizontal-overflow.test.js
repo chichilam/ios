@@ -27,6 +27,7 @@ const logic = require(path.join(DIR, 'Code.gs'));
 const STYLES_SRC = fs.readFileSync(path.join(DIR, 'Styles.html'), 'utf8');
 
 const WIDTHS = [320, 375, 390, 430, 1280];
+const EXECUTED_SUMMARY = '已执行：8项持仓、23项观察；30份周计划、36条周度研究；估值与行情缺口明确保留。';
 const LONG = 'gen-weekly-20990101-demo0000-demo0000-EP-DEMO1-2026Q4-https://example.com/a/very/long/source/path/without/spaces-' + 'A'.repeat(80);
 
 function readJson(rel) {
@@ -61,6 +62,11 @@ function stressBootstrap() {
       记录状态: '已读取，最近一次采集失败', 采集新鲜度: '过期', 外部公允价值: '123.45', 报价币种: 'USD',
       来源名称: 'external-source', 值记录获取时间: '2026-10-31T09:00:00+09:00'
     };
+  });
+  // Issue #376: a real Weekly writes a whole sentence into 核心状态.
+  [boot.daily, boot.weekly].forEach((vm) => {
+    vm.summary['核心状态'] = EXECUTED_SUMMARY;
+    vm.summary['Review状态'] = EXECUTED_SUMMARY;
   });
   return lengthen(boot);
 }
@@ -102,10 +108,23 @@ function harnessScript() {
           }
           offenders.push(node.tagName.toLowerCase() + '.' + String(node.className).split(' ').join('.'));
         });
+        var clipped = [];
+        Array.prototype.forEach.call(doc.querySelectorAll('.ios-metric-card'), function (card) {
+          var outer = card.getBoundingClientRect();
+          Array.prototype.forEach.call(card.children, function (child) {
+            var box = child.getBoundingClientRect();
+            if (box.right > outer.right + 0.5 || box.bottom > outer.bottom + 0.5 || child.scrollWidth > child.clientWidth + 1) {
+              clipped.push(child.className + ': ' + child.textContent.slice(0, 12));
+            }
+          });
+        });
         var grid = doc.querySelector('.ios-card-grid');
         results.push({
           width: width, view: view, tab: tab,
-          clientWidth: root.clientWidth, scrollWidth: root.scrollWidth, offenders: offenders.slice(0, 5),
+          clientWidth: root.clientWidth, scrollWidth: root.scrollWidth, offenders: offenders.slice(0, 5), clipped: clipped,
+          proseFullRow: Array.prototype.map.call(doc.querySelectorAll('.ios-metric-card-prose'), function (card) {
+            return Math.abs(card.getBoundingClientRect().width - doc.querySelector('.ios-summary-grid').getBoundingClientRect().width) < 1;
+          }),
           cardColumns: grid ? win.getComputedStyle(grid).gridTemplateColumns.split(' ').length : 0,
           sections: ['.ios-layering', '.ios-layer-fact', '.ios-layer-verdict', '.ios-inline-fair-value', '.ios-asset-card',
             '.ios-checklist', '.ios-list', '.ios-allocation-cards']
@@ -180,6 +199,12 @@ test('card and todo text never falls back to break-word, which cannot shrink a f
   });
 });
 
+test('free-text summary metrics wrap as prose and take a full row on a phone (Issue #376)', () => {
+  assert.match(STYLES_SRC, /\.ios-metric-value \{[^}]*overflow-wrap: anywhere;/);
+  assert.match(STYLES_SRC, /\.ios-metric-card-prose \{ align-items: stretch; \}/);
+  assert.match(STYLES_SRC, /@media \(max-width: 600px\) \{[^@]*\.ios-metric-card-prose \{ grid-column: 1 \/ -1; \}/);
+});
+
 test('no Daily or Weekly tab scrolls sideways at 320-430px or desktop, and desktop keeps two columns', (t) => {
   const chrome = findChrome();
   if (!chrome) {
@@ -193,6 +218,11 @@ test('no Daily or Weekly tab scrolls sideways at 320-430px or desktop, and deskt
   results.forEach((r) => {
     assert.ok(r.scrollWidth <= r.clientWidth,
       `${r.width}px ${r.view}/${r.tab}: scrollWidth ${r.scrollWidth} > clientWidth ${r.clientWidth}; widest: ${r.offenders.join(', ')}`);
+  });
+  results.forEach((r) => {
+    assert.deepEqual(r.clipped, [], `${r.width}px ${r.view}/${r.tab}: summary card text clipped`);
+    assert.equal(r.proseFullRow.length, 2, `${r.width}px ${r.view}: 核心状态 and 数据检查 render as prose cards`);
+    r.proseFullRow.forEach((full) => assert.equal(full, r.width < 600, `${r.width}px ${r.view}: prose cards take a full row only on a phone`));
   });
   const portfolio = (width, view) => results.find((r) => r.width === width && r.view === view && r.tab === 'portfolio');
   ['daily', 'weekly'].forEach((view) => {

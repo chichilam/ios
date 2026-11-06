@@ -249,20 +249,23 @@
    * like 核心状态/Review状态 already did (PR #252 review round 2).
    * Deliberately NOT tab shortcuts: tab navigation lives only in the
    * separate tab row below (review round 1) -- these are plain
-   * informational cards, not buttons.
+   * informational cards, not buttons. 核心状态/数据检查 are free text (a
+   * Weekly writes a whole sentence there), so they render as wrapping prose
+   * and take a full row on a phone instead of a clipped number-sized value
+   * (Issue #376).
    */
   function buildSummaryGrid(vm) {
     var summary = vm.summary;
     var metrics = [
       { label: '当前持仓', subtitle: '实时组合事实', value: isBlank(summary['当前持仓数']) ? '未知' : String(summary['当前持仓数']) },
       { label: '观察名单', subtitle: '高优先级', value: isBlank(summary['高优先级观察数']) ? '未知' : String(summary['高优先级观察数']) },
-      { label: '核心状态', subtitle: 'IOS判断', value: summary['核心状态'] || '未知' },
-      { label: '数据检查', subtitle: '数据完整性', value: summary['Review状态'] || '未知' }
+      { label: '核心状态', subtitle: 'IOS判断', value: summary['核心状态'] || '未知', prose: true },
+      { label: '数据检查', subtitle: '数据完整性', value: summary['Review状态'] || '未知', prose: true }
     ];
     var grid = el('div', { className: 'ios-summary-grid' });
     metrics.forEach(function (metric) {
-      grid.appendChild(el('div', { className: 'ios-metric-card' }, [
-        text('span', 'ios-metric-value', metric.value),
+      grid.appendChild(el('div', { className: 'ios-metric-card' + (metric.prose ? ' ios-metric-card-prose' : '') }, [
+        text('span', 'ios-metric-value' + (metric.prose ? ' ios-metric-value-prose' : ''), metric.value),
         text('span', 'ios-metric-label', metric.label),
         text('span', 'ios-metric-subtitle', metric.subtitle)
       ]));
