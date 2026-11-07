@@ -209,6 +209,14 @@ completion; the Daily/Weekly Task wrote those (see `docs/weekly-research-layerin
 
 The build marker is unchanged by this section.
 
+## Risk trend (Issue #375, schema_version 12)
+
+The 风险 tab lists current risks (`风险评估` = `触发`, or any pre-#375 row) under `风险 (N)`, then
+`已解除或评估未触发 (N)` (`未触发`) and `未核验或未覆盖——不等于解除 (N)` as separate groups. A row with
+`风险趋势` shows it as a badge, with `上期 <严重度 / 风险指标> → 本期 …`, `评估依据` and the compared
+`比较报告ID`. The reader shows only what the generation stored; it never re-derives a trend or reads
+another generation. A pre-#375 row has no `风险趋势` and renders as before. The build marker is unchanged.
+
 ## Three-layer reader and build marker (Issue #323, #316 P4)
 
 三层模式卡片按 #334 显示今日行动、本周购买区间，然后紧接技术关注范围、确认条件和否定条件（技术参考，不是买入授权）。其余周计划、本周价格参考、来源与长期估值明细统一放在默认关闭的“今日行动依据”中，保持各自研究日期。条件来自原报告快照，不影响今日行动判断；事件前、过期、hold、历史或非当前行动的时间/状态说明仍在条件旁显示。旧报告缺字段不补值，legacy 保持原布局。

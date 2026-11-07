@@ -121,7 +121,7 @@ four `agents/*.md`/`prompts/*.md` files. The full Task templates (`setup/daily-t
 
 以下字段定义与
 [`setup/schema/sheet-schema.json`](https://github.com/chichilam/ios/blob/main/setup/schema/sheet-schema.json)
-（`schema_version: 11`）逐字一致，如果你能直接读取该文件，以文件内容为准；这里的表格是供你在无法
+（`schema_version: 12`）逐字一致，如果你能直接读取该文件，以文件内容为准；这里的表格是供你在无法
 读取仓库文件时直接使用的完整副本：
 
 | Tab | Fields（`*` = 必需，其余可留空） |
@@ -137,7 +137,7 @@ four `agents/*.md`/`prompts/*.md` files. The full Task templates (`setup/daily-t
 | `周计划暂停记录` | `暂停记录ID*`, `代码*`, `周计划ID`, `事件类别*`, `事件说明*`, `事件时间*`, `来源*`, `记录时间*`, `记录者*` |
 | `报告摘要` | `报告ID*`, `生成ID*`, `报告类型*`, `报告日期*`, `周期开始`, `周期结束`, `一句话结论*`, `核心状态*`, `Review状态`, `当前持仓数`, `高优先级观察数`, `生成时间*`, `备注`, `购买计划模式`, `模式纪元`, `暂停载体行数`, `研究截至`, `行情截至`, `下一适用交易周`, `基线报告ID`, `基线生成ID`, `基线状态` |
 | `报告持仓` | `报告ID*`, `生成ID*`, `报告类型*`, `报告日期*`, `资产类型*`, `代码*`, `名称*`, `数量`, `Thesis状态`, `IOS状态`, `关键变化`, `长期逻辑或估值`, `下一验证点`, `参考买入价/区间`, `当前价格`, `价格位置`, `优先级`, `排序`, `入场计划ID`, `执行状态`, `当前区间`, `需要复核`, `入场计划估值锚点`, `入场计划版本`, `入场计划数据时间`, `行情截至时间`, `当前阻碍`, `下次检查`, `停止条件说明`, `较上次变化说明`, `准备状态`, `建议限价`, `建议订单规模说明`, `计划订单有效期`, `跳空处理提示`, `最近订单状态`, `今日行动`, `今日行动说明`, `计划买入上限`, `行情属性`, `报价币种`, `计划买入下限`, `阻塞待办ID`, `周计划ID`, `周计划版本`, `周计划状态`, `周计划结论`, `周计划执行路径`, `周计划适用周`, `周计划研究截至`, `周计划复核时间`, `周计划复核方式`, `长期合理价值`, `长期买入上限快照`, `估值研究日期快照`, `资金结论`, `暂停事件载荷`, `已核验暂停记录ID`, `价格参考结论`, `价格参考下沿`, `价格参考上沿`, `价格参考币种`, `价格参考支撑`, `价格参考阻力`, `价格参考确认条件`, `价格参考否定条件`, `价格参考趋势环境`, `价格参考出处`, `价格参考缺口`, `价格参考与上限关系`, `价格参考位置`, `变化标记` |
-| `报告风险` | `报告ID*`, `生成ID*`, `报告类型*`, `报告日期*`, `风险类型`, `风险*`, `影响资产`, `影响`, `本期动作`, `严重度`, `排序`, `变化标记` |
+| `报告风险` | `报告ID*`, `生成ID*`, `报告类型*`, `报告日期*`, `风险类型`, `风险*`, `影响资产`, `影响`, `本期动作`, `严重度`, `排序`, `变化标记`, `风险规则ID`, `风险对象`, `风险键`, `风险评估`, `评估依据`, `风险指标`, `风险趋势`, `上期严重度`, `上期风险指标`, `比较报告ID`, `比较生成ID` |
 | `报告待办` | `报告ID*`, `生成ID*`, `报告类型*`, `报告日期*`, `排序`, `分类`, `待办*`, `状态`, `备注`, `跟进类型`, `待办ID`, `复核键` |
 | `报告周度研究` | `报告ID*`, `生成ID*`, `报告类型*`, `报告日期*`, `条目ID*`, `分区*`, `排序`, `关联代码`, `标题`, `结论*`, `判断键`, `比较依据`, `原判断`, `本周证据`, `依据性质`, `影响`, `状态`, `下一证据或触发`, `来源记录`, `复核键`, `前序复核键`, `解除记录`, `关联待办ID` |
 | `_安装状态` | `schema_version*`, `spreadsheet_id*`, `spreadsheet_url`, `dashboard_url`, `daily_task_name*`, `daily_task_id`, `daily_task_schedule*`, `daily_task_enabled*`, `weekly_task_name*`, `weekly_task_id`, `weekly_task_schedule*`, `weekly_task_enabled*`, `weekly_cash_context`, `timezone*`, `report_table_names_summary*`, `report_table_names_assets*`, `report_table_names_risks*`, `report_table_names_todos*`, `locale`, `last_verified_at*`, `purchase_plan_mode*`, `purchase_plan_mode_epoch*`, `external_fair_value_source_id`, `external_materials_source_id`, `external_fair_value_report_currency` |
@@ -233,6 +233,12 @@ four `agents/*.md`/`prompts/*.md` files. The full Task templates (`setup/daily-t
   `purchase_plan_mode_epoch`，不改外部模块开关，**也不改变报告行为**：没有第 364 号标记（`report_layering: issue-364-v1`）的 Task 不写这些列、
   不写 `报告周度研究`，旧报告照常显示为「本报告版本未提供周度研究（生成于 #364 之前）」。安装/升级步骤绝不
   往这些列或这个 tab 写值。第 327 号价格参考列在 `schema_version` ≥ 10 时写，升到 11 不会让它停写。
+- schema_version 12（第 375 号 issue）只在 `报告风险` 末尾、`变化标记` 之后追加 `风险规则ID`/`风险对象`/`风险键`/
+  `风险评估`/`评估依据`/`风险指标`/`风险趋势`/`上期严重度`/`上期风险指标`/`比较报告ID`/`比较生成ID` 十一列（稳定风险
+  身份与跨期比较，契约见 `docs/risk-identity-contract.md`）。不新建 tab，不动其他 tab，不回填，不改
+  `purchase_plan_mode` 或 `purchase_plan_mode_epoch`，不改外部模块开关；没有第 375 号标记（`risk_identity: issue-375-v1`）
+  的 Task 不写这些列，旧报告照常按自己的快照显示。安装/升级步骤绝不往这些列写值。价格参考列在 `schema_version` ≥ 10
+  时写，升到 12 不会让它停写。
 - `_安装状态` 末尾的 `external_fair_value_source_id`（第 344 号 issue，第 342 号 issue 的 P1）是可选
   外部公允价值来源的开关，**默认关闭**，不改变 `schema_version`，也不改变任何报告行为。全新安装时这一列
   随表头一起创建，单元格留空；升级任何版本的已有安装时，列不存在就在 `_安装状态` 末尾追加一个空列，
@@ -261,10 +267,10 @@ four `agents/*.md`/`prompts/*.md` files. The full Task templates (`setup/daily-t
   列），不得重新排序或覆盖已有列——用户已经填写的单元格必须原样保留。任何会导致现有行无法按原样
   读取的改动（重命名字段、改变字段含义）都不是这里说的"增量"，必须走独立的、有备份和用户批准的
   迁移步骤，绝不能夹在普通安装/升级流程里悄悄执行。升级完成后把
-  `_安装状态.schema_version` 更新为当前最新版本 `11`——无论升级前是 schema_version 1 到 10 中的
+  `_安装状态.schema_version` 更新为当前最新版本 `12`——无论升级前是 schema_version 1 到 11 中的
   哪一个，增量升级后都收敛到同一个最新版本，缺失的列/tab 一次性补齐。下面第 9 版顺序里的
-  「写成 `9`」和第 10 版顺序里的「写成 `10`」只描述停在那一版时的最后一步；本次运行的目标是第 11 版，
-  版本号按第 11 版顺序只在全部列和 tab 追加之后写一次。
+  「写成 `9`」、第 10 版顺序里的「写成 `10`」和第 11 版顺序里的「写成 `11`」只描述停在那一版时的最后一步；
+  本次运行的目标是第 12 版，版本号按第 12 版顺序只在全部列和 tab 追加之后写一次。
 - **升级到 schema_version 9 的顺序（中断后每一步都停在安全状态）**：
   1. 按精确表头名逐个检查，只在 tab 末尾追加缺少的列、只新建缺少的 tab（只有表头）。已经存在的
      列/tab 跳过，绝不重复追加。如果某个已有 tab 的表头不是上表 canonical 表头的**前缀**（字段被
@@ -325,6 +331,21 @@ four `agents/*.md`/`prompts/*.md` files. The full Task templates (`setup/daily-t
   在第 4 小步之前中断，或任一读回不匹配：`schema_version` 仍是 10 或更低，已有 Task 按原规则运行，多出来的
   空列和空 tab 不被任何报告引用。重新运行时从第 0 小步重新检查，已存在的 tab 和列按精确名称跳过，不重复追加。
   Dashboard 构建标记这次也不升级。
+- **升级到 schema_version 12 的顺序（中断后每一步都停在安全状态）**：
+  0. **先只读、后写入。** 在做任何写入之前（包括更早各版的建列建 tab 和 Task 原地更新），按第 11 版第 0 小步
+     读取同样五张表的表头，但以上表第 12 版的 canonical 最终表头判断**前缀**。任一张不可读、重排、有未知列或
+     重复列：Blocked，告诉用户是哪张表，**不做任何修改**，`schema_version` 保持原值。
+  1. 第 0 小步通过后，完成「升级到 schema_version 11 的顺序」第 1 到第 3 小步（含两个 Task 按当前运行时快照
+     原地更新并读回）；目标是第 12 版时，**不要**把 `schema_version` 写成 `11` 就结束。
+  2. 只在 `报告风险` 末尾追加缺少的第 12 版列，已存在的按精确名称跳过，不重复追加。不重排、不删除、不回填、
+     不写示例值，不动其他 tab。
+  3. 追加之后，再分别精确读回 `报告摘要`、`报告持仓`、`报告风险`、`报告待办`、`报告周度研究` 五张表的最终表头，
+     五张都与 canonical 最终表头逐列、按顺序完全一致，且第 1 小步里两个 Task 的读回**都**含恰好一行
+     `price_reference_schema_predicate: gte-10`，**最后**才把 `_安装状态.schema_version` 写成 `12` 并读回。任何一项
+     不满足：不写 12，`schema_version` 保持升级前的值，告诉用户是哪张表或哪个 Task。这一步只写版本号，也不因为
+     Task 里还没有第 375 号风险身份标记而停下：旧 Task 不写新列，留空是安全的。
+  在第 3 小步之前中断，或任一读回不匹配：`schema_version` 仍是 11 或更低，已有 Task 按原规则运行，多出来的
+  空列不被任何报告引用。重新运行时从第 0 小步重新检查。Dashboard 构建标记这次也不升级。
 - 如果你有能力读取 [`setup/schema/sheet-schema.json`](https://github.com/chichilam/ios/blob/main/setup/schema/sheet-schema.json)，
   优先以该文件为准（本表格如与其不一致，以仓库文件为准，并提醒用户此处文档可能需要更新）。
 
@@ -427,12 +448,12 @@ Task 指令内容（每次创建或更新都要重新执行下面的替换，不
    探针结束后删除这个临时 Task。本地或交互会话能运行 Python，不能代替这次 Scheduled Task 实测。
    **保存前自检（每个 Task 各做一次）**：替换完成后的指令全文必须同时满足——(a) 不再含任何
    `<..._PLACEHOLDER...>`、`<你的 GAS Web App URL>` 以外的占位符原文（GAS URL 占位符留到第 6 步替换）；
-   (b) 下面九行各恰好出现一行：`purchase_plan_modes_supported: legacy, three_layer, three_layer_hold`、
+   (b) 下面十行各恰好出现一行：`purchase_plan_modes_supported: legacy, three_layer, three_layer_hold`、
    `price_reference_snapshot: issue-327-v1`、`price_reference_schema_predicate: gte-10`、`fund_sleeve_boundary: issue-337-v1`、
    `external_fair_value_snapshot: issue-346-v1`、`external_financial_materials: issue-350-v1`、
    `external_fair_value_portfolio: issue-352-v1`、`external_fair_value_engine: issue-357-v1`、
-   `report_layering: issue-364-v1`，另有恰好一行 `- runtime_snapshot: issue-296-v1` 和一行
-   `- runtime_digest:`；(c) 完整绑定后的全文（含部署附注与全部替换值）不超过 80,000 个 UTF-16 code unit
+   `report_layering: issue-364-v1`、`risk_identity: issue-375-v1`，另有恰好一行 `- runtime_snapshot: issue-296-v1` 和一行
+   `- runtime_digest:`；(c) 完整绑定后的全文（含部署附注与全部替换值）不超过 85,000 个 UTF-16 code unit
    ——快照文件头的最坏绑定长度只是估算，不能代替对最终全文的这次计数；超出时不保存，也不自行删减规则。
    任何一项不满足：不要保存这个 Task，告诉用户哪一项没通过。
    **保存后读回全文核对**：保存后重新读取 Task 的完整指令全文，与保存前生成的期望全文逐字比较，不能只核对
@@ -449,7 +470,7 @@ Task 指令内容（每次创建或更新都要重新执行下面的替换，不
 
    - **本次运行会创建/保持 `账户状态` tab**（第 2 步已经创建了它——这是现在起每一次全新安装或升级
      的标准结果，覆盖绝大多数情形；Sheet 因此达到 schema_version ≥ 2 的等价结构，最终记录的
-     `_安装状态.schema_version` 是当前最新版本 `11`）：**不要**再问"简短描述"这类自由文本问题。把
+     `_安装状态.schema_version` 是当前最新版本 `12`）：**不要**再问"简短描述"这类自由文本问题。把
      Weekly Task 模板里的 `<WEEKLY_CASH_CONTEXT_PLACEHOLDER：...>` 整行**替换成**下面这个固定的
      失效说明（不是保留原始占位符标记，也不是留空——"最终验证清单"要求安装完成后不能有任何残留的
      `<..._PLACEHOLDER...>` 标记，这一行必须被替换掉，只是替换成一个明确的"已失效"说明，而不是
@@ -542,6 +563,11 @@ Task 指令内容（每次创建或更新都要重新执行下面的替换，不
    任何一个读不回或没有这一行：在最终验证清单里单独写明"Task 未同步：<Daily/Weekly>，未读回报告分层标记"，并把读回原样
    留作证据。这一项不阻断表结构升级，也不改变 `schema_version`；Task 只在 `schema_version` ≥ 11 时按这一节写新列和
    `报告周度研究`，`schema_version` 是 11 也不能证明 Task 已同步。
+   **读回风险身份标记（第 375 号 issue）**：同一次读回里，再确认两个 Task 的指令各恰好有一行
+   `risk_identity: issue-375-v1`（在"风险身份与跨期比较"一节里）。两个都有，才告诉用户"两个 Task 已同步风险身份"。
+   任何一个读不回或没有这一行：在最终验证清单里单独写明"Task 未同步：<Daily/Weekly>，未读回风险身份标记"，并把读回原样
+   留作证据。这一项不阻断表结构升级，也不改变 `schema_version`；Task 只在 `schema_version` ≥ 12 时写这些列，
+   `schema_version` 是 12 也不能证明 Task 已同步。
 6. 把 `_安装状态` 这一行写完整（新建或更新，不能只写一部分字段）：`schema_version`、
    `spreadsheet_id`、`spreadsheet_url`（如果有）、`daily_task_name`/`daily_task_id`（如果平台给了
    id）/`daily_task_schedule`/`daily_task_enabled`、`weekly_task_name`/`weekly_task_id`/
@@ -564,8 +590,8 @@ Task 指令内容（每次创建或更新都要重新执行下面的替换，不
 纪元，也不建议用户手动修改 `_安装状态`：
 
 1. **就绪检查（全部读回，不凭记忆、不凭用户口述）**：
-   - **Sheet 是 v9、v10 或 v11**：读回 `_安装状态`，恰好一行，`schema_version` 是 `9`、`10` 或 `11`（当前最新；
-     低于 9 或高于 11 都不切换），`spreadsheet_id` 等于
+   - **Sheet 是 v9、v10、v11 或 v12**：读回 `_安装状态`，恰好一行，`schema_version` 是 `9`、`10`、`11` 或 `12`（当前最新；
+     低于 9 或高于 12 都不切换），`spreadsheet_id` 等于
      你正在操作的这个 Sheet 的 ID，`purchase_plan_mode` 是 `legacy`/`three_layer`/`three_layer_hold`
      之一，`purchase_plan_mode_epoch` 是正整数。读不回、多于一行、或任何一项不合法：不切换。
    - **两个 Task 都具备三层能力**：把记录的两个 Task（`daily_task_name`/`weekly_task_name`，有 id 时按
@@ -695,9 +721,9 @@ schema、Daily/Weekly Task 模板、GAS Dashboard 全部硬编码使用 `报告�
       `区间2上一版本对应区间`/`区间3上一版本对应区间`/`交易单位确认`/`订单类型可用性确认`/
       `换汇可行性确认`/`交易单位确认时间`/`订单类型可用性确认时间`/`订单资金账户`/
       `换汇可行性确认时间` 十五列）；`_安装状态` tab 也存在，且只有一行数据。
-- [ ] 报告 tab 的表头与上面的表格逐字匹配，含 schema_version 11 新建的 `报告周度研究`（只有表头）和
-      `报告摘要`/`报告持仓`/`报告风险`/`报告待办` 末尾新增的列；安装过程没有往这些列或 `报告周度研究`
-      写入任何值。
+- [ ] 报告 tab 的表头与上面的表格逐字匹配，含 schema_version 11 新建的 `报告周度研究`（只有表头）、
+      `报告摘要`/`报告持仓`/`报告风险`/`报告待办` 末尾新增的列和 schema_version 12 在 `报告风险` 末尾新增的十一列；
+      安装过程没有往这些列或 `报告周度研究` 写入任何值。
 - [ ] `当前持仓`/`观察名单`/`账户状态`/`投资信托明细` 中没有被安装过程写入任何编造的示例数据
       （应为空表头，用户提供的真实数据，或用户自己已有的真实数据）；`投资信托明细` 全程不会被
       主动问及；`账户状态` 会在第 4 步被主动问及一次，用户可以选择提供真实数据或明确拒绝，两种
@@ -711,11 +737,11 @@ schema、Daily/Weekly Task 模板、GAS Dashboard 全部硬编码使用 `报告�
       issue），正文未被改写或精简：各恰好一行 `- runtime_snapshot: issue-296-v1`，`- runtime_digest:` 与
       本次获取的快照一致，保存后读回的完整全文与期望全文逐字一致（不只是标记与 digest 行一致）；"内容版本"两个
       占位符与部署附注都已填写（已有的、经过核验的写入适配原样沿用）；
-      除第 6 步前的 GAS URL 外没有任何残留占位符；全文不超过 80,000 个 UTF-16 code unit。原 Task 是原位
+      除第 6 步前的 GAS URL 外没有任何残留占位符；全文不超过 85,000 个 UTF-16 code unit。原 Task 是原位
       更新的，名称、id、执行时间与启用状态不变，没有另建重复的 Weekly Task。
 - [ ] `账户状态` tab 已创建（空表头，安装过程没有替用户填入任何编造的具体数值）。**如果**本次
       运行创建/保持了 `账户状态` tab（即 Sheet 达到 schema_version ≥ 2 的等价结构——现在起每一次
-      全新安装或增量升级都是如此，最终记录的 `_安装状态.schema_version` 是当前最新版本 `11`）：
+      全新安装或增量升级都是如此，最终记录的 `_安装状态.schema_version` 是当前最新版本 `12`）：
       Weekly Task 模板与 `_安装状态.weekly_cash_context` 里原来的
       `<WEEKLY_CASH_CONTEXT_PLACEHOLDER...>` 占位符标记**都已被替换成固定的失效说明**（不是原始
       占位符标记，也不是保留升级前的旧描述）——两处文字完全一致；现金/资金状态改为通过用户提供的
@@ -770,8 +796,8 @@ schema、Daily/Weekly Task 模板、GAS Dashboard 全部硬编码使用 `报告�
       `schema_version` 没有因为这一列改变。
 - [ ] 两个 Task 的指令都读回了恰好一行 `price_reference_snapshot: issue-327-v1`；没有读回的那个 Task
       已单独写明"Task 未同步"并附读回原样，没有用 `schema_version` 代替这项证据。
-- [ ] 两个 Task 的指令都读回了恰好一行 `price_reference_schema_predicate: gte-10`；`schema_version` 是 `11`
-      时这两行读回都存在（缺任何一个就不该写 11）；没有读回的那个 Task 已单独写明"Task 未同步"并附读回原样。
+- [ ] 两个 Task 的指令都读回了恰好一行 `price_reference_schema_predicate: gte-10`；`schema_version` 是 `11` 或 `12`
+      时这两行读回都存在（缺任何一个就不该写 11 或 12）；没有读回的那个 Task 已单独写明"Task 未同步"并附读回原样。
 - [ ] 两个 Task 的指令都读回了恰好一行 `fund_sleeve_boundary: issue-337-v1`；没有读回的那个 Task
       已单独写明"Task 未同步"并附读回原样。
 - [ ] 两个 Task 的指令都读回了恰好一行 `external_fair_value_snapshot: issue-346-v1`；没有读回的那个 Task
@@ -782,11 +808,13 @@ schema、Daily/Weekly Task 模板、GAS Dashboard 全部硬编码使用 `报告�
       已单独写明"Task 未同步"并附读回原样；`external_fair_value_report_currency` 仍未被安装程序写值。
 - [ ] 两个 Task 的指令都读回了恰好一行 `report_layering: issue-364-v1`；没有读回的那个 Task 已单独写明
       "Task 未同步"并附读回原样，没有用 `schema_version` 代替这项证据。
+- [ ] 两个 Task 的指令都读回了恰好一行 `risk_identity: issue-375-v1`；没有读回的那个 Task 已单独写明
+      "Task 未同步"并附读回原样，没有用 `schema_version` 代替这项证据。
 - [ ] `_安装状态.purchase_plan_mode` 是 `legacy`（或用户此前经"购买计划模式切换"一节确认写入的
       `three_layer`/`three_layer_hold`，原样保留）、`purchase_plan_mode_epoch` 是正整数（全新安装或
       首次升级为 `1`；重复升级保持原值，没有被重置）；两个 Task 的指令都已读回，都含"购买计划模式
       守卫"一节，`purchase_plan_modes_supported:` 声明了 `legacy`；完整升级的 `schema_version` 是
-      `11`，写在列追加、五表读回与 Task 写入条件标记读回之后，而不是停在 `9` 或 `10`。
+      `12`，写在列追加、五表读回与 Task 写入条件标记读回之后，而不是停在 `9`、`10` 或 `11`。
 - [ ] `_安装状态` 的每一个必需字段都已写入（不是部分字段）：`schema_version`、`spreadsheet_id`、
       两个 Task 的 name/schedule/enabled、`timezone`（具体 IANA 时区，不是"用户本地时区"这类描述）、
       四个 `report_table_names_*`（必须是 schema 默认值 `报告摘要`/`报告持仓`/`报告风险`/`报告待办`，

@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE: do not edit by hand. Edit setup/runtime/fragments/ and run
 python3 setup/runtime/build_task_runtime.py build -->
-<!-- runtime-stats: {"runtime_snapshot":"issue-296-v1","runtime_digest":"bd699a8b728deb5f103f3dfe613b4b3e518747ca22535d025bcfa10be9686d65","utf16_units":77955,"code_points":77955,"utf8_bytes":185399,"worst_case_bound_utf16_units":79995,"budget_utf16_units":80000} -->
+<!-- runtime-stats: {"runtime_snapshot":"issue-296-v1","runtime_digest":"3ca4a7ed9a331c11ecdaa54e7e9fc2e0985817250f5119f2a2d6d0a36bd66618","utf16_units":80200,"code_points":80200,"utf8_bytes":190308,"worst_case_bound_utf16_units":82240,"budget_utf16_units":85000} -->
 
 This is the installable runtime snapshot of the Weekly Scheduled Task (Issue #296). The
 installer (`setup/chatgpt-install-prompt.md`) pastes everything between the `PASTE-READY START`/
@@ -12,13 +12,13 @@ references; `setup/runtime/rule-map.json` maps every runtime rule back to them.
 
 | Measure | Value |
 | --- | --- |
-| UTF-16 code units (paste-ready body, before binding) | 77955 |
-| Unicode code points | 77955 |
-| UTF-8 bytes | 185399 |
+| UTF-16 code units (paste-ready body, before binding) | 80200 |
+| Unicode code points | 80200 |
+| UTF-8 bytes | 190308 |
 | Embedded authority (no separate embedding step) | 0 |
-| Worst-case bound after binding (UTF-16 code units) | 79995 |
-| Engineering budget (UTF-16 code units, not a proven platform limit) | 80000 |
-| runtime_digest | `bd699a8b728deb5f103f3dfe613b4b3e518747ca22535d025bcfa10be9686d65` |
+| Worst-case bound after binding (UTF-16 code units) | 82240 |
+| Engineering budget (UTF-16 code units, not a proven platform limit) | 85000 |
+| runtime_digest | `3ca4a7ed9a331c11ecdaa54e7e9fc2e0985817250f5119f2a2d6d0a36bd66618` |
 
 <!-- PASTE-READY START -->
 
@@ -40,7 +40,7 @@ Report 复盘，回答"这个组合在未来 3–12 个月是否需要维护动�
 时区名称，例如 Asia/Tokyo——不能是"用户本地时区"这类无法直接计算的描述>`
 
 - runtime_snapshot: issue-296-v1
-- runtime_digest: bd699a8b728deb5f103f3dfe613b4b3e518747ca22535d025bcfa10be9686d65
+- runtime_digest: 3ca4a7ed9a331c11ecdaa54e7e9fc2e0985817250f5119f2a2d6d0a36bd66618
 - 快照来源 commit/版本：`<CONTENT_VERSION_PLACEHOLDER：由安装程序填写读取本快照时的仓库 commit>`
 - 快照时间：`<CONTENT_SNAPSHOT_TIME_PLACEHOLDER：由安装程序填写，ISO 8601>`
 
@@ -1478,6 +1478,44 @@ Daily 不读。再读最新状态所在 generation 的 `报告待办`。除 `原
 
 **写入协议**：第 2 步再规划第五部分（`报告周度研究`，按 `条目ID`），第 3 步同一次原子追加暂存，第 4、6 步同样逐条核对；
 切换前本节各项全部通过，否则不切换，按第 4 步失败处理。
+
+## 风险身份与跨期比较（第 375 号 issue）
+
+risk_identity: issue-375-v1
+
+上面这一行由安装程序读回，不要改动。本节只在 `_安装状态.schema_version` ≥ 12 时适用；低于 12 时下面的列不存在，不写。
+本节不新增投资判断，只给 `报告风险` 稳定身份并与上一份报告比较。
+
+- **目录（risk-catalog-v1）**：`风险规则ID` 只用下表，绝不按描述、读数或日期自造；`风险类型` 写该规则的类型。
+  `R-BIZ-THESIS` 企业风险 business·代码·投资假设漂移；`R-BIZ-QUALITY` 企业风险 business·代码·企业质量、竞争优势、
+  管理层或资本配置削弱；`R-BIZ-CASHFLOW` 企业风险 business·代码·自由现金流或长期成长假设削弱；`R-VAL-RETURN`
+  估值风险 valuation·代码·估值压缩长期回报空间；`R-PORT-CONC` 组合风险 portfolio·PORTFOLIO·集中度超过理解边界
+  （指标：最大单一持仓权重 %）；`R-PORT-OVERLAP` 组合风险 portfolio·PORTFOLIO·重复暴露于同一产业、主题或风险来源；
+  `R-PORT-FX` 组合风险 portfolio·PORTFOLIO·地区与货币暴露；`R-PORT-CASH` 组合风险 portfolio·PORTFOLIO·现金不足以
+  提供选择权（指标：可用现金占组合市值 %）；`R-BEH-DISCIPLINE` 行为风险 behavior·PORTFOLIO·行为偏离系统；
+  `R-SYS-ENV` 系统风险 systemic·代码或 PORTFOLIO·系统环境影响长期假设。
+- **身份**：`风险对象` 按上表写本次 `报告持仓` 的 `代码` 或 `PORTFOLIO`（不用名称或 `影响资产`）；`风险键` =
+  `类型码|风险对象|风险规则ID`（如 `portfolio|PORTFOLIO|R-PORT-CONC`），不含日期、批次、行号、描述或读数。同规则
+  同对象的多条事实合成一行，本 generation 内键唯一；第 2 步规划以 `风险键` 作为这些行的条目身份。目录外风险照常写，
+  三列留空、`风险评估=触发`、`风险趋势=未登记规则`，不比较。
+- **评估**：`风险评估` 为 `触发`（`严重度` 写 `低`/`中`/`高`）、`未触发`（有证据地评估为不适用）、`未核验`（缺数据或
+  评估失败）、`未覆盖`（本次未评估）；后三者 `严重度` 留空、`评估依据` 必填。`风险指标` 只在有指标规则的 `触发` 行
+  写本次读取数据算出的数字，否则留空。可信比较报告中 `触发` 或 `未核验` 的每个键本次都必须有一行：缺行不是解除。
+  该代码已不在本次 `报告持仓`（已卖出或 Daily 覆盖较窄）时，仍用原键写 `未核验` 或 `未覆盖` 并写 `评估依据`；只有这种
+  原样继承的键可以用本次 `报告持仓` 以外的代码，其他对象或 `触发`/`未触发` 一律不行。
+- **比较**：比较报告 = `变化标记` 用的上一份 live 报告（同 `报告类型`），其 `报告ID`/`生成ID` 写入每行
+  `比较报告ID`/`比较生成ID`。比较前先逐行复核该 generation 的风险行：用该行自己的规则与对象重算的键须等于所存 `风险键`，
+  类型、评估、严重度、指标、依据合规，`风险趋势` 为已知值，且无重复键；任一不符则整份不可信，本期有规则的 `触发`/`未触发` 行写
+  `基线不可核验`（保留指针，不配对、不解除、不升降级，也无缺行义务）。`风险趋势` 依次：目录外 `未登记规则`；读取不完整或指针冲突 `基线不可核验`，没有上一份
+  `无基线`；本行 `未核验`/`未覆盖` 照写；上一份的风险行都没有第 375 号的列（第 375 号之前）为 `迁移缺口`（保留指针，
+  不写 `新增`/`解除`/`无基线`，也无缺行义务），上一份没有风险行或没有此键为 `首次记录`；有此键
+  时把它的 `严重度`/`风险指标` 抄进 `上期严重度`/`上期风险指标`，再按：上期 `未核验`/`未覆盖` 为 `上期未评估`；上期
+  `未触发`、本期 `触发` 为 `新增`，本期仍 `未触发` 为 `无变化`；上期 `触发`、本期 `未触发` 为 `解除`；两期都 `触发` 时
+  等级不同为 `升级`/`降级`，等级相同则规则无指标或读数相同为 `无变化`、读数不同为 `数值变化`（不猜方向）、一边缺读数为
+  `指标不可比`。有 `风险规则ID` 的行 `变化标记` 由此得出：升级、降级、数值变化、新增、解除为 `有变化`，无变化为
+  `无变化`，其余为 `无可比基线`；目录外行仍按 `风险类型`+`风险`。
+- **发布前检查**：未知规则、类型与规则不符、对象不合法或不在本次 `报告持仓`（上面的继承键除外）、`风险键` 与上式不同、同键重复、评估/严重度/
+  依据/指标不合规、任一比较列或 `变化标记` 与重算不同、应保留的键缺行：不切换，按第 4 步失败处理。不回填、不改写历史行。
 
 ## 第三步：写回 Sheet（必须遵循 report_write_protocol：Plan → Stage → Verify → Switch → Confirm，绝不能跳步）
 

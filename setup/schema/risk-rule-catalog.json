@@ -1,0 +1,31 @@
+{
+  "catalog_version": "risk-catalog-v1",
+  "issue": 375,
+  "description": "Controlled catalog for the stable 报告风险 identity (docs/risk-identity-contract.md). 风险键 = <类型码>|<风险对象>|<风险规则ID>. Types and rule IDs exist only here; a writer never derives a rule ID from a description, a threshold reading or a date. A rule ID keeps its meaning forever: rewording a definition or adjusting a threshold keeps the ID, a materially different rule gets a new ID and a recorded migration. Rules restate risk checks the Prompt Suite already names (prompts/portfolio-health-check.md sections 3-5 and 7, the five 风险类型 of the Daily/Weekly prompts); the catalog adds no investment principle.",
+  "severity_scale": ["低", "中", "高"],
+  "object_scopes": {
+    "security": "One canonical 代码 of this generation's 报告持仓 (never a name, never an 影响资产 list, never PORTFOLIO).",
+    "portfolio": "The reserved word PORTFOLIO.",
+    "any": "Either a canonical 代码 of this generation's 报告持仓 or PORTFOLIO."
+  },
+  "types": [
+    {"code": "business", "label": "企业风险"},
+    {"code": "valuation", "label": "估值风险"},
+    {"code": "portfolio", "label": "组合风险"},
+    {"code": "behavior", "label": "行为风险"},
+    {"code": "systemic", "label": "系统风险"}
+  ],
+  "rules": [
+    {"id": "R-BIZ-THESIS", "type": "business", "object_scope": "security", "title": "投资假设漂移", "definition": "当前事实不再支持原始投资假设，或持有理由已偏离原始理由。", "source": "prompts/portfolio-health-check.md §4 假设漂移审计", "metric": null},
+    {"id": "R-BIZ-QUALITY", "type": "business", "object_scope": "security", "title": "企业质量削弱", "definition": "企业质量、竞争优势、管理层或资本配置出现削弱的事实。", "source": "prompts/portfolio-health-check.md §4 假设漂移审计", "metric": null},
+    {"id": "R-BIZ-CASHFLOW", "type": "business", "object_scope": "security", "title": "现金流与成长假设削弱", "definition": "自由现金流或长期成长假设受到削弱。", "source": "prompts/portfolio-health-check.md §4 假设漂移审计", "metric": null},
+    {"id": "R-VAL-RETURN", "type": "valuation", "object_scope": "security", "title": "估值压缩长期回报", "definition": "估值已改变长期回报空间。", "source": "prompts/portfolio-health-check.md §4 假设漂移审计", "metric": null},
+    {"id": "R-PORT-CONC", "type": "portfolio", "object_scope": "portfolio", "title": "持仓集中度", "definition": "最大持仓或前几大持仓超过理解边界。", "source": "prompts/portfolio-health-check.md §3 组合结构审计（集中度）", "metric": {"name": "最大单一持仓权重", "unit": "%"}},
+    {"id": "R-PORT-OVERLAP", "type": "portfolio", "object_scope": "portfolio", "title": "重复暴露", "definition": "不同持仓本质上依赖同一产业、主题或风险来源。", "source": "prompts/portfolio-health-check.md §3 组合结构审计（行业/主题/重复暴露）", "metric": null},
+    {"id": "R-PORT-FX", "type": "portfolio", "object_scope": "portfolio", "title": "地区与货币暴露", "definition": "单一地区或汇率变化可能放大组合波动。", "source": "prompts/portfolio-health-check.md §3 组合结构审计（地区/货币暴露）", "metric": null},
+    {"id": "R-PORT-CASH", "type": "portfolio", "object_scope": "portfolio", "title": "现金选择权", "definition": "现金不足以提供必要选择权。", "source": "prompts/portfolio-health-check.md §3 组合结构审计（现金）", "metric": {"name": "可用现金占组合市值", "unit": "%"}},
+    {"id": "R-BEH-DISCIPLINE", "type": "behavior", "object_scope": "portfolio", "title": "行为偏离系统", "definition": "出现行为风险信号：因短期涨跌改变判断、因现金或新 NISA 额度急于行动、因错过机会降低标准、把持仓惯性误认为长期信念。", "source": "prompts/portfolio-health-check.md §7 行为风险审计", "metric": null},
+    {"id": "R-SYS-ENV", "type": "systemic", "object_scope": "any", "title": "系统环境", "definition": "市场环境、利率、汇率、监管或地缘等系统因素影响长期假设。", "source": "prompts/portfolio-health-check.md §5 风险集中审计（系统风险）", "metric": null}
+  ],
+  "migration": "risk-catalog-v1 carries no legacy-key mapping: a pre-#375 报告风险 identity (风险类型 + 风险 free text) cannot be mapped to a 风险键 without real risk texts and codes, which never enter this public repository. A comparison against a pre-#375 generation is therefore a 迁移缺口 (docs/risk-identity-contract.md 'Migration')."
+}

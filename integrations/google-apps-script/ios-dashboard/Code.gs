@@ -122,7 +122,7 @@ function buildReportViewModel_(tabs, reportType, explicitReportId, reader) {
   var liveAssets = gated.rows;
   var holdings = liveAssets.filter(function (row) { return row['资产类型'] === 'holding'; });
   var watchlistCandidates = liveAssets.filter(function (row) { return row['资产类型'] === 'watchlist'; });
-  var risks = filterLiveDetailRows_(tabs['报告风险'], reportId, generationId);
+  var risks = filterLiveDetailRows_(tabs['报告风险'], reportId, generationId).map(annotateRiskTrend_);
   var todos = filterLiveDetailRows_(tabs['报告待办'], reportId, generationId);
   // Issue #348: this generation's own batch line and snapshot rows only.
   var efvInputs = reader && reader.externalFairValue ? reader.externalFairValue : externalFairValueFromTabs_(tabs);
@@ -153,10 +153,43 @@ function buildReportViewModel_(tabs, reportType, explicitReportId, reader) {
     holdings: sortByOrder_(holdings),
     watchlistCandidates: sortByOrder_(watchlistCandidates),
     risks: sortByOrder_(risks),
+    riskGroups: buildRiskGroups_(sortByOrder_(risks)),
     todos: sortByOrder_(todos),
     externalFairValue: externalFairValue,
     externalFairValuePortfolio: externalFairValuePortfolio
   };
+}
+
+/**
+ * Issue #375: a schema_version 12 risk row carries its own 风险趋势 and the
+ * previous severity/reading the writer compared against. The reader only
+ * shows them; it never re-derives a trend or reads another generation. A
+ * pre-#375 row (no 风险趋势) is returned unchanged and renders as before.
+ */
+function annotateRiskTrend_(row) {
+  var trend = layerText_(row['风险趋势']);
+  if (!trend) return row;
+  var now = [layerText_(row['严重度']), layerText_(row['风险指标'])].filter(Boolean).join(' / ');
+  var before = [layerText_(row['上期严重度']), layerText_(row['上期风险指标'])].filter(Boolean).join(' / ');
+  var lines = [];
+  if (before) lines.push('上期 ' + before + ' → 本期 ' + (now || '—'));
+  if (trend === '迁移缺口') lines.push('上一份报告生成于 #375 之前，本期不做跨期比较');
+  if (trend === '未登记规则') lines.push('不属于风险规则目录，不做跨期比较');
+  if (layerText_(row['评估依据'])) lines.push('依据：' + layerText_(row['评估依据']));
+  if (layerText_(row['比较报告ID'])) lines.push('对照 ' + layerText_(row['比较报告ID']));
+  return Object.assign({}, row, { _iosRiskTrend: { trend: trend, key: layerText_(row['风险键']), detail: lines.join('；') } });
+}
+
+/** Issue #375: current risks, explicit 未触发 rows (released), and 未核验/未覆盖 rows, never mixed. */
+function buildRiskGroups_(risks) {
+  var groups = { current: [], released: [], unverified: [] };
+  (risks || []).forEach(function (row) {
+    var evaluation = layerText_(row['风险评估']);
+    if (evaluation === '未触发') groups.released.push(row);
+    else if (evaluation === '未核验' || evaluation === '未覆盖') groups.unverified.push(row);
+    else groups.current.push(row);
+  });
+  return groups;
 }
 
 function sortByOrder_(rows) {
@@ -2481,6 +2514,8 @@ if (typeof module !== 'undefined') {
     LAYER_TEXT_: LAYER_TEXT_,
     weeklyResearchShapeErrors_: weeklyResearchShapeErrors_,
     buildLayeringView_: buildLayeringView_,
+    annotateRiskTrend_: annotateRiskTrend_,
+    buildRiskGroups_: buildRiskGroups_,
     readWeeklyResearchTab_: readWeeklyResearchTab_,
     readAllTabs_: readAllTabs_,
     REPORT_TABS_: REPORT_TABS_,

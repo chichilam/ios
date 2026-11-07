@@ -480,17 +480,28 @@
     return el('li', { className: 'ios-layer-verdict' }, children);
   }
 
+  var SEVERITY_CLASS_ = { '高': 'high', '中': 'medium', '低': 'low' };
+  var RISK_TREND_CLASS_ = { '升级': 'high', '新增': 'high', '数值变化': 'medium', '降级': 'low', '解除': 'low' };
+
   function buildRiskItem_(risk) {
-    var severity = risk['严重度'] || 'unknown';
+    var severity = SEVERITY_CLASS_[risk['严重度']] || risk['严重度'] || 'unknown';
+    var trend = risk._iosRiskTrend;
+    var label = risk['严重度'] || (trend && risk['风险评估'] ? risk['风险评估'] : '未知');
     var itemChildren = [
-      text('span', 'ios-badge ios-severity-' + severity, risk['严重度'] || '未知'),
+      text('span', 'ios-badge ios-severity-' + severity, label),
       text('strong', null, risk['风险'])
     ];
+    if (trend) {
+      itemChildren.push(text('span', 'ios-badge ios-risk-trend ios-severity-' + (RISK_TREND_CLASS_[trend.trend] || 'none'), trend.trend));
+    }
     if (risk['影响资产']) {
       itemChildren.push(text('span', 'ios-muted', ' — ' + risk['影响资产']));
     }
     if (risk['本期动作']) {
       itemChildren.push(text('p', 'ios-muted', '本期动作: ' + risk['本期动作']));
+    }
+    if (trend && trend.detail) {
+      itemChildren.push(text('p', 'ios-muted ios-risk-trend-detail', trend.detail));
     }
     return el('li', null, itemChildren);
   }
@@ -574,7 +585,7 @@
       container.appendChild(buildAssetSection('当前持仓', vm.holdings, false, vm.todos));
       container.appendChild(buildAssetSection('本期观察候选', vm.watchlistCandidates, true, vm.todos));
     } else if (STATE.activeTab === 'risks') {
-      container.appendChild(buildRisksSection(vm.risks));
+      container.appendChild(buildRisksSection(vm.risks, vm.riskGroups));
     } else if (STATE.activeTab === 'todos') {
       container.appendChild(buildTodosSection(vm.todos));
     }
@@ -1616,14 +1627,27 @@
     return text('p', 'ios-asset-line ios-inline-fair-value', label + ': ' + parts.join(' · '));
   }
 
-  function buildRisksSection(risks) {
-    var children = [text('h2', null, '风险 (' + risks.length + ')')];
-    if (risks.length === 0) {
+  function riskList_(rows) {
+    var list = el('ul', { className: 'ios-list' });
+    rows.forEach(function (risk) { list.appendChild(buildRiskItem_(risk)); });
+    return list;
+  }
+
+  function buildRisksSection(risks, groups) {
+    var current = groups ? groups.current : risks;
+    var children = [text('h2', null, '风险 (' + current.length + ')')];
+    if (current.length === 0) {
       children.push(text('p', 'ios-empty-note', '本期报告未标记任何风险——这是合法的空结果，不是错误。'));
     } else {
-      var list = el('ul', { className: 'ios-list' });
-      risks.forEach(function (risk) { list.appendChild(buildRiskItem_(risk)); });
-      children.push(list);
+      children.push(riskList_(current));
+    }
+    if (groups && groups.released.length) {
+      children.push(text('h3', null, '已解除或评估未触发 (' + groups.released.length + ')'));
+      children.push(riskList_(groups.released));
+    }
+    if (groups && groups.unverified.length) {
+      children.push(text('h3', null, '未核验或未覆盖——不等于解除 (' + groups.unverified.length + ')'));
+      children.push(riskList_(groups.unverified));
     }
     return el('section', { className: 'ios-card' }, children);
   }
