@@ -193,7 +193,9 @@ completion; the Daily/Weekly Task wrote those (see `docs/weekly-research-layerin
   grouped by `状态`; `完成状态不可核验` reads as unresolved, never as done), ④ 下周重点, then for each row
   with `今日行动` its first-screen verdict, any reader-gate problem, `周计划适用周`, the range lines (an
   order limit only under `适合买入`) and its #327 `价格参考*` snapshot, through the same functions as the
-  组合 card, then ⑤ the existing 组合/风险/待办 tabs.
+  组合 card, then ⑤ the existing 组合/风险/待办 tabs. Nothing on the Weekly page is grouped or folded by
+  `变化标记`: since #383 a Weekly flag records only the business judgment, so an asset marked `无变化`
+  still shows its 今日行动, pause, funding, order and range state in ④ and the tabs.
 - **Daily**: rows with `变化标记 = 有变化` (holdings, watchlist candidates, risks) with their cards,
   the open follow-ups, then folded `无变化 (N)` and `无可比基线 (N)` groups holding every remaining row.
   A blank or unknown `变化标记` stays in the changed group, labelled `未标记变化`.

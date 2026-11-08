@@ -405,6 +405,23 @@ test('④ never shows an orderable conclusion without the evidence', () => {
   assert.match(byName.referenceGap, /本周价格参考不可用（日线数据不足）/);
 });
 
+test('#383: a Weekly 无变化 flag never hides an action, pause, funding, order or range signal', () => {
+  const paused = weeklyAsset({ 代码: 'PPP', 变化标记: '无变化', 今日行动: '暂停新增待复核', 今日行动说明: '官方业绩待复核',
+    周计划状态: '事件暂停', 周计划结论: '本周无可靠区间', 执行状态: '暂停复核', 准备状态: '无需准备', 建议限价: '' });
+  const blocked = weeklyAsset({ 代码: 'BBB', 变化标记: '无变化', 今日行动: '先核对缺项', 今日行动说明: '资金未核验',
+    资金结论: '不足', 阻塞待办ID: 'BBB-2', 准备状态: '计划未完善停在核对', 建议限价: '' });
+  const ranged = weeklyAsset({ 代码: 'RRR', 变化标记: '无变化', 今日行动: '等待价格', 今日行动说明: '高于本周区间',
+    计划买入下限: '330 USD', 计划买入上限: '360 USD', 建议限价: '' });
+  const items = fourth([paused, blocked, ranged]);
+  assert.equal(items.length, 3, 'every asset with 今日行动 is listed whatever its 变化标记');
+  assert.match(items[0].textContent, /PPP.*等待.*暂停新增待复核/);
+  assert.match(items[1].textContent, /BBB.*无法判断.*先核对缺项/);
+  assert.match(items[2].textContent, /RRR.*等待价格/);
+  assert.match(items[2].textContent, /最低 330 USD · 最高 360 USD/);
+  const page = layering(load(null, Object.assign(view('weekly'), { holdings: [paused, blocked, ranged], watchlistCandidates: [] }), 'weekly'));
+  assert.ok(!/无变化 \(|本期有变化/.test(page.textContent), 'the Weekly page has no 变化标记 fold');
+});
+
 test('④ with no 今日行动 rows says so; Daily and Weekly never mix generations', () => {
   const vmodel = view('weekly');
   vmodel.holdings = [weeklyAsset({ 今日行动: '' })];
