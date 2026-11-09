@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE: do not edit by hand. Edit setup/runtime/fragments/ and run
 python3 setup/runtime/build_task_runtime.py build -->
-<!-- runtime-stats: {"runtime_snapshot":"issue-296-v1","runtime_digest":"d24d9c487fd06de9b372c803f1cc23fa80955c138dc1cda655ec1f6b7c0b6289","utf16_units":61309,"code_points":61309,"utf8_bytes":144785,"worst_case_bound_utf16_units":62924,"budget_utf16_units":85000} -->
+<!-- runtime-stats: {"runtime_snapshot":"issue-296-v1","runtime_digest":"087a4dd81b7c542362607e0b8bfa036a2338aadd05de5059408b3918fdcf3f51","utf16_units":62056,"code_points":62056,"utf8_bytes":146452,"worst_case_bound_utf16_units":63671,"budget_utf16_units":85000} -->
 
 This is the installable runtime snapshot of the Daily Scheduled Task (Issue #296). The
 installer (`setup/chatgpt-install-prompt.md`) pastes everything between the `PASTE-READY START`/
@@ -12,13 +12,13 @@ references; `setup/runtime/rule-map.json` maps every runtime rule back to them.
 
 | Measure | Value |
 | --- | --- |
-| UTF-16 code units (paste-ready body, before binding) | 61309 |
-| Unicode code points | 61309 |
-| UTF-8 bytes | 144785 |
+| UTF-16 code units (paste-ready body, before binding) | 62056 |
+| Unicode code points | 62056 |
+| UTF-8 bytes | 146452 |
 | Embedded authority (no separate embedding step) | 0 |
-| Worst-case bound after binding (UTF-16 code units) | 62924 |
+| Worst-case bound after binding (UTF-16 code units) | 63671 |
 | Engineering budget (UTF-16 code units, not a proven platform limit) | 85000 |
-| runtime_digest | `d24d9c487fd06de9b372c803f1cc23fa80955c138dc1cda655ec1f6b7c0b6289` |
+| runtime_digest | `087a4dd81b7c542362607e0b8bfa036a2338aadd05de5059408b3918fdcf3f51` |
 
 <!-- PASTE-READY START -->
 
@@ -40,7 +40,7 @@ Report 研究，回答"今天发生了什么，值得长期投资者记录或继
 时区名称，例如 Asia/Tokyo——不能是"用户本地时区"这类无法直接计算的描述>`
 
 - runtime_snapshot: issue-296-v1
-- runtime_digest: d24d9c487fd06de9b372c803f1cc23fa80955c138dc1cda655ec1f6b7c0b6289
+- runtime_digest: 087a4dd81b7c542362607e0b8bfa036a2338aadd05de5059408b3918fdcf3f51
 - 快照来源 commit/版本：`<CONTENT_VERSION_PLACEHOLDER：由安装程序填写读取本快照时的仓库 commit>`
 - 快照时间：`<CONTENT_SNAPSHOT_TIME_PLACEHOLDER：由安装程序填写，ISO 8601>`
 
@@ -1179,7 +1179,19 @@ risk_identity: issue-375-v1
 只有本次运行铸造的 `生成ID` 经第三步第 6 步（Confirm）确认已切换，才发送一条简短的 ChatGPT 通知，写出该 `生成ID`、一句话结论和 Dashboard 链接
 （`<你的 GAS Web App URL>?view=daily`）。
 不要把完整报告内容堆进通知里——完整内容留在 Sheet 和 Dashboard 里查看。第 6 步确认失败或本次未切换（含同一 `报告ID` 已有发布）时不发送成功通知、不把
-已有 generation 当作本次结果，改为按运行状态说明失败。以下附加行都另起一行写在通知（或失败说明）里，不改变报告是否成功：
+已有 generation 当作本次结果，改为按运行状态说明失败。
+**失败通知（第 296 号 issue，尽力而为）**：本次没有经第 6 步确认发布时，只要还能给出最终回复，就以一条失败通知
+结束，绝不以空输出、"无更新"或"没有变化"结束；本文所说的"运行状态"就是这条通知，它与成功通知互斥。第一行写
+`IOS <报告类型> 未发布：<阶段>`，`<阶段>` 只取 `运行时/平台执行失败`（第 1 步生成 `生成ID` 之前）、`Blocked`、`Plan`、
+`Stage`、`Verify`、`检查9`、`检查10`、`Switch`、`Confirm`、`未知`（没观察到失败点就写 `未知`，绝不猜）；第二行写
+`运行诊断：` 加一行规范 JSON，键恰为 `报告ID`、`生成ID`（本次各次尝试的数组，未生成为 `[]`）、`失败阶段`、`尝试次数`、
+`计划行数` 与 `读回行数`（各含 `holding`、`watchlist`、`风险`、`待办`，没走到或读不出写 null）、`失败项`（短标识数组，如
+`行数不符:报告待办`、`条目不符:报告持仓`、`首屏检查7:<代码>`、`检查10:<代码>`、`工具错误:<工具名>`、`读回失败:<tab>`）、
+`当前发布`（Dashboard 仍显示的同类型 `报告ID`/`生成ID`，读不出写 null）。诊断不写研究结论、价格、数量、金额、现金或
+账户信息。工具连续失败或预计无法完成时，停止后续步骤，先发失败通知；孤立 generation 不复用、不删除，下次运行用新的
+`生成ID`。可选模块的确认行不是失败通知。Task 在模型开始前失败、或最终消息交付前被平台中断时本规则无法执行，这类
+静默失败只能由 prompt 之外检测（第 387 号 issue）。
+以下附加行都另起一行写在通知（或失败说明）里，不改变报告是否成功：
 - 三层模式的 needs-attention 与 Blocked 通知（"暂停记录未能保存"、"暂停事实未能保存，勿按当前首屏新增买入"）
   按"三层购买计划模式的今日行动评估"一节写。
 - 外部公允价值快照批次确认不通过："外部公允价值快照确认未通过"。
