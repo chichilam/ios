@@ -49,6 +49,10 @@ credentials anywhere — every value in [`demo/demo-sheet.json`](demo/demo-sheet
   `buildLayeringView_` in `Code.gs` and the Weekly/Daily page order, old-report line, shape-error
   labels and folds in `Script.html`, against the synthetic fixture
   `test/report-layering-fixture.json`.
+- `test/holding-detail.test.js` — Node test suite for the 持仓明细 tab (Issue #388 PR A):
+  `buildHoldingDetailView_` in `Code.gs` and its table/card rendering in `Script.html` — three
+  separate groups (估值约束（台账）/ 本周执行 / 第三方公允值), the long-term cap never next to the
+  weekly range, same-currency-only distance, filters, and pre-#318/history rows rendering as 未提供.
 - `test/no-horizontal-overflow.test.js` — Issue #370: renders the real `Index.html`/`Styles.html`/
   `Script.html` in headless Chrome at 320/375/390/430px and desktop, with every report string made long
   and unbreakable, and asserts no Daily/Weekly tab scrolls sideways (desktop keeps two card columns).
@@ -67,6 +71,7 @@ node integrations/google-apps-script/ios-dashboard/test/dashboard-script.test.js
 node integrations/google-apps-script/ios-dashboard/test/external-fair-value-reader.test.js
 node integrations/google-apps-script/ios-dashboard/test/external-fair-value-portfolio-reader.test.js
 node integrations/google-apps-script/ios-dashboard/test/report-layering.test.js
+node integrations/google-apps-script/ios-dashboard/test/holding-detail.test.js
 node integrations/google-apps-script/ios-dashboard/test/no-horizontal-overflow.test.js
 ```
 
@@ -210,6 +215,32 @@ completion; the Daily/Weekly Task wrote those (see `docs/weekly-research-layerin
   rest of the page renders normally.
 
 The build marker is unchanged by this section.
+
+## 持仓明细 tab (Issue #388 PR A)
+
+A fifth tab, next to 组合, with one row per holding/watchlist entry of the selected report (a
+table on desktop, cards below 720px). Display only: every value is that report generation's own
+`报告持仓` snapshot plus the #348 EFV row already bound to it; no plan tab, Sheet field, Task or
+Agent contract is read or changed, and a history report shows its own frozen rows.
+
+| Group | Shown | Source columns |
+| --- | --- | --- |
+| 估值约束（台账） | 长期买入上限, 现价距上限, 长期合理价值, 来源（入场计划 vN）, 估值研究日期 | `长期买入上限快照`, `当前价格`/`报价币种`, `长期合理价值`, `入场计划版本`, `估值研究日期快照` |
+| 本周执行 | 适用周, 计划状态, 本周区间 or why there is none | `周计划适用周`, `周计划状态`, `周计划结论`, `计划买入下限`/`计划买入上限`, `暂停事件载荷` |
+| 第三方公允值（仅供参考） | value + currency, source, fetch date | the bound `外部公允价值快照` row |
+
+- 长期买入上限 opens the 估值约束 group and 本周区间 closes the 本周执行 group, so they are never
+  adjacent. 现价距上限 is computed only when price and cap are numbers in the same currency; the
+  cap's currency is the 估值币种 at the end of `长期合理价值`, read only when that cell has the exact
+  `下限–上限 CCC` shape. Otherwise 币种不同，不比较 / 未比较.
+- 本周有区间 = 周计划状态 有效, 周计划结论 有购买区间, a readable 暂停事件载荷, a 长期买入上限快照, and both
+  计划买入下限 and 计划买入上限 written and not starting with 需补全 (a single price is 下限 = 上限); otherwise
+  区间需补全 / 估值缺失, never an actionable range. 暂停中 = 周计划状态 事件暂停 or a non-empty 暂停事件载荷. 估值缺失 = no
+  长期买入上限快照 that is a finite positive number (0, negatives and text show as 无效 and are never compared)
+  or 周计划结论 长期估值缺失或失效. Without a range the reason is shown in that order.
+- Whether a 估值研究日期 is too old is shown as 未比较: no threshold is set.
+- A row written before #318 (no 周计划 snapshot) shows 未提供（本报告版本无三层快照） and only joins
+  the 持仓/观察 filters.
 
 ## Risk trend (Issue #375, schema_version 12)
 

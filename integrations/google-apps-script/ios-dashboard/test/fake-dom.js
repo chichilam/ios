@@ -118,7 +118,7 @@ function createFakeDocument() {
     'ios-nav-daily', 'ios-nav-weekly', 'ios-refresh-btn', 'ios-history-select',
     'ios-status-banner', 'ios-history-banner',
     'ios-summary-content',
-    'ios-tab-portfolio', 'ios-tab-allocation', 'ios-tab-risks', 'ios-tab-todos',
+    'ios-tab-portfolio', 'ios-tab-holdingDetail', 'ios-tab-allocation', 'ios-tab-risks', 'ios-tab-todos',
     'ios-tab-content'
   ];
   const registry = {};

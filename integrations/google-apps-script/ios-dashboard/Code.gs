@@ -156,8 +156,157 @@ function buildReportViewModel_(tabs, reportType, explicitReportId, reader) {
     riskGroups: buildRiskGroups_(sortByOrder_(risks)),
     todos: sortByOrder_(todos),
     externalFairValue: externalFairValue,
-    externalFairValuePortfolio: externalFairValuePortfolio
+    externalFairValuePortfolio: externalFairValuePortfolio,
+    holdingDetail: buildHoldingDetailView_(sortByOrder_(holdings), sortByOrder_(watchlistCandidates), externalFairValue)
   };
+}
+
+// -- 持仓明细 (Issue #388 PR A). Display only: every value is this
+// generation's own 报告持仓 snapshot (plus the #348 EFV row already bound to
+// it), never a plan tab or another report. Each category below is a direct
+// lookup on a structured column; what cannot be looked up is 未提供/未比较.
+var HOLDING_DETAIL_TEXT_ = {
+  oldRow: '未提供（本报告版本无三层快照）',
+  missing: '未提供',
+  noPrice: '未比较（无现价）',
+  noCap: '未比较（无长期买入上限）',
+  invalidCap: '无效（不是正数）',
+  capCurrencyUnknown: '未比较（上限币种未提供）',
+  currencyDiffers: '币种不同，不比较',
+  efvNotAdopted: '未采用',
+  efvNotApplicable: '不适用'
+};
+var HOLDING_DETAIL_EFV_USABLE_ = ['已读取', '已读取，最近一次采集失败', '已读取，最新记录版本不支持'];
+// 长期合理价值 is written as `合理价值下限–合理价值上限 估值币种`; only that exact
+// shape yields the currency of 长期买入上限快照 (the same 估值币种).
+var HOLDING_DETAIL_FAIR_VALUE_RE_ = /^[0-9][0-9,]*(?:\.[0-9]+)?\s*[–-]\s*[0-9][0-9,]*(?:\.[0-9]+)?\s+([A-Z]{3})$/;
+var HOLDING_DETAIL_NUMBER_RE_ = /^[0-9]+(?:\.[0-9]+)?$/;
+
+function holdingDetailNumber_(value) {
+  var raw = layerText_(value);
+  return HOLDING_DETAIL_NUMBER_RE_.test(raw) ? Number(raw) : null;
+}
+
+function holdingDetailIsThreeLayer_(row) {
+  return row._iosThreeLayer === true || layerText_(row['周计划ID']) !== '' || layerText_(row['周计划状态']) !== '';
+}
+
+/** '' when both range ends are written and neither starts with 需补全; otherwise which end is missing or incomplete. */
+function holdingDetailRangeGap_(lower, upper) {
+  var ends = [['上限', upper], ['下限', lower]];
+  for (var i = 0; i < ends.length; i++) {
+    if (ends[i][1] === '') return ends[i][0] + '未提供';
+    if (ends[i][1].indexOf('需补全') === 0) return ends[i][0] + '：' + ends[i][1];
+  }
+  return '';
+}
+
+/** Price against the long-term cap, only when both are numbers in the same currency. */
+function holdingDetailDistance_(row, cap, capCurrency) {
+  if (cap === null) return { compared: false, text: HOLDING_DETAIL_TEXT_.noCap };
+  var price = holdingDetailNumber_(row['当前价格']);
+  var priceCurrency = layerText_(row['报价币种']);
+  if (price === null || priceCurrency === '') return { compared: false, text: HOLDING_DETAIL_TEXT_.noPrice };
+  if (capCurrency === '') return { compared: false, text: HOLDING_DETAIL_TEXT_.capCurrencyUnknown };
+  if (capCurrency !== priceCurrency) return { compared: false, text: HOLDING_DETAIL_TEXT_.currencyDiffers };
+  var ratio = (price - cap) / cap * 1000;
+  var pct = (ratio < 0 ? -1 : 1) * Math.round(Math.abs(ratio)) / 10;
+  var lead = '现价 ' + layerText_(row['当前价格']) + ' ' + priceCurrency;
+  if (pct === 0) return { compared: true, percent: 0, text: lead + '，与上限持平' };
+  return { compared: true, percent: pct, text: lead + '，' + (pct < 0 ? '低于上限 ' + (-pct) : '高于上限 ' + pct) + '%' };
+}
+
+function holdingDetailEfv_(row, module) {
+  if (layerText_(row['代码']) === 'FUND-SLEEVE') return { shown: false, text: HOLDING_DETAIL_TEXT_.efvNotApplicable };
+  if (!module) return { shown: false, text: HOLDING_DETAIL_TEXT_.missing };
+  if (module.state !== EFV_BATCH_WRITTEN_) return { shown: false, text: HOLDING_DETAIL_TEXT_.efvNotAdopted };
+  var bound = row._iosExternalFairValue;
+  if (!bound) return { shown: false, text: HOLDING_DETAIL_TEXT_.missing };
+  var status = layerText_(bound['记录状态']);
+  var value = HOLDING_DETAIL_EFV_USABLE_.indexOf(status) !== -1 ? layerText_(bound['外部公允价值']) : '';
+  var states = [];
+  if (status !== '已读取') states.push(status);
+  if (layerText_(bound['采集新鲜度']) === '过期') states.push('过期');
+  if (value === '') return { shown: false, text: HOLDING_DETAIL_TEXT_.efvNotAdopted, states: states };
+  return {
+    shown: true,
+    value: value + ' ' + layerText_(bound['报价币种']),
+    source: layerText_(bound['来源名称']) || layerText_(bound['来源标识']) || HOLDING_DETAIL_TEXT_.missing,
+    fetched: layerText_(bound['值记录获取时间']).slice(0, 10) || HOLDING_DETAIL_TEXT_.missing,
+    states: states
+  };
+}
+
+/**
+ * One 持仓明细 row. 估值约束 comes from the 入场计划 snapshot columns, 本周执行
+ * from the 周计划 snapshot columns, 第三方公允值 from the bound EFV row. A row
+ * written before #318 (no 周计划 snapshot) shows 未提供 and joins no filter
+ * but 持仓/观察.
+ */
+function buildHoldingDetailRow_(row, module) {
+  var threeLayer = holdingDetailIsThreeLayer_(row);
+  // Only a finite, strictly positive number is a cap; 0, negatives and text count as no valid cap.
+  var capRaw = layerText_(row['长期买入上限快照']);
+  var capNumber = holdingDetailNumber_(capRaw);
+  var cap = capNumber !== null && isFinite(capNumber) && capNumber > 0 ? capNumber : null;
+  var fairValue = layerText_(row['长期合理价值']);
+  var currencyMatch = HOLDING_DETAIL_FAIR_VALUE_RE_.exec(fairValue);
+  var capCurrency = currencyMatch ? currencyMatch[1] : '';
+  var status = layerText_(row['周计划状态']);
+  var conclusion = layerText_(row['周计划结论']);
+  var lower = layerText_(row['计划买入下限']);
+  var upper = layerText_(row['计划买入上限']);
+  var payload = parsePayloadCell_(row['暂停事件载荷']);
+  var suspended = status === '事件暂停' || (payload !== null && payload.length > 0);
+  var valuationMissing = threeLayer && (cap === null || conclusion === '长期估值缺失或失效');
+  // Both ends must be written and complete; a single price is the plan's own
+  // 下限 = 上限. Anything else is 区间需补全, never an actionable range.
+  var gap = holdingDetailRangeGap_(lower, upper);
+  var hasRange = threeLayer && !suspended && payload !== null && !valuationMissing && status === '有效' &&
+    conclusion === '有购买区间' && gap === '';
+  var noRange = '';
+  if (!threeLayer) {
+    noRange = HOLDING_DETAIL_TEXT_.oldRow;
+  } else if (!hasRange) {
+    if (suspended) noRange = '暂停中';
+    else if (payload === null) noRange = '未比较（暂停载荷不可读）';
+    else if (valuationMissing) noRange = '估值缺失';
+    else if (status !== '' && status !== '有效') noRange = '周计划' + status;
+    else if (conclusion === '本周无可靠区间' || conclusion === '无符合长期估值的区间') noRange = '等待区间（' + conclusion + '）';
+    else if (conclusion !== '' && conclusion !== '有购买区间') noRange = conclusion;
+    else if (conclusion === '有购买区间') noRange = '区间需补全（' + gap + '）';
+    else noRange = HOLDING_DETAIL_TEXT_.missing;
+  }
+  var source = HOLDING_DETAIL_TEXT_.missing;
+  if (layerText_(row['入场计划版本']) !== '') source = '入场计划 v' + layerText_(row['入场计划版本']);
+  else if (layerText_(row['入场计划ID']) !== '') source = '入场计划';
+  var old = HOLDING_DETAIL_TEXT_.oldRow;
+  return {
+    code: layerText_(row['代码']),
+    name: layerText_(row['名称']),
+    kind: row['资产类型'] === 'watchlist' ? 'watchlist' : 'holding',
+    threeLayer: threeLayer,
+    valuation: {
+      cap: !threeLayer ? old : (cap !== null ? capRaw + ' ' + (capCurrency || '（币种未提供）')
+        : (capRaw === '' ? HOLDING_DETAIL_TEXT_.missing : HOLDING_DETAIL_TEXT_.invalidCap)),
+      distance: threeLayer ? holdingDetailDistance_(row, cap, capCurrency) : { compared: false, text: old },
+      fairValue: !threeLayer ? old : (fairValue || HOLDING_DETAIL_TEXT_.missing),
+      source: !threeLayer ? old : source,
+      researchDate: !threeLayer ? old : (layerText_(row['估值研究日期快照']) || HOLDING_DETAIL_TEXT_.missing)
+    },
+    weekly: {
+      week: !threeLayer ? old : (layerText_(row['周计划适用周']) || HOLDING_DETAIL_TEXT_.missing),
+      status: !threeLayer ? old : (status || HOLDING_DETAIL_TEXT_.missing),
+      range: hasRange ? (lower === upper ? upper : lower + ' – ' + upper) : '',
+      noRange: noRange
+    },
+    efv: holdingDetailEfv_(row, module),
+    filters: { hasRange: hasRange, suspended: threeLayer && suspended, valuationMissing: valuationMissing }
+  };
+}
+
+function buildHoldingDetailView_(holdings, watchlist, module) {
+  return (holdings || []).concat(watchlist || []).map(function (row) { return buildHoldingDetailRow_(row, module); });
 }
 
 /**
@@ -2535,6 +2684,9 @@ if (typeof module !== 'undefined') {
     efvBatchLine_: efvBatchLine_,
     efvDisplayLine_: efvDisplayLine_,
     efvHoldingRow_: efvHoldingRow_,
+    buildHoldingDetailView_: buildHoldingDetailView_,
+    buildHoldingDetailRow_: buildHoldingDetailRow_,
+    HOLDING_DETAIL_TEXT_: HOLDING_DETAIL_TEXT_,
     efvCellText_: efvCellText_,
     buildExternalFairValueView_: buildExternalFairValueView_,
     externalFairValueFromTabs_: externalFairValueFromTabs_,

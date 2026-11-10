@@ -28,12 +28,13 @@
 (function () {
   'use strict';
 
-  var TABS = ['portfolio', 'allocation', 'risks', 'todos'];
+  var TABS = ['portfolio', 'holdingDetail', 'allocation', 'risks', 'todos'];
 
   var STATE = {
     bootstrap: IOS_BOOTSTRAP,
     activeView: IOS_ACTIVE_VIEW === 'weekly' ? 'weekly' : 'daily',
     activeTab: 'portfolio',
+    holdingDetailFilter: 'all', // 持仓明细 filter (Issue #388 PR A)
     viewingReportId: null, // non-null while pinned to a specific history entry
     displayedViewModel: null, // the viewModel for viewingReportId, once fetched
     loading: false,
@@ -584,6 +585,8 @@
     if (STATE.activeTab === 'portfolio') {
       container.appendChild(buildAssetSection('当前持仓', vm.holdings, false, vm.todos));
       container.appendChild(buildAssetSection('本期观察候选', vm.watchlistCandidates, true, vm.todos));
+    } else if (STATE.activeTab === 'holdingDetail') {
+      container.appendChild(buildHoldingDetailSection(vm.holdingDetail));
     } else if (STATE.activeTab === 'risks') {
       container.appendChild(buildRisksSection(vm.risks, vm.riskGroups));
     } else if (STATE.activeTab === 'todos') {
@@ -1826,6 +1829,144 @@
     return el('section', { className: 'ios-card' }, children);
   }
 
+  // -- 持仓明细 (Issue #388 PR A): one row per holding/watchlist entry of the
+  // selected report, built server-side by buildHoldingDetailView_ from that
+  // report's own snapshot. Three groups kept apart -- 估值约束（台账）, 本周执行,
+  // 第三方公允值 -- and the long-term cap is never placed next to the weekly
+  // range. Desktop table and phone cards come from the same rows; CSS picks
+  // one, as the 资本配置 tab does. --
+
+  var HOLDING_DETAIL_FILTERS_ = [
+    ['all', '全部', function () { return true; }],
+    ['hasRange', '本周有区间', function (row) { return row.filters.hasRange; }],
+    ['suspended', '暂停中', function (row) { return row.filters.suspended; }],
+    ['valuationMissing', '估值缺失', function (row) { return row.filters.valuationMissing; }],
+    ['holding', '持仓', function (row) { return row.kind === 'holding'; }],
+    ['watchlist', '观察', function (row) { return row.kind === 'watchlist'; }]
+  ];
+
+  function holdingDetailKindLabel_(row) {
+    return row.kind === 'watchlist' ? '观察' : '持仓';
+  }
+
+  function holdingDetailRangeText_(row) {
+    return row.weekly.range || ('无区间：' + row.weekly.noRange);
+  }
+
+  function holdingDetailEfvParts_(row) {
+    var efv = row.efv;
+    var states = efv.states && efv.states.length ? '（' + efv.states.join('，') + '）' : '';
+    if (!efv.shown) return { value: efv.text + states, source: '', fetched: '' };
+    return { value: efv.value + states, source: efv.source, fetched: efv.fetched };
+  }
+
+  function buildHoldingDetailSection(rows) {
+    var children = [
+      text('h2', null, '持仓明细'),
+      text('p', 'ios-hint', '估值约束来自本报告快照中的入场计划，本周执行来自本周购买计划，两者分开显示；只有同币种才计算现价距长期买入上限。第三方公允值仅供参考，不能替代长期买入上限。估值研究日期是否过旧：未比较（尚未设定阈值）。')
+    ];
+    if (!Array.isArray(rows)) {
+      children.push(text('p', 'ios-empty-note', '本报告未提供持仓明细。'));
+      return el('section', { className: 'ios-card ios-holding-detail' }, children);
+    }
+    var active = HOLDING_DETAIL_FILTERS_.filter(function (f) { return f[0] === STATE.holdingDetailFilter; })[0] || HOLDING_DETAIL_FILTERS_[0];
+    children.push(el('div', { className: 'ios-detail-filter-bar' }, HOLDING_DETAIL_FILTERS_.map(function (f) {
+      var count = rows.filter(f[2]).length;
+      var btn = el('button', {
+        className: 'ios-detail-filter-btn' + (f === active ? ' active' : ''),
+        text: f[1] + ' (' + count + ')',
+        attrs: { type: 'button', 'data-filter': f[0] },
+        onclick: function () { selectHoldingDetailFilter(f[0]); }
+      });
+      if (f === active) btn.setAttribute('aria-pressed', 'true');
+      return btn;
+    })));
+    var shown = rows.filter(active[2]);
+    if (rows.length === 0) {
+      children.push(text('p', 'ios-empty-note', '本期报告没有持仓或观察行——这是合法的空结果，不是错误。'));
+    } else if (shown.length === 0) {
+      children.push(text('p', 'ios-empty-note', '没有符合「' + active[1] + '」的标的。'));
+    } else {
+      children.push(buildHoldingDetailTable(shown));
+      children.push(buildHoldingDetailCards(shown));
+    }
+    return el('section', { className: 'ios-card ios-holding-detail' }, children);
+  }
+
+  /** Desktop: grouped columns; 长期买入上限 opens the first group and 本周区间 closes the second. */
+  function buildHoldingDetailTable(rows) {
+    var groups = [
+      ['标的', ['代码', '名称', '类型'], ''],
+      ['估值约束（台账）', ['长期买入上限', '现价距上限', '长期合理价值', '来源', '估值研究日期'], 'ios-detail-group-valuation'],
+      ['本周执行', ['适用周', '计划状态', '本周区间'], 'ios-detail-group-weekly'],
+      ['第三方公允值（仅供参考）', ['公允值', '来源', '获取日期'], 'ios-detail-group-efv']
+    ];
+    var head = el('thead', null, [
+      el('tr', null, groups.map(function (g) {
+        return el('th', { className: g[2] ? 'ios-detail-group-start ' + g[2] : '', text: g[0], attrs: { colspan: String(g[1].length) } });
+      })),
+      el('tr', null, groups.reduce(function (cells, g) {
+        return cells.concat(g[1].map(function (label, i) {
+          return el('th', { className: i === 0 && g[2] ? 'ios-detail-group-start ' + g[2] : (g[2] || ''), text: label });
+        }));
+      }, []))
+    ]);
+    var body = el('tbody');
+    rows.forEach(function (row) {
+      var efv = holdingDetailEfvParts_(row);
+      var values = [
+        [row.code, row.name, holdingDetailKindLabel_(row)],
+        [row.valuation.cap, row.valuation.distance.text, row.valuation.fairValue, row.valuation.source, row.valuation.researchDate],
+        [row.weekly.week, row.weekly.status, holdingDetailRangeText_(row)],
+        [efv.value, efv.source || '—', efv.fetched || '—']
+      ];
+      var cells = [];
+      values.forEach(function (group, gi) {
+        group.forEach(function (value, i) {
+          var cls = groups[gi][2] ? (i === 0 ? 'ios-detail-group-start ' : '') + groups[gi][2] : '';
+          cells.push(el('td', { className: cls, text: value }));
+        });
+      });
+      body.appendChild(el('tr', { attrs: { 'data-code': row.code } }, cells));
+    });
+    return el('div', { className: 'ios-table-wrap ios-holding-detail-table' }, [el('table', { className: 'ios-table' }, [head, body])]);
+  }
+
+  /** Phone: one card per row, the three groups as separate blocks in the same order as the table. */
+  function buildHoldingDetailCards(rows) {
+    var grid = el('div', { className: 'ios-holding-detail-cards' });
+    rows.forEach(function (row) {
+      var efv = holdingDetailEfvParts_(row);
+      grid.appendChild(el('div', { className: 'ios-asset-card', attrs: { 'data-code': row.code } }, [
+        el('div', { className: 'ios-asset-head' }, [
+          text('strong', null, row.code),
+          text('span', 'ios-badge ios-badge-muted', holdingDetailKindLabel_(row))
+        ]),
+        text('p', 'ios-asset-name', row.name),
+        el('div', { className: 'ios-detail-group ios-detail-group-valuation' }, [
+          text('h3', 'ios-detail-heading', '估值约束（台账）'),
+          text('p', 'ios-asset-line', '长期买入上限: ' + row.valuation.cap),
+          text('p', 'ios-asset-line', '现价距上限: ' + row.valuation.distance.text),
+          text('p', 'ios-asset-line', '长期合理价值: ' + row.valuation.fairValue),
+          text('p', 'ios-asset-line ios-muted', '来源: ' + row.valuation.source + ' · 估值研究日期: ' + row.valuation.researchDate)
+        ]),
+        el('div', { className: 'ios-detail-group ios-detail-group-weekly' }, [
+          text('h3', 'ios-detail-heading', '本周执行'),
+          text('p', 'ios-asset-line', '适用周: ' + row.weekly.week),
+          text('p', 'ios-asset-line', '计划状态: ' + row.weekly.status),
+          text('p', 'ios-asset-line', '本周区间: ' + holdingDetailRangeText_(row))
+        ]),
+        el('div', { className: 'ios-detail-group ios-detail-group-efv' }, [
+          text('h3', 'ios-detail-heading', '第三方公允值（仅供参考）'),
+          text('p', 'ios-asset-line', '公允值: ' + efv.value),
+          efv.source ? text('p', 'ios-asset-line ios-muted', '来源: ' + efv.source + ' · 获取日期: ' + efv.fetched) : null,
+          text('p', 'ios-asset-line ios-muted', '仅供参考，不能替代长期买入上限')
+        ])
+      ]));
+    });
+    return grid;
+  }
+
   // -- Current-holdings allocation view (live, view-independent -- the
   // 资本配置 tab). Renders both a desktop table and a mobile card list from
   // the exact same `allocation` array -- CSS breakpoints (not JS viewport
@@ -1920,6 +2061,11 @@
     if (TABS.indexOf(tab) === -1) return;
     STATE.activeTab = tab;
     updateTabActive();
+    renderTabContent();
+  }
+
+  function selectHoldingDetailFilter(filter) {
+    STATE.holdingDetailFilter = filter;
     renderTabContent();
   }
 

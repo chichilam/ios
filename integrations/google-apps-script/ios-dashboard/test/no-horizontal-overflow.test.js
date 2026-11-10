@@ -63,6 +63,15 @@ function stressBootstrap() {
       来源名称: 'external-source', 值记录获取时间: '2026-10-31T09:00:00+09:00'
     };
   });
+  // Issue #388 PR A: 持仓明细 rows with every group filled, on both views.
+  const detail = logic.buildHoldingDetailRow_({
+    代码: 'DEMO1', 名称: 'Demo Holding', 资产类型: 'holding', _iosThreeLayer: true,
+    长期买入上限快照: 400, 长期合理价值: '420–480 USD', 估值研究日期快照: '2026-09-30', 入场计划版本: 3,
+    当前价格: 365, 报价币种: 'USD', 周计划状态: '有效', 周计划结论: '有购买区间', 周计划适用周: '2026-10-19–2026-10-23 NYSE',
+    计划买入下限: '350 USD（区间1，本周购买计划）', 计划买入上限: '380 USD（区间1，本周购买计划）', 暂停事件载荷: '',
+    _iosExternalFairValue: { 记录状态: '已读取', 外部公允价值: '123.45', 报价币种: 'USD', 来源名称: 'external-source', 值记录获取时间: '2026-10-31T09:00:00+09:00' }
+  }, { state: '已写入' });
+  [boot.daily, boot.weekly].forEach((vm) => { vm.holdingDetail = [detail, Object.assign({}, detail, { kind: 'watchlist' })]; });
   // Issue #376: a real Weekly writes a whole sentence into 核心状态.
   [boot.daily, boot.weekly].forEach((vm) => {
     vm.summary['核心状态'] = EXECUTED_SUMMARY;
@@ -94,7 +103,7 @@ function harnessScript() {
     var doc = win.document;
     ['daily', 'weekly'].forEach(function (view) {
       win.switchView(view);
-      ['portfolio', 'allocation', 'risks', 'todos'].forEach(function (tab) {
+      ['portfolio', 'holdingDetail', 'allocation', 'risks', 'todos'].forEach(function (tab) {
         win.selectTab(tab);
         Array.prototype.forEach.call(doc.querySelectorAll('details'), function (d) { d.open = true; });
         var root = doc.documentElement;
@@ -127,7 +136,7 @@ function harnessScript() {
           }),
           cardColumns: grid ? win.getComputedStyle(grid).gridTemplateColumns.split(' ').length : 0,
           sections: ['.ios-layering', '.ios-layer-fact', '.ios-layer-verdict', '.ios-inline-fair-value', '.ios-asset-card',
-            '.ios-checklist', '.ios-list', '.ios-allocation-cards']
+            '.ios-checklist', '.ios-list', '.ios-allocation-cards', '.ios-holding-detail-cards']
             .filter(function (sel) { return doc.querySelector(sel); })
         });
       });
@@ -214,7 +223,7 @@ test('no Daily or Weekly tab scrolls sideways at 320-430px or desktop, and deskt
   }
   const boot = stressBootstrap();
   const results = runInChrome(chrome, harnessHtml(dashboardHtml(boot, 'daily')));
-  assert.equal(results.length, WIDTHS.length * 8, JSON.stringify(results.filter((r) => r.error)));
+  assert.equal(results.length, WIDTHS.length * 10, JSON.stringify(results.filter((r) => r.error)));
   results.forEach((r) => {
     assert.ok(r.scrollWidth <= r.clientWidth,
       `${r.width}px ${r.view}/${r.tab}: scrollWidth ${r.scrollWidth} > clientWidth ${r.clientWidth}; widest: ${r.offenders.join(', ')}`);
@@ -233,4 +242,8 @@ test('no Daily or Weekly tab scrolls sideways at 320-430px or desktop, and deskt
   });
   assert.ok(portfolio(390, 'daily').sections.includes('.ios-inline-fair-value'), 'the inline fair value line is covered');
   assert.ok(portfolio(390, 'weekly').sections.includes('.ios-layer-verdict'), 'the Weekly verdict rows are covered');
+  ['daily', 'weekly'].forEach((view) => {
+    const detail = results.find((r) => r.width === 390 && r.view === view && r.tab === 'holdingDetail');
+    assert.ok(detail.sections.includes('.ios-holding-detail-cards'), `${view} renders the 持仓明细 cards`);
+  });
 });

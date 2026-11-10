@@ -451,6 +451,23 @@ body {
 .ios-table-wrap { overflow-x: auto; }
 .ios-allocation-cards { display: none; }
 
+/* Issue #388 PR A: 持仓明细. The three groups are set apart by a left rule
+   (table) or a top rule and tint (cards), so 长期买入上限 and 本周区间 never
+   read as one pair. */
+.ios-detail-filter-bar { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 12px; }
+.ios-detail-filter-btn { border: 1px solid var(--ios-border); background: var(--ios-card-bg); border-radius: 999px; padding: 4px 10px; font-size: 0.85rem; cursor: pointer; color: inherit; }
+.ios-detail-filter-btn.active { background: var(--ios-accent-soft); border-color: var(--ios-accent); font-weight: 600; }
+.ios-holding-detail-table .ios-table td, .ios-holding-detail-table .ios-table th { min-width: 5.5em; }
+.ios-detail-group-start { border-left: 3px solid var(--ios-border); }
+.ios-holding-detail-table th.ios-detail-group-valuation, .ios-holding-detail-table td.ios-detail-group-valuation { background: rgba(37, 99, 235, 0.04); }
+.ios-holding-detail-table th.ios-detail-group-efv, .ios-holding-detail-table td.ios-detail-group-efv { color: var(--ios-muted); }
+.ios-holding-detail-cards { display: none; }
+.ios-detail-group { margin-top: 10px; padding: 8px 10px; border-top: 2px solid var(--ios-border); border-radius: 6px; min-width: 0; }
+.ios-detail-group .ios-detail-heading { font-size: 0.9rem; margin: 0 0 4px; }
+.ios-detail-group-valuation { background: rgba(37, 99, 235, 0.05); }
+.ios-detail-group-weekly { background: rgba(22, 163, 74, 0.05); }
+.ios-detail-group-efv { background: rgba(107, 114, 128, 0.06); }
+
 @media (max-width: 900px) {
   .ios-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
@@ -460,6 +477,9 @@ body {
   .ios-layer-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ios-allocation-table { display: none; }
   .ios-allocation-cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .ios-holding-detail-table { display: none; }
+  .ios-holding-detail-cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .ios-holding-detail-cards > * { min-width: 0; }
 }
 
 @media (max-width: 600px) {
