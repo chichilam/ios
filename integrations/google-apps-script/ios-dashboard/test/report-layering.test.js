@@ -228,10 +228,13 @@ test('Weekly page order: header facts, then sections ① to ④, then the detail
 
 test('Weekly: maintained judgments fold with their evidence; uncomparable rows say why; unresolved never reads as done', () => {
   const root = layering(load(null, view('weekly'), 'weekly'));
-  const folds = findAll(root, (n) => n.tagName === 'DETAILS');
-  assert.equal(folds.length, 1);
-  assert.equal(folds[0].getAttribute('open'), null, 'collapsed by default');
-  assert.match(folds[0].textContent, /判断维持 \(1\).*2026-11-05 订单公告/);
+  // Issue #388 PR B: ② and ③ and every row's evidence fold too; all collapsed by default.
+  const all = findAll(root, (n) => n.tagName === 'DETAILS');
+  assert.ok(all.every((d) => d.getAttribute('open') === null), 'collapsed by default');
+  const folds = findAll(root, (n) => n.tagName === 'DETAILS' && n.classList.contains('ios-layer-fold'));
+  const maintained = folds.filter((f) => /^判断维持 \(1\)/.test(f.children[0].textContent));
+  assert.equal(maintained.length, 1);
+  assert.match(maintained[0].textContent, /判断维持 \(1\).*2026-11-05 订单公告/);
   assert.match(root.textContent, /上周没有这一判断/);
   assert.match(root.textContent, /上周判断：组合 AI 资本开支周期仍在扩张/);
   assert.match(root.textContent, /完成状态不可核验：未完成，也未关闭/);
@@ -266,7 +269,7 @@ test('Daily page order: window and cutoff, changed rows, follow-ups, then folded
   assert.deepEqual(headings, ['本期有变化 (2)', '跟进 (1)']);
   assert.match(root.textContent, /未标记变化/);
   const folds = findAll(root, (n) => n.tagName === 'DETAILS');
-  assert.deepEqual(folds.map((f) => f.children[0].textContent), ['无变化 (2)', '无可比基线 (1)']);
+  assert.deepEqual(folds.map((f) => f.children[0].textContent), ['其余 1 只无变化（另 1 条风险无变化）', '无可比基线 (1)']);
   assert.match(folds[0].textContent, /BBB.*AI 链集中/);
   assert.match(folds[1].textContent, /DDD/);
   assert.ok(folds.every((f) => f.getAttribute('open') === null));
@@ -472,4 +475,207 @@ test('a 沿用定投 fund row says price reference is not applicable, never "bef
   const cards = findAll(document.body || document.documentElement || document.getElementById('ios-summary-content'), () => true)
     .filter((n) => /#327 之前/.test(n.textContent || '') && n.children.length === 0);
   assert.equal(cards.length, 0, 'no element anywhere says the fund row predates #327');
+});
+
+// -- Issue #388 PR B: default folds, Daily increment, internal IDs in 技术信息 --
+
+function loadWithWindow(vmDaily, vmWeekly, activeView, handlers) {
+  const document = createFakeDocument();
+  const sandbox = {
+    document, window: {}, google: createGoogleScriptRunStub(handlers || {}),
+    IOS_BOOTSTRAP: {
+      error: null,
+      daily: vmDaily || { found: false, reportType: 'daily' },
+      weekly: vmWeekly || { found: false, reportType: 'weekly' },
+      dailyHistory: [], weeklyHistory: [], allocation: []
+    },
+    IOS_ACTIVE_VIEW: activeView, console
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(SCRIPT_HTML_SRC, sandbox, { filename: 'Script.html' });
+  return { document, window: sandbox.window };
+}
+
+function sectionByHeading(root, pattern) {
+  return findAll(root, (n) => n.tagName === 'H2' && pattern.test(n.textContent))[0].parentNode;
+}
+
+test('PR B: ② and ③ fold by default, the summary line carries the counts', () => {
+  const vmodel = view('weekly');
+  const root = layering(load(null, vmodel, 'weekly'));
+  const capital = vmodel.layering.weekly.capital;
+  const second = sectionByHeading(root, /^②/);
+  const secondFold = second.children[1];
+  assert.equal(secondFold.tagName, 'DETAILS');
+  assert.equal(secondFold.getAttribute('open'), null);
+  assert.equal(secondFold.children[0].textContent,
+    '研究优先 ' + capital.research.length + ' · 条件性资本优先 ' + capital.conditional.length +
+    (capital.other.length ? ' · 保留现金或不排序 ' + capital.other.length : '') +
+    ' · 共同风险 ' + vmodel.layering.weekly.commonRisks.length);
+  const third = sectionByHeading(root, /^③/);
+  const total = vmodel.layering.weekly.reviews.reduce((n, g) => n + g.rows.length, 0);
+  assert.ok(total > 0, 'fixture has review rows');
+  assert.equal(third.children[1].tagName, 'DETAILS');
+  assert.equal(third.children[1].getAttribute('open'), null);
+  assert.match(third.children[1].children[0].textContent, new RegExp('^复核成果 ' + total + ' 条（'));
+  const empty = layering(load(null, view('weekly', null, (t) => {
+    t['报告周度研究'] = t['报告周度研究'].filter((r) => r['分区'] !== '复核成果');
+  }), 'weekly'));
+  const emptyThird = sectionByHeading(empty, /^③/);
+  assert.match(emptyThird.textContent, /本周没有复核成果/);
+  assert.equal(findAll(emptyThird, (n) => n.tagName === 'DETAILS').length, 0, 'nothing to fold');
+});
+
+test('PR B: a research row keeps its conclusion visible; evidence folds and record ids sit in 技术信息', () => {
+  const root = layering(load(null, view('weekly', null, (t) => {
+    const row = t['报告周度研究'].find((r) => r['生成ID'] === 'gen-w2-b' && r['状态'] === '已变化');
+    row['来源记录'] = '入场计划|ep-aaa-v3|2026-11-05';
+  }), 'weekly'));
+  const rows = findAll(root, (n) => n.classList.contains('ios-layer-row'));
+  const withSource = rows.find((r) => /ep-aaa-v3/.test(r.textContent));
+  const visible = withSource.children.filter((c) => c.tagName !== 'DETAILS').map((c) => c.textContent).join('\n');
+  assert.doesNotMatch(visible, /ep-aaa-v3|上周判断|本周证据/, 'ids and evidence are not on the first screen');
+  const evidence = withSource.children.find((c) => c.tagName === 'DETAILS');
+  assert.equal(evidence.children[0].textContent, '依据与证据');
+  assert.equal(evidence.getAttribute('open'), null);
+  const tech = findAll(evidence, (n) => n.classList.contains('ios-tech-info'))[0];
+  assert.equal(tech.children[0].textContent, '技术信息');
+  assert.match(tech.textContent, /来源: 入场计划\|ep-aaa-v3\|2026-11-05/);
+});
+
+test('PR B: ④ keeps the verdict and range on screen; the price reference folds, its source in 技术信息', () => {
+  const [item] = fourth([weeklyAsset({
+    价格参考出处: JSON.stringify({ 数据来源: 'premium-export-2026-11', 取价口径: '未复权收盘价', 回看窗口: '前一个完整交易周', 交易所: 'NYSE', 交易所时区: 'America/New_York' })
+  })]);
+  const visible = item.children.filter((c) => c.tagName !== 'DETAILS').map((c) => c.textContent).join('\n');
+  assert.match(visible, /适合买入/);
+  assert.match(visible, /本周购买区间: 最低 350 USD · 最高 380 USD/);
+  assert.doesNotMatch(visible, /支撑参考|premium-export/);
+  const fold = item.children.find((c) => c.tagName === 'DETAILS');
+  assert.equal(fold.children[0].textContent, '本周价格参考');
+  assert.equal(fold.getAttribute('open'), null);
+  const tech = findAll(fold, (n) => n.classList.contains('ios-tech-info'))[0];
+  assert.match(tech.textContent, /出处: premium-export-2026-11/);
+});
+
+test('PR B: the fund aggregate reads as 基金定投（合计）; its code is kept in 技术信息', () => {
+  const fund = weeklyAsset({
+    代码: 'FUND-SLEEVE', 名称: '基金聚合', 今日行动: '沿用定投', 今日行动说明: '沿用既有定投，不是额外申购授权',
+    入场计划ID: '', 周计划ID: '', 周计划版本: '', 周计划状态: '', 周计划结论: '', 周计划执行路径: '', 周计划适用周: '',
+    周计划研究截至: '', 周计划复核时间: '', 周计划复核方式: '', 价格参考结论: '', 执行状态: '', 准备状态: '', 建议限价: '',
+    建议订单规模说明: '', 计划订单有效期: '', 计划买入下限: '', 计划买入上限: '', 当前阻碍: '', 阻塞待办ID: '无',
+    _iosThreeLayer: false
+  });
+  const [item] = fourth([fund]);
+  assert.equal(item.children[0].children[0].textContent, '基金定投（合计）');
+  const vmodel = view('weekly');
+  vmodel.holdings = [fund];
+  vmodel.watchlistCandidates = [];
+  const { document } = loadWithWindow(null, vmodel, 'weekly');
+  const cardNode = findAll(document.getElementById('ios-tab-content'), (n) => n.classList.contains('ios-asset-card'))[0];
+  assert.equal(cardNode.children[0].children[0].textContent, '基金定投（合计）');
+  const tech = findAll(cardNode, (n) => n.classList.contains('ios-tech-info'))[0];
+  assert.match(tech.textContent, /代码: FUND-SLEEVE/);
+});
+
+test('PR B: plan ids leave the 今日行动依据 reading flow for its 技术信息 block', () => {
+  const vmodel = view('weekly');
+  vmodel.holdings = [weeklyAsset()];
+  vmodel.watchlistCandidates = [];
+  const { document } = loadWithWindow(null, vmodel, 'weekly');
+  const cardNode = findAll(document.getElementById('ios-tab-content'), (n) => n.classList.contains('ios-asset-card'))[0];
+  const basis = cardNode.children.find((c) => c.tagName === 'DETAILS');
+  const flow = basis.children.filter((c) => !c.classList.contains('ios-tech-info')).map((c) => c.textContent).join('\n');
+  assert.doesNotMatch(flow, /wp-a-8|plan-a-v3/);
+  const tech = basis.children.find((c) => c.classList.contains('ios-tech-info'));
+  assert.equal(tech.getAttribute('open'), null);
+  assert.match(tech.textContent, /周计划版本: wp-a-8 v8/);
+  assert.match(tech.textContent, /入场计划版本: plan-a-v3 v3/);
+});
+
+function dailyTwin(overrides) {
+  return weeklyAsset(Object.assign({
+    报告ID: 'daily-2026-11-10', 生成ID: 'gen-d-c', 报告类型: 'daily', 报告日期: '2026-11-10', 变化标记: '有变化'
+  }, overrides || {}));
+}
+
+function withReportId(vmodel, reportId) {
+  vmodel.summary = Object.assign({}, vmodel.summary, { 报告ID: reportId });
+  return vmodel;
+}
+
+function dailyWithWeekly(dailyAssets, weeklyAssets, ids, handlers) {
+  const daily = withReportId(view('daily'), (ids && ids.daily) || 'daily-2026-11-10');
+  daily.holdings = dailyAssets;
+  daily.watchlistCandidates = [];
+  const weekly = withReportId(view('weekly'), (ids && ids.weekly) || 'weekly-2026-11-07');
+  weekly.holdings = weeklyAssets;
+  weekly.watchlistCandidates = [];
+  return loadWithWindow(daily, weekly, 'daily', handlers);
+}
+
+function portfolioCards(document) {
+  return findAll(document.getElementById('ios-tab-content'), (n) => n.classList.contains('ios-asset-card'));
+}
+
+test('PR B: no Daily↔Weekly link exists in the snapshot, so a Daily always keeps its own full plan block', () => {
+  // 报告摘要/报告持仓 carry no field naming the Weekly a Daily used, so even a Weekly with identical
+  // snapshot columns is never treated as the Daily's referenced Weekly (maintainer review on 4c4ab66).
+  const cases = [
+    ['same period', null],
+    ['much older Weekly', { daily: 'daily-2026-11-10', weekly: 'weekly-2026-10-25' }],
+    ['later Weekly', { daily: 'daily-2026-11-06', weekly: 'weekly-2026-11-07' }],
+    ['malformed ids', { daily: 'manual-run', weekly: 'weekly-latest' }]
+  ];
+  for (const [name, ids] of cases) {
+    const { document } = dailyWithWeekly([dailyTwin()], [weeklyAsset()], ids);
+    const basis = portfolioCards(document)[0].children.find((c) => c.tagName === 'DETAILS');
+    assert.match(basis.textContent, /周计划结论: 有购买区间/, name);
+    assert.match(basis.textContent, /支撑参考: 350 前低/, name);
+    assert.ok(!findAll(basis, (n) => n.tagName === 'BUTTON' && n.textContent === '查看周报').length, name);
+  }
+  const historical = withReportId(view('daily'), 'daily-2026-10-30');
+  historical.holdings = [dailyTwin({ 报告ID: 'daily-2026-10-30', 报告日期: '2026-10-30' })];
+  historical.watchlistCandidates = [];
+  const page = dailyWithWeekly([dailyTwin()], [weeklyAsset()], null, {
+    getReport: () => Object.assign(JSON.parse(JSON.stringify(historical)), { error: null })
+  });
+  page.window.selectHistoryReport('daily-2026-10-30');
+  const t = portfolioCards(page.document)[0].children.find((c) => c.tagName === 'DETAILS').textContent;
+  assert.match(t, /周计划结论: 有购买区间/, 'a history Daily keeps its own frozen plan');
+  assert.match(t, /支撑参考: 350 前低/);
+});
+
+test('PR B: a Daily’s 无变化 rows fold into 其余 N 只无变化 on the 组合 tab; a Weekly never folds by its flag', () => {
+  const rows = [
+    dailyTwin({ 代码: 'AAA', 变化标记: '有变化' }),
+    dailyTwin({ 代码: 'BBB', 变化标记: '无变化' }),
+    dailyTwin({ 代码: 'CCC', 变化标记: '无变化' }),
+    dailyTwin({ 代码: 'DDD', 变化标记: '' }),
+    dailyTwin({ 代码: 'EEE', 变化标记: '无可比基线' })
+  ];
+  const { document } = dailyWithWeekly(rows, []);
+  const section = document.getElementById('ios-tab-content').children[0];
+  const grid = section.children.find((c) => c.classList.contains('ios-card-grid'));
+  assert.deepEqual(grid.children.map((c) => c.children[0].children[0].textContent), ['AAA', 'DDD', 'EEE'],
+    'only an exact 无变化 folds; blank and 无可比基线 stay open');
+  const fold = section.children.find((c) => c.tagName === 'DETAILS');
+  assert.equal(fold.children[0].textContent, '其余 2 只无变化');
+  assert.equal(fold.getAttribute('open'), null);
+  assert.match(fold.textContent, /BBB[\s\S]*CCC/);
+  const weekly = view('weekly');
+  weekly.holdings = rows.map((r) => Object.assign({}, r, { 报告类型: 'weekly' }));
+  weekly.watchlistCandidates = [];
+  const w = loadWithWindow(null, weekly, 'weekly');
+  const wSection = w.document.getElementById('ios-tab-content').children[0];
+  assert.equal(wSection.children.filter((c) => c.tagName === 'DETAILS').length, 0, '#383: a Weekly 无变化 hides nothing');
+  const legacyDaily = view('daily', null, (t) => {
+    t['报告持仓'].forEach((r) => { r['变化标记'] = ''; });
+    t['报告风险'].forEach((r) => { r['变化标记'] = ''; });
+    t['报告摘要'][3]['研究截至'] = '';
+  });
+  assert.equal(legacyDaily.layering.legacy, true);
+  const old = loadWithWindow(legacyDaily, null, 'daily');
+  assert.equal(old.document.getElementById('ios-tab-content').children[0].children.filter((c) => c.tagName === 'DETAILS').length, 0,
+    'an old Daily keeps its layout');
 });

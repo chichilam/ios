@@ -48,11 +48,13 @@ credentials anywhere — every value in [`demo/demo-sheet.json`](demo/demo-sheet
 - `test/report-layering.test.js` — Node test suite for the report layering view (Issue #364 P3):
   `buildLayeringView_` in `Code.gs` and the Weekly/Daily page order, old-report line, shape-error
   labels and folds in `Script.html`, against the synthetic fixture
-  `test/report-layering-fixture.json`.
+  `test/report-layering-fixture.json`; also the #388 PR B default folds, Daily increment and
+  技术信息 blocks.
 - `test/holding-detail.test.js` — Node test suite for the 持仓明细 tab (Issue #388 PR A):
   `buildHoldingDetailView_` in `Code.gs` and its table/card rendering in `Script.html` — three
   separate groups (估值约束（台账）/ 本周执行 / 第三方公允值), the long-term cap never next to the
-  weekly range, same-currency-only distance, filters, and pre-#318/history rows rendering as 未提供.
+  weekly range, same-currency-only distance, filters, and pre-#318/history rows rendering as 未提供;
+  the PR B 90-day 估值研究日期 rule (89/90/91 days, missing, unreadable, own report date).
 - `test/no-horizontal-overflow.test.js` — Issue #370: renders the real `Index.html`/`Styles.html`/
   `Script.html` in headless Chrome at 320/375/390/430px and desktop, with every report string made long
   and unbreakable, and asserts no Daily/Weekly tab scrolls sideways (desktop keeps two card columns).
@@ -202,7 +204,7 @@ completion; the Daily/Weekly Task wrote those (see `docs/weekly-research-layerin
   `变化标记`: since #383 a Weekly flag records only the business judgment, so an asset marked `无变化`
   still shows its 今日行动, pause, funding, order and range state in ④ and the tabs.
 - **Daily**: rows with `变化标记 = 有变化` (holdings, watchlist candidates, risks) with their cards,
-  the open follow-ups, then folded `无变化 (N)` and `无可比基线 (N)` groups holding every remaining row.
+  the open follow-ups, then folded `其余 N 只无变化` (#388 PR B) and `无可比基线 (N)` groups holding every remaining row.
   A blank or unknown `变化标记` stays in the changed group, labelled `未标记变化`.
 - **Old and malformed reports**: a report written before #364 keeps the current layout plus the line
   `本报告版本未提供周度研究（生成于 #364 之前）`; nothing is back-filled. A Weekly is old when `基线状态` is
@@ -215,6 +217,27 @@ completion; the Daily/Weekly Task wrote those (see `docs/weekly-research-layerin
   rest of the page renders normally.
 
 The build marker is unchanged by this section.
+
+### Default folds, Daily increment and 技术信息 (Issue #388 PR B)
+
+Display only, from the same rows; nothing is hidden that cannot be opened.
+
+- **Weekly**: ② and ③ fold by default, each summary line carrying its counts (研究优先 / 条件性资本优先 /
+  保留现金或不排序 / 共同风险; 复核成果 per `状态`). Every research row keeps its title, `状态` and `结论` on
+  screen; 上周判断, 本周证据, 影响, 下一证据或触发, 关联代码 and 依据性质 fold under 依据与证据. In ④ the
+  verdict, reader-gate problem, 适用周 and range lines stay on screen and the #327 price reference folds
+  under 本周价格参考. Still nothing on a Weekly folds by `变化标记` (#383).
+- **Daily**: the remaining `无变化` rows are one line `其余 N 只无变化`（另 n 条风险无变化）; on the 组合
+  tab of a post-#364 Daily, rows with exactly `变化标记 = 无变化` fold the same way (blank and `无可比基线`
+  stay open; a Weekly or an old Daily never folds).
+  A Daily card always keeps its own full 本周购买计划 and 价格参考: no snapshot field records which
+  Weekly a Daily used (`报告摘要` has no referenced-Weekly id), so the Dashboard does not pair a Daily
+  with any Weekly to hide a copy, not even an identical one (field gap, left to the maintainer on #388).
+- **技术信息**: plan IDs (`周计划ID vN`, `入场计划ID vN`), `来源记录`/`解除记录` and the price reference's
+  `出处` (data-source names) move into a collapsed 技术信息 block in the same card. The fund aggregate
+  reads as 基金定投（合计）, its code `FUND-SLEEVE` kept in 技术信息 (the 持仓明细 `data-code` stays the raw
+  code).
+- The 待办 tab is not part of either report's first screen (组合 is the default tab), so it is left as is.
 
 ## 持仓明细 tab (Issue #388 PR A)
 
@@ -238,7 +261,12 @@ Agent contract is read or changed, and a history report shows its own frozen row
   区间需补全 / 估值缺失, never an actionable range. 暂停中 = 周计划状态 事件暂停 or a non-empty 暂停事件载荷. 估值缺失 = no
   长期买入上限快照 that is a finite positive number (0, negatives and text show as 无效 and are never compared)
   or 周计划结论 长期估值缺失或失效. Without a range the reason is shown in that order.
-- Whether a 估值研究日期 is too old is shown as 未比较: no threshold is set.
+- 估值研究日期 (Issue #388 PR B): more than `VALUATION_RESEARCH_STALE_DAYS = 90` days before the
+  report's own date (its `报告ID` day, else `报告日期`, never the viewing day) shows `需更新` and the phone
+  card a 估值需更新 badge; 90 days or less shows only the date. A missing or unreadable date shows
+  `未比较（研究日期未提供）` / `未比较（研究日期不可读）`, never 需更新. A Sheet date cell counts as its day in
+  the Sheet's time zone. The 90 days are the maintainer's decision on #388 (2026-11-11 JST: about one
+  quarterly earnings cycle); display only, not an input to 本周有区间 or any verdict.
 - A row written before #318 (no 周计划 snapshot) shows 未提供（本报告版本无三层快照） and only joins
   the 持仓/观察 filters.
 

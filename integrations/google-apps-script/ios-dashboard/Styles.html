@@ -438,6 +438,9 @@ body {
 .ios-layer-legacy { padding: 8px 10px; border: 1px dashed var(--ios-border); border-radius: 8px; }
 .ios-layer-fold { margin: 6px 0; }
 .ios-layer-fold-title { cursor: pointer; font-weight: 600; padding: 6px 0; }
+/* Issue #388 PR B: per-row evidence and the 技术信息 block, both collapsed by default */
+.ios-layer-evidence, .ios-tech-info { margin-top: 4px; overflow-wrap: anywhere; }
+.ios-layer-evidence-title, .ios-tech-info-title { cursor: pointer; font-size: 0.85rem; color: var(--ios-muted); padding: 2px 0; }
 .ios-layer-unmarked { display: grid; gap: 4px; }
 .ios-layer-verdict { display: grid; gap: 4px; padding: 8px 0; border-top: 1px solid var(--ios-border); overflow-wrap: anywhere; }
 .ios-layer-verdict .ios-asset-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }

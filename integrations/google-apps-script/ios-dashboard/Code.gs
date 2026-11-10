@@ -157,7 +157,8 @@ function buildReportViewModel_(tabs, reportType, explicitReportId, reader) {
     todos: sortByOrder_(todos),
     externalFairValue: externalFairValue,
     externalFairValuePortfolio: externalFairValuePortfolio,
-    holdingDetail: buildHoldingDetailView_(sortByOrder_(holdings), sortByOrder_(watchlistCandidates), externalFairValue)
+    holdingDetail: buildHoldingDetailView_(sortByOrder_(holdings), sortByOrder_(watchlistCandidates), externalFairValue,
+      efvInputs && efvInputs.dateText)
   };
 }
 
@@ -174,8 +175,16 @@ var HOLDING_DETAIL_TEXT_ = {
   capCurrencyUnknown: '未比较（上限币种未提供）',
   currencyDiffers: '币种不同，不比较',
   efvNotAdopted: '未采用',
-  efvNotApplicable: '不适用'
+  efvNotApplicable: '不适用',
+  researchStale: '需更新',
+  researchDateMissing: '未比较（研究日期未提供）',
+  researchDateUnreadable: '未比较（研究日期不可读）',
+  reportDateUnreadable: '未比较（报告日期不可读）'
 };
+// Maintainer decision on #388 (2026-11-11 JST): a valuation research date more
+// than 90 days before the report's own date shows 需更新 (about one quarterly
+// earnings cycle). Display only; it gates nothing.
+var VALUATION_RESEARCH_STALE_DAYS = 90;
 var HOLDING_DETAIL_EFV_USABLE_ = ['已读取', '已读取，最近一次采集失败', '已读取，最新记录版本不支持'];
 // 长期合理价值 is written as `合理价值下限–合理价值上限 估值币种`; only that exact
 // shape yields the currency of 长期买入上限快照 (the same 估值币种).
@@ -238,12 +247,34 @@ function holdingDetailEfv_(row, module) {
 }
 
 /**
+ * 估值研究日期快照 against this report's own date (the 报告ID's day, else its
+ * 报告日期), never the viewing day, so a history report always reads the
+ * same. Both must be calendar YYYY-MM-DD days (a Sheet date cell counts as
+ * its day in the Sheet's time zone); otherwise 未比较, never 需更新.
+ */
+function holdingDetailResearchAge_(row, dateText) {
+  var toText = dateText || efvUtcDateText_;
+  var research = efvCellText_(row['估值研究日期快照'], toText).trim();
+  if (research === '') return { state: 'uncompared', text: HOLDING_DETAIL_TEXT_.researchDateMissing };
+  var researchDay = efvParseDate_(research);
+  if (researchDay === null) return { state: 'uncompared', text: research + ' · ' + HOLDING_DETAIL_TEXT_.researchDateUnreadable };
+  var idDate = /^(?:daily|weekly)-(\d{4}-\d{2}-\d{2})$/.exec(layerText_(row['报告ID']));
+  var reportDay = efvParseDate_(idDate ? idDate[1] : efvCellText_(row['报告日期'], toText).trim());
+  if (reportDay === null) return { state: 'uncompared', text: research + ' · ' + HOLDING_DETAIL_TEXT_.reportDateUnreadable };
+  var age = reportDay - researchDay;
+  if (age > VALUATION_RESEARCH_STALE_DAYS) {
+    return { state: 'stale', days: age, text: research + '（' + HOLDING_DETAIL_TEXT_.researchStale + '，距报告 ' + age + ' 天）' };
+  }
+  return { state: 'current', days: age, text: research };
+}
+
+/**
  * One 持仓明细 row. 估值约束 comes from the 入场计划 snapshot columns, 本周执行
  * from the 周计划 snapshot columns, 第三方公允值 from the bound EFV row. A row
  * written before #318 (no 周计划 snapshot) shows 未提供 and joins no filter
  * but 持仓/观察.
  */
-function buildHoldingDetailRow_(row, module) {
+function buildHoldingDetailRow_(row, module, dateText) {
   var threeLayer = holdingDetailIsThreeLayer_(row);
   // Only a finite, strictly positive number is a cap; 0, negatives and text count as no valid cap.
   var capRaw = layerText_(row['长期买入上限快照']);
@@ -281,6 +312,7 @@ function buildHoldingDetailRow_(row, module) {
   if (layerText_(row['入场计划版本']) !== '') source = '入场计划 v' + layerText_(row['入场计划版本']);
   else if (layerText_(row['入场计划ID']) !== '') source = '入场计划';
   var old = HOLDING_DETAIL_TEXT_.oldRow;
+  var researchAge = holdingDetailResearchAge_(row, dateText);
   return {
     code: layerText_(row['代码']),
     name: layerText_(row['名称']),
@@ -292,7 +324,8 @@ function buildHoldingDetailRow_(row, module) {
       distance: threeLayer ? holdingDetailDistance_(row, cap, capCurrency) : { compared: false, text: old },
       fairValue: !threeLayer ? old : (fairValue || HOLDING_DETAIL_TEXT_.missing),
       source: !threeLayer ? old : source,
-      researchDate: !threeLayer ? old : (layerText_(row['估值研究日期快照']) || HOLDING_DETAIL_TEXT_.missing)
+      researchDate: !threeLayer ? old : researchAge.text,
+      researchStale: threeLayer && researchAge.state === 'stale'
     },
     weekly: {
       week: !threeLayer ? old : (layerText_(row['周计划适用周']) || HOLDING_DETAIL_TEXT_.missing),
@@ -305,8 +338,8 @@ function buildHoldingDetailRow_(row, module) {
   };
 }
 
-function buildHoldingDetailView_(holdings, watchlist, module) {
-  return (holdings || []).concat(watchlist || []).map(function (row) { return buildHoldingDetailRow_(row, module); });
+function buildHoldingDetailView_(holdings, watchlist, module, dateText) {
+  return (holdings || []).concat(watchlist || []).map(function (row) { return buildHoldingDetailRow_(row, module, dateText); });
 }
 
 /**
@@ -2687,6 +2720,8 @@ if (typeof module !== 'undefined') {
     buildHoldingDetailView_: buildHoldingDetailView_,
     buildHoldingDetailRow_: buildHoldingDetailRow_,
     HOLDING_DETAIL_TEXT_: HOLDING_DETAIL_TEXT_,
+    VALUATION_RESEARCH_STALE_DAYS: VALUATION_RESEARCH_STALE_DAYS,
+    holdingDetailResearchAge_: holdingDetailResearchAge_,
     efvCellText_: efvCellText_,
     buildExternalFairValueView_: buildExternalFairValueView_,
     externalFairValueFromTabs_: externalFairValueFromTabs_,

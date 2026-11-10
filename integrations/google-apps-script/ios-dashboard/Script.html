@@ -72,6 +72,41 @@
     return value === '' || value == null;
   }
 
+  // -- Issue #388 PR B: internal identifiers (plan IDs, the fund aggregate's
+  // code, data-source names) stay out of the reading flow, in one collapsed
+  // 技术信息 block per card. Nothing is dropped; only where it is shown moves. --
+
+  var FUND_SLEEVE_LABEL_ = '基金定投（合计）';
+
+  function displayCode_(code) {
+    return code === 'FUND-SLEEVE' ? FUND_SLEEVE_LABEL_ : code;
+  }
+
+  function idVersion_(id, version) {
+    var parts = [];
+    if (!isBlank(id)) { parts.push(id); }
+    if (!isBlank(version)) { parts.push('v' + version); }
+    return parts.join(' ');
+  }
+
+  /** A collapsed 技术信息 block of the non-blank [label, value] pairs, or null when every value is blank. */
+  function technicalInfo_(pairs) {
+    var lines = [];
+    pairs.forEach(function (pair) {
+      if (!isBlank(pair[1])) { lines.push(text('p', 'ios-asset-line ios-muted', pair[0] + ': ' + pair[1])); }
+    });
+    if (lines.length === 0) { return null; }
+    return el('details', { className: 'ios-tech-info' }, [text('summary', 'ios-tech-info-title', '技术信息')].concat(lines));
+  }
+
+  function assetTechnicalPairs_(asset) {
+    return [
+      ['代码', asset['代码'] === 'FUND-SLEEVE' ? asset['代码'] : ''],
+      ['周计划版本', idVersion_(asset['周计划ID'], asset['周计划版本'])],
+      ['入场计划版本', idVersion_(asset['入场计划ID'], asset['入场计划版本'])]
+    ];
+  }
+
   // -- Top-level render orchestration --
 
   function currentViewModel() {
@@ -355,19 +390,24 @@
     if (status === '不可比较' && !isBlank(row['比较依据'])) {
       lines.push(text('p', 'ios-asset-line ios-muted', vmText_().comparison[row['比较依据']] || row['比较依据']));
     }
+    // Issue #388 PR B: evidence and sources fold under the conclusion.
+    var evidence = [];
     [
       ['上周判断', row['原判断']],
       ['本周证据', row['本周证据']],
       ['影响', row['影响']],
       ['下一证据或触发', row['下一证据或触发']],
       ['关联代码', row['关联代码']],
-      ['来源', row['来源记录']],
-      ['解除记录', row['解除记录']],
       ['依据性质', row['依据性质']]
     ].forEach(function (pair) {
       var line = layerLine_(pair[0], pair[1]);
-      if (line) { lines.push(line); }
+      if (line) { evidence.push(line); }
     });
+    var records = technicalInfo_([['来源', row['来源记录']], ['解除记录', row['解除记录']]]);
+    if (records) { evidence.push(records); }
+    if (evidence.length) {
+      lines.push(el('details', { className: 'ios-layer-evidence' }, [text('summary', 'ios-layer-evidence-title', '依据与证据')].concat(evidence)));
+    }
     if (row._iosShapeErrors) {
       lines.push(text('p', 'ios-asset-line ios-entry-plan-incomplete', '格式问题：' + row._iosShapeErrors.join('；')));
     }
@@ -418,17 +458,30 @@
     }
     sections.push(el('section', { className: 'ios-card ios-layer-section' }, first));
 
+    // Issue #388 PR B: ② and ③ fold by default; the summary line carries the counts.
     var capital = weekly.capital;
-    var second = [text('h2', null, '② 资本配置比较与组合风险'),
-      layerGroup_('研究优先', capital.research),
-      layerGroup_('条件性资本优先', capital.conditional)];
-    if (capital.other.length) { second.push(layerGroup_('保留现金或不排序', capital.other)); }
-    second.push(layerGroup_('共同风险', weekly.commonRisks, '本周未写出共同风险。'));
-    sections.push(el('section', { className: 'ios-card ios-layer-section' }, second));
+    var capitalGroups = [layerGroup_('研究优先', capital.research), layerGroup_('条件性资本优先', capital.conditional)];
+    var capitalCounts = ['研究优先 ' + capital.research.length, '条件性资本优先 ' + capital.conditional.length];
+    if (capital.other.length) {
+      capitalGroups.push(layerGroup_('保留现金或不排序', capital.other));
+      capitalCounts.push('保留现金或不排序 ' + capital.other.length);
+    }
+    capitalGroups.push(layerGroup_('共同风险', weekly.commonRisks, '本周未写出共同风险。'));
+    capitalCounts.push('共同风险 ' + weekly.commonRisks.length);
+    sections.push(el('section', { className: 'ios-card ios-layer-section' }, [
+      text('h2', null, '② 资本配置比较与组合风险'),
+      layerFoldable_(capitalCounts.join(' · '), capitalGroups, false)
+    ]));
 
     var third = [text('h2', null, '③ 本周事件与估值复核')];
-    if (weekly.reviews.length === 0) { third.push(text('p', 'ios-empty-note', '本周没有复核成果。')); }
-    weekly.reviews.forEach(function (group) { third.push(layerGroup_(group.status, group.rows)); });
+    if (weekly.reviews.length === 0) {
+      third.push(text('p', 'ios-empty-note', '本周没有复核成果。'));
+    } else {
+      var reviewTotal = weekly.reviews.reduce(function (n, group) { return n + group.rows.length; }, 0);
+      third.push(layerFoldable_('复核成果 ' + reviewTotal + ' 条（' + weekly.reviews.map(function (group) {
+        return group.status + ' ' + group.rows.length;
+      }).join(' · ') + '）', weekly.reviews.map(function (group) { return layerGroup_(group.status, group.rows); }), false));
+    }
     sections.push(el('section', { className: 'ios-card ios-layer-section' }, third));
 
     var fourth = [text('h2', null, '④ 下周重点与适用周购买结论'),
@@ -462,7 +515,7 @@
     var gateProblem = readerGateProblem_(asset);
     var children = [
       el('div', { className: 'ios-asset-head' }, [
-        text('strong', null, asset['代码']),
+        text('strong', null, displayCode_(asset['代码'])),
         text('span', badgeClass('ios-badge ios-badge-today-verdict', TODAY_VERDICT_BADGE_CLASS_[verdict]), verdict),
         text('span', 'ios-muted', ' ' + asset['今日行动'])
       ])
@@ -477,7 +530,9 @@
     var reason = buildReasonLine_(asset, verdict);
     if (reason) { children.push(reason); }
     var reference = buildPriceReferenceBlock_(asset, gateProblem, !!STATE.viewingReportId);
-    if (reference) { children.push(reference); }
+    if (reference) {
+      children.push(el('details', { className: 'ios-research-details' }, [text('summary', 'ios-research-summary', '本周价格参考'), reference]));
+    }
     return el('li', { className: 'ios-layer-verdict' }, children);
   }
 
@@ -518,6 +573,12 @@
     return el('div', { className: 'ios-layer-unmarked' }, [text('span', 'ios-badge ios-severity-medium', vmText_().unmarked), node]);
   }
 
+  /** Issue #388 PR B: the Daily's 无变化 rows as one line, assets counted apart from risks. */
+  function unchangedFoldTitle_(items) {
+    var risks = items.filter(function (item) { return item.kind === 'risk'; }).length;
+    return '其余 ' + (items.length - risks) + ' 只无变化' + (risks ? '（另 ' + risks + ' 条风险无变化）' : '');
+  }
+
   function buildDailyLayering_(vm) {
     var daily = vm.layering.daily;
     var changed = [text('h2', null, '本期有变化 (' + daily.changed.length + ')')];
@@ -533,7 +594,7 @@
       el('section', { className: 'ios-card ios-layer-section' }, changed),
       el('section', { className: 'ios-card ios-layer-section' }, followUps),
       el('section', { className: 'ios-card ios-layer-section' }, [
-        layerFoldable_('无变化 (' + daily.unchanged.length + ')', daily.unchanged.map(function (item) { return buildDailyItem_(item, vm); }), false),
+        layerFoldable_(unchangedFoldTitle_(daily.unchanged), daily.unchanged.map(function (item) { return buildDailyItem_(item, vm); }), false),
         layerFoldable_('无可比基线 (' + daily.noBaseline.length + ')', daily.noBaseline.map(function (item) { return buildDailyItem_(item, vm); }), false)
       ])
     ];
@@ -583,8 +644,11 @@
     }
 
     if (STATE.activeTab === 'portfolio') {
-      container.appendChild(buildAssetSection('当前持仓', vm.holdings, false, vm.todos));
-      container.appendChild(buildAssetSection('本期观察候选', vm.watchlistCandidates, true, vm.todos));
+      // Issue #388 PR B: a Daily's 无变化 rows fold into one line; a Weekly's
+      // 变化标记 covers business judgment only (#383), so it never folds.
+      var foldUnchanged = !!(vm.layering && vm.layering.daily);
+      container.appendChild(buildAssetSection('当前持仓', vm.holdings, false, vm.todos, foldUnchanged));
+      container.appendChild(buildAssetSection('本期观察候选', vm.watchlistCandidates, true, vm.todos, foldUnchanged));
     } else if (STATE.activeTab === 'holdingDetail') {
       container.appendChild(buildHoldingDetailSection(vm.holdingDetail));
     } else if (STATE.activeTab === 'risks') {
@@ -1135,7 +1199,7 @@
     var badge = text('span', badgeClass('ios-badge ios-badge-today-verdict', TODAY_VERDICT_BADGE_CLASS_[verdict]), verdict);
     var gateProblem = readerGateProblem_(asset);
     var lines = [
-      el('div', { className: 'ios-asset-head' }, [text('strong', null, asset['代码']), badge]),
+      el('div', { className: 'ios-asset-head' }, [text('strong', null, displayCode_(asset['代码'])), badge]),
       text('p', 'ios-asset-name', asset['名称']),
       text('p', 'ios-asset-line ios-muted ios-verdict-label',
         historical ? '当时建议（报告 ' + (asset['报告日期'] || '日期未知') + '）'
@@ -1167,6 +1231,8 @@
       var reference = buildPriceReferenceBlock_(asset, gateProblem, historical);
       if (reference) { basis.push(reference); }
       buildValuationDetail_(asset).slice(1).forEach(function (line) { basis.push(line); });
+      var tech = technicalInfo_(assetTechnicalPairs_(asset));
+      if (tech) { basis.push(tech); }
       lines.push(el('details', { className: 'ios-research-details' }, basis));
       return el('div', { className: isWatchlist ? 'ios-asset-card ios-watchlist-card' : 'ios-asset-card' }, lines);
     }
@@ -1213,6 +1279,8 @@
     if (asset['关键变化']) { detail.push(text('p', 'ios-asset-line', '变化: ' + asset['关键变化'])); }
     if (asset['长期逻辑或估值']) { detail.push(text('p', 'ios-asset-line', '逻辑: ' + asset['长期逻辑或估值'])); }
     if (asset['下一验证点']) { detail.push(text('p', 'ios-asset-line ios-muted', '验证: ' + asset['下一验证点'])); }
+    var legacyTech = technicalInfo_(assetTechnicalPairs_(asset));
+    if (legacyTech) { detail.push(legacyTech); }
     lines.push(el('details', { className: 'ios-research-details' }, detail));
 
     return el('div', { className: isWatchlist ? 'ios-asset-card ios-watchlist-card' : 'ios-asset-card' }, lines);
@@ -1246,10 +1314,6 @@
     detail.push(labelledLine_('复核方式', asset['周计划复核方式'], '未提供'));
     detail.push(labelledLine_('周度研究依据截至', asset['周计划研究截至'], '未提供'));
     detail.push(labelledLine_('周计划复核时间（每周复核，不是重新估值）', asset['周计划复核时间'], '未提供'));
-    var version = [];
-    if (!isBlank(asset['周计划ID'])) { version.push(asset['周计划ID']); }
-    if (!isBlank(asset['周计划版本'])) { version.push('v' + asset['周计划版本']); }
-    detail.push(labelledLine_('周计划版本', version.join(' '), '无'));
     var reason = verdict === '无法判断' ? '' : asset['当前阻碍'];
     if (!isBlank(reason)) { detail.push(labelledLine_('主要原因', reason, '')); }
     [
@@ -1270,10 +1334,6 @@
     var detail = [text('summary', 'ios-research-summary', '长期估值')];
     detail.push(text('h3', 'ios-detail-heading', '长期估值'));
     detail.push(labelledLine_('估值研究日期（长期估值研究，不随每周复核变化）', asset['估值研究日期快照'], '未提供'));
-    var planVersion = [];
-    if (!isBlank(asset['入场计划ID'])) { planVersion.push(asset['入场计划ID']); }
-    if (!isBlank(asset['入场计划版本'])) { planVersion.push('v' + asset['入场计划版本']); }
-    detail.push(labelledLine_('入场计划版本', planVersion.join(' '), '无'));
     if (!isBlank(asset['长期逻辑或估值'])) { detail.push(labelledLine_('估值说明', asset['长期逻辑或估值'], '')); }
     return detail;
   }
@@ -1529,11 +1589,12 @@
       ['趋势与环境', asset['价格参考趋势环境']],
       ['与长期买入上限', asset['价格参考与上限关系']],
       ['报告时现价相对关注区', asset['价格参考位置']],
-      ['出处', provenanceText_(asset['价格参考出处'])],
       ['技术数据缺口', gap]
     ].forEach(function (pair) {
       if (!isBlank(pair[1])) { block.push(labelledLine_(pair[0], pair[1], '')); }
     });
+    var provenance = technicalInfo_([['出处', provenanceText_(asset['价格参考出处'])]]);
+    if (provenance) { block.push(provenance); }
     block.push(text('p', 'ios-asset-line ios-muted ios-price-reference-time', priceReferenceTimeLabel_(asset, gateProblem, historical)));
     return el('div', { className: 'ios-price-reference' }, block);
   }
@@ -1548,7 +1609,7 @@
    */
   function buildAssetCard(asset, isWatchlist, todos) {
     if (!isBlank(asset['今日行动'])) { return buildActionFirstCard(asset, isWatchlist, todos); }
-    var headChildren = [text('strong', null, asset['代码'])];
+    var headChildren = [text('strong', null, displayCode_(asset['代码']))];
     // Both holdings and watchlist cards render the report-stored IOS status
     // through this one shared mapping. A watchlist section already supplies
     // asset type, so it must not spend this badge on redundant 观察名单 text.
@@ -1587,7 +1648,7 @@
     return el('div', { className: isWatchlist ? 'ios-asset-card ios-watchlist-card' : 'ios-asset-card' }, lines);
   }
 
-  function buildAssetSection(title, assets, isWatchlist, todos) {
+  function buildAssetSection(title, assets, isWatchlist, todos, foldUnchanged) {
     var heading = text('h2', null, title + ' (' + assets.length + ')');
     var children = [heading];
     if (isWatchlist) {
@@ -1598,9 +1659,18 @@
         (isWatchlist ? '本期报告未涉及任何观察候选' : '本期报告未涉及任何持仓') +
         '——这是合法的空结果，不是错误。'));
     } else {
-      var grid = el('div', { className: 'ios-card-grid' });
-      assets.forEach(function (asset) { grid.appendChild(buildAssetCard(asset, isWatchlist, todos)); });
-      children.push(grid);
+      var unchanged = foldUnchanged ? assets.filter(function (asset) { return asset['变化标记'] === '无变化'; }) : [];
+      var shown = assets.filter(function (asset) { return unchanged.indexOf(asset) === -1; });
+      if (shown.length) {
+        var grid = el('div', { className: 'ios-card-grid' });
+        shown.forEach(function (asset) { grid.appendChild(buildAssetCard(asset, isWatchlist, todos)); });
+        children.push(grid);
+      }
+      if (unchanged.length) {
+        var foldGrid = el('div', { className: 'ios-card-grid' });
+        unchanged.forEach(function (asset) { foldGrid.appendChild(buildAssetCard(asset, isWatchlist, todos)); });
+        children.push(layerFoldable_('其余 ' + unchanged.length + ' 只无变化', [foldGrid], false));
+      }
     }
     return el('section', { className: 'ios-card' }, children);
   }
@@ -1863,7 +1933,7 @@
   function buildHoldingDetailSection(rows) {
     var children = [
       text('h2', null, '持仓明细'),
-      text('p', 'ios-hint', '估值约束来自本报告快照中的入场计划，本周执行来自本周购买计划，两者分开显示；只有同币种才计算现价距长期买入上限。第三方公允值仅供参考，不能替代长期买入上限。估值研究日期是否过旧：未比较（尚未设定阈值）。')
+      text('p', 'ios-hint', '估值约束来自本报告快照中的入场计划，本周执行来自本周购买计划，两者分开显示；只有同币种才计算现价距长期买入上限。第三方公允值仅供参考，不能替代长期买入上限。估值研究日期早于本报告日期超过 90 天标「需更新」；日期缺失或不可读为「未比较」。')
     ];
     if (!Array.isArray(rows)) {
       children.push(text('p', 'ios-empty-note', '本报告未提供持仓明细。'));
@@ -1915,7 +1985,7 @@
     rows.forEach(function (row) {
       var efv = holdingDetailEfvParts_(row);
       var values = [
-        [row.code, row.name, holdingDetailKindLabel_(row)],
+        [displayCode_(row.code), row.name, holdingDetailKindLabel_(row)],
         [row.valuation.cap, row.valuation.distance.text, row.valuation.fairValue, row.valuation.source, row.valuation.researchDate],
         [row.weekly.week, row.weekly.status, holdingDetailRangeText_(row)],
         [efv.value, efv.source || '—', efv.fetched || '—']
@@ -1939,8 +2009,9 @@
       var efv = holdingDetailEfvParts_(row);
       grid.appendChild(el('div', { className: 'ios-asset-card', attrs: { 'data-code': row.code } }, [
         el('div', { className: 'ios-asset-head' }, [
-          text('strong', null, row.code),
-          text('span', 'ios-badge ios-badge-muted', holdingDetailKindLabel_(row))
+          text('strong', null, displayCode_(row.code)),
+          text('span', 'ios-badge ios-badge-muted', holdingDetailKindLabel_(row)),
+          row.valuation.researchStale ? text('span', 'ios-badge ios-severity-medium', '估值需更新') : null
         ]),
         text('p', 'ios-asset-name', row.name),
         el('div', { className: 'ios-detail-group ios-detail-group-valuation' }, [

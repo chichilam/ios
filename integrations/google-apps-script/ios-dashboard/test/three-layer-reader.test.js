@@ -655,7 +655,9 @@ const LAID_OUT = '出处: 交易所日线 · 未复权收盘价 · 回看 前一
 function provenanceLine(cell) {
   const row = Object.assign({}, REFERENCE_360, { 价格参考出处: cell });
   const c = card(render(logic.buildDashboardBootstrap_(world({ row }))));
-  const line = referenceBlock(c).children.find((n) => n.textContent.startsWith('出处: '));
+  // Issue #388 PR B: 出处 sits in the block's collapsed 技术信息.
+  const tech = descendants(referenceBlock(c)).find((n) => n.classList && n.classList.contains('ios-tech-info'));
+  const line = tech ? tech.children.find((n) => n.textContent.startsWith('出处: ')) : null;
   return { line: line ? line.textContent : null, badge: c.children[0].children[1].textContent, screen: firstScreen(c) };
 }
 

@@ -213,7 +213,7 @@ test('the 持仓明细 tab is a tab of its own and renders the selected report',
   assert.ok(document.getElementById('ios-tab-holdingDetail').classList.contains('active'));
   assert.match(content.textContent, /持仓明细/);
   assert.match(content.textContent, /第三方公允值仅供参考，不能替代长期买入上限/);
-  assert.match(content.textContent, /估值研究日期是否过旧：未比较（尚未设定阈值）/);
+  assert.match(content.textContent, /估值研究日期早于本报告日期超过 90 天标「需更新」；日期缺失或不可读为「未比较」/);
 });
 
 test('table: three separate groups, 长期买入上限 and 本周区间 never adjacent', () => {
@@ -288,4 +288,60 @@ test('a history report renders its own frozen rows, not the latest report', () =
   assert.match(text, /OLD/);
   assert.doesNotMatch(text, /AAA/);
   assert.match(text, /未提供（本报告版本无三层快照）/);
+});
+
+// -- Issue #388 PR B: 估值研究日期 需更新 at more than 90 days (maintainer decision, 2026-11-11 JST) --
+
+test('research date: 89/90 days only show the date, 91 shows 需更新, against the report’s own date', () => {
+  assert.equal(logic.VALUATION_RESEARCH_STALE_DAYS, 90);
+  const at = (date, extra) => detail(Object.assign({ 估值研究日期快照: date }, extra || {})).valuation;
+  assert.deepEqual([at('2026-08-12').researchDate, at('2026-08-12').researchStale], ['2026-08-12', false], '89 days');
+  assert.deepEqual([at('2026-08-11').researchDate, at('2026-08-11').researchStale], ['2026-08-11', false], '90 days');
+  assert.deepEqual([at('2026-08-10').researchDate, at('2026-08-10').researchStale], ['2026-08-10（需更新，距报告 91 天）', true], '91 days');
+  assert.equal(at('2026-12-01').researchStale, false, 'a date after the report is not stale');
+});
+
+test('research date: missing or unreadable is 未比较, never 需更新', () => {
+  const at = (overrides) => detail(overrides).valuation;
+  assert.deepEqual([at({ 估值研究日期快照: '' }).researchDate, at({ 估值研究日期快照: '' }).researchStale], [T.researchDateMissing, false]);
+  assert.equal(T.researchDateMissing, '未比较（研究日期未提供）');
+  for (const bad of ['2026-02-30', '2026/08/01', '约三个月前', '2026-8-1']) {
+    const v = at({ 估值研究日期快照: bad });
+    assert.equal(v.researchDate, bad + ' · ' + T.researchDateUnreadable, bad);
+    assert.equal(v.researchStale, false, bad);
+  }
+  const noReportDate = at({ 报告ID: 'custom-id', 报告日期: '', 估值研究日期快照: '2026-01-01' });
+  assert.equal(noReportDate.researchDate, '2026-01-01 · ' + T.reportDateUnreadable);
+  assert.equal(noReportDate.researchStale, false);
+  assert.equal(detail({ 周计划ID: '', 周计划状态: '', 估值研究日期快照: '2020-01-01' }).valuation.researchStale, false, 'a pre-#318 row is not compared');
+});
+
+test('research date: a history report is judged by its own date, never today', () => {
+  const old = detail({ 报告ID: 'weekly-2026-05-04', 报告日期: '2026-05-04', 估值研究日期快照: '2026-03-01' }).valuation;
+  assert.equal(old.researchStale, false, '64 days before its own report date');
+  const fallback = detail({ 报告ID: 'manual', 报告日期: '2026-11-09', 估值研究日期快照: '2026-08-10' }).valuation;
+  assert.equal(fallback.researchStale, true, '报告日期 is used when the 报告ID has no date');
+});
+
+test('research date: a Sheet date cell is its day in the Sheet time zone', () => {
+  // 2026-08-11 00:00 JST is 2026-08-10T15:00Z; as a UTC day it would wrongly read 91 days.
+  const jst = (date) => {
+    const shifted = new Date(date.getTime() + 9 * 3600 * 1000);
+    return shifted.toISOString().slice(0, 19).replace('T', ' ');
+  };
+  const row = logic.buildHoldingDetailRow_(assetRow({ 估值研究日期快照: new Date('2026-08-10T15:00:00Z') }), null, jst);
+  assert.equal(row.valuation.researchDate, '2026-08-11');
+  assert.equal(row.valuation.researchStale, false);
+  const view = logic.buildHoldingDetailView_([assetRow({ 估值研究日期快照: new Date('2026-08-09T15:00:00Z') })], [], null, jst);
+  assert.equal(view[0].valuation.researchStale, true);
+});
+
+test('research date: the tab marks a stale row on table and phone card', () => {
+  const rows = [detail({ 估值研究日期快照: '2026-05-01' }), detail({ 代码: 'BBB', 估值研究日期快照: '2026-10-01' })];
+  const { content } = load(bootstrapWith(rows));
+  const table = byClass(content, 'ios-holding-detail-table')[0];
+  assert.match(table.textContent, /2026-05-01（需更新，距报告 192 天）/);
+  const cards = byClass(content, 'ios-holding-detail-cards')[0].children;
+  assert.match(cards[0].children[0].textContent, /估值需更新/);
+  assert.doesNotMatch(cards[1].children[0].textContent, /估值需更新/);
 });
