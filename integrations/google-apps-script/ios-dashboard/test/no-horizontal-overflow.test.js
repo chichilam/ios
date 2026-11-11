@@ -57,7 +57,10 @@ function stressBootstrap() {
   boot.weekly = layered.weekly;
   boot.daily.layering = layered.daily.layering;
   boot.daily.externalFairValue = { state: '已写入' };
-  boot.daily.holdings.forEach((holding) => {
+  // Code.gs binds the fair value before building the layering, so the Daily report's own cards carry it too.
+  const layeredHoldings = ['changed', 'unchanged', 'noBaseline'].reduce((rows, group) =>
+    rows.concat(boot.daily.layering.daily[group].filter((item) => item.kind === 'holding').map((item) => item.row)), []);
+  boot.daily.holdings.concat(layeredHoldings).forEach((holding) => {
     holding._iosExternalFairValue = {
       记录状态: '已读取，最近一次采集失败', 采集新鲜度: '过期', 外部公允价值: '123.45', 报价币种: 'USD',
       来源名称: 'external-source', 值记录获取时间: '2026-10-31T09:00:00+09:00'
@@ -103,7 +106,7 @@ function harnessScript() {
     var doc = win.document;
     ['daily', 'weekly'].forEach(function (view) {
       win.switchView(view);
-      ['portfolio', 'holdingDetail', 'allocation', 'risks', 'todos'].forEach(function (tab) {
+      ['report', 'portfolio', 'holdingDetail', 'allocation', 'risks', 'todos'].forEach(function (tab) {
         win.selectTab(tab);
         Array.prototype.forEach.call(doc.querySelectorAll('details'), function (d) { d.open = true; });
         var root = doc.documentElement;
@@ -127,17 +130,26 @@ function harnessScript() {
             }
           });
         });
-        var grid = doc.querySelector('.ios-card-grid');
+        // Issue #388 PR D: one view on the page at a time; hidden views measure nothing.
+        var visible = function (node) { return node.getBoundingClientRect().width > 0; };
+        var grid = Array.prototype.filter.call(doc.querySelectorAll('.ios-card-grid'), visible)[0];
+        var bar = doc.getElementById('ios-tab-bar').getBoundingClientRect();
+        var active = doc.querySelector('.ios-tab-bar .ios-tab-btn.active').getBoundingClientRect();
         results.push({
           width: width, view: view, tab: tab,
           clientWidth: root.clientWidth, scrollWidth: root.scrollWidth, offenders: offenders.slice(0, 5), clipped: clipped,
-          proseFullRow: Array.prototype.map.call(doc.querySelectorAll('.ios-metric-card-prose'), function (card) {
-            return Math.abs(card.getBoundingClientRect().width - doc.querySelector('.ios-summary-grid').getBoundingClientRect().width) < 1;
+          activeTabVisible: active.left >= bar.left - 0.5 && active.right <= bar.right + 0.5,
+          barAboveContent: bar.bottom <= Math.min.apply(null, ['ios-summary-content', 'ios-tab-content'].map(function (id) {
+            var box = doc.getElementById(id).getBoundingClientRect();
+            return box.height ? box.top : Infinity;
+          })),
+          proseFullRow: Array.prototype.filter.call(doc.querySelectorAll('.ios-metric-card-prose'), visible).map(function (card) {
+            return Math.abs(card.getBoundingClientRect().width - card.parentElement.getBoundingClientRect().width) < 1;
           }),
           cardColumns: grid ? win.getComputedStyle(grid).gridTemplateColumns.split(' ').length : 0,
           sections: ['.ios-layering', '.ios-layer-fact', '.ios-layer-verdict', '.ios-inline-fair-value', '.ios-asset-card',
             '.ios-checklist', '.ios-list', '.ios-allocation-cards', '.ios-holding-detail-cards']
-            .filter(function (sel) { return doc.querySelector(sel); })
+            .filter(function (sel) { return Array.prototype.some.call(doc.querySelectorAll(sel), visible); })
         });
       });
     });
@@ -223,25 +235,32 @@ test('no Daily or Weekly tab scrolls sideways at 320-430px or desktop, and deskt
   }
   const boot = stressBootstrap();
   const results = runInChrome(chrome, harnessHtml(dashboardHtml(boot, 'daily')));
-  assert.equal(results.length, WIDTHS.length * 10, JSON.stringify(results.filter((r) => r.error)));
+  assert.equal(results.length, WIDTHS.length * 12, JSON.stringify(results.filter((r) => r.error)));
   results.forEach((r) => {
     assert.ok(r.scrollWidth <= r.clientWidth,
       `${r.width}px ${r.view}/${r.tab}: scrollWidth ${r.scrollWidth} > clientWidth ${r.clientWidth}; widest: ${r.offenders.join(', ')}`);
   });
   results.forEach((r) => {
     assert.deepEqual(r.clipped, [], `${r.width}px ${r.view}/${r.tab}: summary card text clipped`);
-    assert.equal(r.proseFullRow.length, 2, `${r.width}px ${r.view}: 核心状态 and 数据检查 render as prose cards`);
+    // Issue #388 PR D: the summary grid lives in the 组合 view.
+    assert.equal(r.proseFullRow.length, r.tab === 'portfolio' ? 2 : 0, `${r.width}px ${r.view}/${r.tab}: 核心状态 and 数据检查 render as prose cards`);
     r.proseFullRow.forEach((full) => assert.equal(full, r.width < 600, `${r.width}px ${r.view}: prose cards take a full row only on a phone`));
+    assert.ok(r.activeTabVisible, `${r.width}px ${r.view}/${r.tab}: the current view's tab is fully visible in the view row`);
+    assert.ok(r.barAboveContent, `${r.width}px ${r.view}/${r.tab}: the view row sits above the content`);
   });
-  const portfolio = (width, view) => results.find((r) => r.width === width && r.view === view && r.tab === 'portfolio');
+  const at = (width, view, tab) => results.find((r) => r.width === width && r.view === view && r.tab === tab);
   ['daily', 'weekly'].forEach((view) => {
-    assert.ok(portfolio(390, view).sections.includes('.ios-layering'), `${view} renders the layering view`);
-    assert.ok(portfolio(390, view).sections.includes('.ios-layer-fact'), `${view} renders the layering facts`);
-    assert.equal(portfolio(1280, view).cardColumns, 2, `${view} keeps two card columns on desktop`);
-    assert.equal(portfolio(390, view).cardColumns, 1, `${view} uses one card column on a phone`);
+    assert.ok(at(390, view, 'report').sections.includes('.ios-layering'), `${view} renders the layering view`);
+    assert.ok(at(390, view, 'report').sections.includes('.ios-layer-fact'), `${view} renders the layering facts`);
+    assert.ok(!at(390, view, 'portfolio').sections.includes('.ios-layering'), `${view}: 组合 replaces the report on the page`);
   });
-  assert.ok(portfolio(390, 'daily').sections.includes('.ios-inline-fair-value'), 'the inline fair value line is covered');
-  assert.ok(portfolio(390, 'weekly').sections.includes('.ios-layer-verdict'), 'the Weekly verdict rows are covered');
+  // A layered Daily's cards live in the report only (#388 PR D); the Weekly's 组合 keeps its card grid.
+  assert.equal(at(1280, 'weekly', 'portfolio').cardColumns, 2, 'weekly keeps two card columns on desktop');
+  assert.equal(at(390, 'weekly', 'portfolio').cardColumns, 1, 'weekly uses one card column on a phone');
+  assert.ok(at(390, 'daily', 'report').sections.includes('.ios-asset-card'), 'the Daily report carries its asset cards');
+  assert.ok(!at(390, 'daily', 'portfolio').sections.includes('.ios-asset-card'), 'the Daily 组合 repeats none of them');
+  assert.ok(at(390, 'daily', 'report').sections.includes('.ios-inline-fair-value'), 'the inline fair value line is covered');
+  assert.ok(at(390, 'weekly', 'report').sections.includes('.ios-layer-verdict'), 'the Weekly verdict rows are covered');
   ['daily', 'weekly'].forEach((view) => {
     const detail = results.find((r) => r.width === 390 && r.view === view && r.tab === 'holdingDetail');
     assert.ok(detail.sections.includes('.ios-holding-detail-cards'), `${view} renders the 持仓明细 cards`);

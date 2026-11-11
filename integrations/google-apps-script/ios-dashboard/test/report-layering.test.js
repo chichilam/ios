@@ -222,7 +222,7 @@ test('Weekly page order: header facts, then sections ① to ④, then the detail
   const headings = findAll(root, (n) => n.tagName === 'H2').map((n) => n.textContent);
   assert.deepEqual(headings, ['① 本周结论与较上周变化', '② 资本配置比较与组合风险', '③ 本周事件与估值复核',
     '④ 下周重点与适用周购买结论']);
-  assert.match(root.textContent, /⑤ 全部持仓、观察候选、风险与待办明细见下方标签页/);
+  assert.match(root.textContent, /⑤ 全部持仓、观察候选、风险与待办明细见顶部「组合 \/ 持仓明细 \/ 风险 \/ 待办」视图/);
   assert.match(root.textContent, /较上周基线：weekly-2026-10-31/);
 });
 
@@ -604,18 +604,26 @@ function withReportId(vmodel, reportId) {
   return vmodel;
 }
 
+/** Rebuilds a Daily view model's change layering from the holdings a test swapped in, as Code.gs would have. */
+function relayerDaily(vmodel) {
+  vmodel.layering = logic.buildLayeringView_('daily', vmodel.summary, null, vmodel.holdings, vmodel.watchlistCandidates, [], []);
+  return vmodel;
+}
+
 function dailyWithWeekly(dailyAssets, weeklyAssets, ids, handlers) {
   const daily = withReportId(view('daily'), (ids && ids.daily) || 'daily-2026-11-10');
   daily.holdings = dailyAssets;
   daily.watchlistCandidates = [];
+  relayerDaily(daily);
   const weekly = withReportId(view('weekly'), (ids && ids.weekly) || 'weekly-2026-11-07');
   weekly.holdings = weeklyAssets;
   weekly.watchlistCandidates = [];
   return loadWithWindow(daily, weekly, 'daily', handlers);
 }
 
+/** A layered Daily's asset cards live only in the report (本期有变化 / 其余无变化 / 无可比基线) since #388 PR D. */
 function portfolioCards(document) {
-  return findAll(document.getElementById('ios-tab-content'), (n) => n.classList.contains('ios-asset-card'));
+  return findAll(document.getElementById('ios-summary-content'), (n) => n.classList.contains('ios-asset-card'));
 }
 
 test('PR B: no Daily↔Weekly link exists in the snapshot, so a Daily always keeps its own full plan block', () => {
@@ -637,6 +645,7 @@ test('PR B: no Daily↔Weekly link exists in the snapshot, so a Daily always kee
   const historical = withReportId(view('daily'), 'daily-2026-10-30');
   historical.holdings = [dailyTwin({ 报告ID: 'daily-2026-10-30', 报告日期: '2026-10-30' })];
   historical.watchlistCandidates = [];
+  relayerDaily(historical);
   const page = dailyWithWeekly([dailyTwin()], [weeklyAsset()], null, {
     getReport: () => Object.assign(JSON.parse(JSON.stringify(historical)), { error: null })
   });
@@ -646,7 +655,7 @@ test('PR B: no Daily↔Weekly link exists in the snapshot, so a Daily always kee
   assert.match(t, /支撑参考: 350 前低/);
 });
 
-test('PR B: a Daily’s 无变化 rows fold into 其余 N 只无变化 on the 组合 tab; a Weekly never folds by its flag', () => {
+test('PR D: a layered Daily shows each asset once, in the report; 组合 keeps the overall state and the change count', () => {
   const rows = [
     dailyTwin({ 代码: 'AAA', 变化标记: '有变化' }),
     dailyTwin({ 代码: 'BBB', 变化标记: '无变化' }),
@@ -654,21 +663,30 @@ test('PR B: a Daily’s 无变化 rows fold into 其余 N 只无变化 on the �
     dailyTwin({ 代码: 'DDD', 变化标记: '' }),
     dailyTwin({ 代码: 'EEE', 变化标记: '无可比基线' })
   ];
-  const { document } = dailyWithWeekly(rows, []);
-  const section = document.getElementById('ios-tab-content').children[0];
-  const grid = section.children.find((c) => c.classList.contains('ios-card-grid'));
-  assert.deepEqual(grid.children.map((c) => c.children[0].children[0].textContent), ['AAA', 'DDD', 'EEE'],
-    'only an exact 无变化 folds; blank and 无可比基线 stay open');
-  const fold = section.children.find((c) => c.tagName === 'DETAILS');
-  assert.equal(fold.children[0].textContent, '其余 2 只无变化');
+  const { document, window } = dailyWithWeekly(rows, []);
+  const tab = document.getElementById('ios-tab-content');
+  assert.equal(findAll(tab, (n) => n.classList.contains('ios-asset-card')).length, 0, '组合 repeats no card the report already shows');
+  const overview = tab.children.find((c) => c.classList.contains('ios-portfolio-overview'));
+  assert.match(overview.textContent, /本期 2 项变化/, 'AAA and the unmarked DDD are the changed group');
+  assert.match(overview.textContent, /组合概况/);
+  assert.match(tab.textContent, /当前持仓 \(5\)/);
+  const codes = portfolioCards(document).map((c) => c.children[0].children[0].textContent);
+  assert.deepEqual(codes.slice().sort(), ['AAA', 'BBB', 'CCC', 'DDD', 'EEE'], 'every asset is in the report exactly once');
+  const fold = findAll(document.getElementById('ios-summary-content'), (n) => n.tagName === 'DETAILS' && /^其余 2 只无变化/.test(n.children[0].textContent))[0];
   assert.equal(fold.getAttribute('open'), null);
   assert.match(fold.textContent, /BBB[\s\S]*CCC/);
+  const back = findAll(overview, (n) => n.tagName === 'BUTTON' && n.textContent === '查看本期变化')[0];
+  window.selectTab('portfolio');
+  back.click();
+  assert.equal(document.getElementById('ios-summary-content').hidden, false, 'the count links back to the report');
+
   const weekly = view('weekly');
   weekly.holdings = rows.map((r) => Object.assign({}, r, { 报告类型: 'weekly' }));
   weekly.watchlistCandidates = [];
   const w = loadWithWindow(null, weekly, 'weekly');
-  const wSection = w.document.getElementById('ios-tab-content').children[0];
-  assert.equal(wSection.children.filter((c) => c.tagName === 'DETAILS').length, 0, '#383: a Weekly 无变化 hides nothing');
+  const wTab = w.document.getElementById('ios-tab-content');
+  assert.equal(findAll(wTab, (n) => n.classList.contains('ios-asset-card')).length, 5, 'a Weekly report has no per-asset cards, so 组合 keeps them');
+  assert.equal(findAll(wTab, (n) => n.tagName === 'DETAILS' && /无变化/.test(n.children[0].textContent)).length, 0, '#383: a Weekly 无变化 hides nothing');
   const legacyDaily = view('daily', null, (t) => {
     t['报告持仓'].forEach((r) => { r['变化标记'] = ''; });
     t['报告风险'].forEach((r) => { r['变化标记'] = ''; });
@@ -676,8 +694,9 @@ test('PR B: a Daily’s 无变化 rows fold into 其余 N 只无变化 on the �
   });
   assert.equal(legacyDaily.layering.legacy, true);
   const old = loadWithWindow(legacyDaily, null, 'daily');
-  assert.equal(old.document.getElementById('ios-tab-content').children[0].children.filter((c) => c.tagName === 'DETAILS').length, 0,
-    'an old Daily keeps its layout');
+  const oldTab = old.document.getElementById('ios-tab-content');
+  assert.equal(findAll(oldTab, (n) => n.classList.contains('ios-asset-card')).length, legacyDaily.holdings.length + legacyDaily.watchlistCandidates.length,
+    'an old Daily without a change layering keeps its cards in 组合');
 });
 
 // -- Issue #388 PR C: conclusion card and three tiers --

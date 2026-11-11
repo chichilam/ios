@@ -513,3 +513,17 @@ test('Code.gs uses no BigInt literals, which the Apps Script parser rejects at c
   assert.ok(literal.test('return quantity.n > 0n;'));
   assert.equal(code.match(literal), null);
 });
+
+test('Issue #388 PR D: buildAccountStatusView_ tells an absent tab, an unreadable tab and real rows apart, keeping blanks null', () => {
+  assert.deepEqual(logic.buildAccountStatusView_(undefined), { state: 'absent', rows: [] });
+  assert.deepEqual(logic.buildAccountStatusView_(null), { state: 'unreadable', rows: [] });
+  const view = logic.buildAccountStatusView_(demoSheet['账户状态'].concat([{ 账户: '', 币种: '' }]));
+  assert.equal(view.state, 'ok');
+  assert.equal(view.rows.length, 2, 'a fully blank row is skipped');
+  assert.equal(view.rows[0].availableCash, 500000);
+  assert.equal(view.rows[1].availableCash, null, 'blank cash stays unknown, never 0');
+  assert.deepEqual(logic.buildDashboardBootstrap_(demoSheet).accountStatus, logic.buildAccountStatusView_(demoSheet['账户状态']));
+  const noTab = Object.assign({}, demoSheet);
+  delete noTab['账户状态'];
+  assert.equal(logic.buildDashboardBootstrap_(noTab).accountStatus.state, 'absent');
+});

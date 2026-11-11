@@ -28,6 +28,11 @@ const SCRIPT_HTML_SRC = fs.readFileSync(path.join(__dirname, '..', 'Script.html'
 
 const DEMO_BOOTSTRAP = logic.buildDashboardBootstrap_(demoSheet);
 
+/** Issue #388 PR D: the 组合 view opens with a 组合概况 card (and a reader banner on a non-current generation); finds a report-asset section by its heading. */
+function portfolioSection(document, title) {
+  return document.getElementById('ios-tab-content').children.find((c) => c.children[0] && c.children[0].tagName === 'H2' && c.children[0].textContent.indexOf(title + ' (') === 0);
+}
+
 /**
  * Runs Script.html fresh in an isolated sandbox (a real browser re-parses
  * and re-executes it on every page load too, so a fresh vm context per
@@ -49,6 +54,10 @@ function loadDashboard(bootstrap, activeView, googleHandlers) {
   vm.createContext(sandbox);
   vm.runInContext(SCRIPT_HTML_SRC, sandbox, { filename: 'Script.html' });
   return { document, window: sandbox.window };
+}
+
+function portfolioOverview(document) {
+  return document.getElementById('ios-tab-content').children.find((c) => c.classList.contains('ios-portfolio-overview'));
 }
 
 function summaryText(document) {
@@ -170,58 +179,118 @@ function buildBootstrapWithHolding(overrides) {
 
 /** Locates the rendered holding card's IOS状态 badge (head's 2nd child) after loadDashboard + default portfolio tab. */
 function iosStatusBadge(document) {
-  const card = document.getElementById('ios-tab-content').children[0].children[1].children[0];
+  const card = portfolioSection(document, '当前持仓').children[1].children[0];
   return card.children[0].children[1];
 }
 
 /** Locates the rendered holding card's 价格位置 badge (2nd child of the 参考 line), or undefined if 价格位置 was blank. */
 function pricePositionBadge(document) {
-  const card = document.getElementById('ios-tab-content').children[0].children[1].children[0];
+  const card = portfolioSection(document, '当前持仓').children[1].children[0];
   return card.children[3].children[1];
 }
 
 /** Locates the rendered holding card's 执行状态 (Entry Plan) badge -- same slot as pricePositionBadge, since the two are mutually exclusive (Issue #298). */
 function entryPlanBadge(document) {
-  const card = document.getElementById('ios-tab-content').children[0].children[1].children[0];
+  const card = portfolioSection(document, '当前持仓').children[1].children[0];
   return card.children[3].children[1];
 }
 
 /** Locates the rendered holding card's 当前区间 label (3rd child of the 参考 line), or undefined if absent. */
 function entryPlanZone(document) {
-  const card = document.getElementById('ios-tab-content').children[0].children[1].children[0];
+  const card = portfolioSection(document, '当前持仓').children[1].children[0];
   return card.children[3].children[2];
 }
 
 /** The 参考 line's own child count -- used to assert no extra/duplicate badge is rendered alongside the one expected. */
 function referenceLineChildCount(document) {
-  const card = document.getElementById('ios-tab-content').children[0].children[1].children[0];
+  const card = portfolioSection(document, '当前持仓').children[1].children[0];
   return card.children[3].children.length;
 }
 
-test('initial render shows the Daily summary grid + headline and marks the Daily nav button + 组合 tab active', () => {
+test('initial render shows the Daily report view (报告 active, detail views hidden) and marks the Daily nav button active', () => {
   const { document } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
   assert.match(summaryText(document), /daily-2026-08-15/);
   assert.ok(document.getElementById('ios-nav-daily').classList.contains('active'));
   assert.equal(document.getElementById('ios-nav-daily').getAttribute('aria-current'), 'page');
   assert.ok(!document.getElementById('ios-nav-weekly').classList.contains('active'));
-  assert.ok(document.getElementById('ios-tab-portfolio').classList.contains('active'));
-  assert.equal(document.getElementById('ios-tab-portfolio').getAttribute('aria-current'), 'page');
-  assert.match(tabText(document), /DEMO1/, '组合 (portfolio) tab is the default active tab and shows holdings');
+  assert.ok(document.getElementById('ios-tab-report').classList.contains('active'));
+  assert.equal(document.getElementById('ios-tab-report').getAttribute('aria-current'), 'page');
+  assert.equal(document.getElementById('ios-tab-portfolio').getAttribute('aria-current'), null);
+  assert.equal(document.getElementById('ios-summary-content').hidden, false);
+  assert.equal(document.getElementById('ios-tab-content').hidden, true, 'Issue #388 PR D: only the report shows on the page');
+  assert.match(tabText(document), /DEMO1/, 'the 组合 view stays rendered (hidden) so switching to it is instant');
 
   const summaryContainer = document.getElementById('ios-summary-content');
-  assert.equal(summaryContainer.children.length, 6,
-    'conclusion card (#388 PR C) + summary grid + headline card + report caption + tiers (#388 PR C) + layering (Issue #364), in that order');
+  assert.equal(summaryContainer.children.length, 5,
+    'conclusion card (#388 PR C) + headline card + report caption + tiers (#388 PR C) + layering (Issue #364), in that order; the summary grid moved to 组合 (#388 PR D)');
   assert.ok(summaryContainer.children[0].classList.contains('ios-conclusion-card'));
-  assert.ok(summaryContainer.children[1].classList.contains('ios-summary-grid'));
-  assert.ok(summaryContainer.children[2].classList.contains('ios-headline-card'));
-  assert.ok(summaryContainer.children[3].classList.contains('ios-report-caption'));
-  assert.ok(summaryContainer.children[4].classList.contains('ios-tiers'));
-  assert.ok(summaryContainer.children[5].classList.contains('ios-layering'));
+  assert.ok(summaryContainer.children[1].classList.contains('ios-headline-card'));
+  assert.ok(summaryContainer.children[2].classList.contains('ios-report-caption'));
+  assert.ok(summaryContainer.children[3].classList.contains('ios-tiers'));
+  assert.ok(summaryContainer.children[4].classList.contains('ios-layering'));
 });
 
-test('the summary grid has exactly the 4 v1.1 metrics (当前持仓/观察名单/核心状态/Review) with their explanatory subtitles, not tab-count shortcuts', () => {
+test('Issue #388 PR D: each top view replaces the whole page, and 报告 brings the report back', () => {
+  let scrolled = 0;
+  const { document, window } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
+  window.scrollTo = () => { scrolled += 1; };
+  ['portfolio', 'holdingDetail', 'allocation', 'risks', 'todos'].forEach((tab) => {
+    window.selectTab(tab);
+    assert.equal(document.getElementById('ios-summary-content').hidden, true, tab + ' hides the report');
+    assert.equal(document.getElementById('ios-tab-content').hidden, false, tab + ' shows its own content');
+    assert.ok(document.getElementById('ios-tab-' + tab).classList.contains('active'));
+    assert.ok(!document.getElementById('ios-tab-report').classList.contains('active'));
+  });
+  window.selectTab('report');
+  assert.equal(document.getElementById('ios-summary-content').hidden, false);
+  assert.equal(document.getElementById('ios-tab-content').hidden, true);
+  assert.equal(scrolled, 6, 'every switch starts the new view at the top of the page');
+});
+
+test('Issue #388 PR D: the 组合 overview shows the report summary grid, live account state labelled as such, and 配置比例 as 未提供', () => {
+  const { document, window } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
+  window.selectTab('portfolio');
+  const overview = portfolioOverview(document);
+  assert.ok(overview.children.some((c) => c.classList.contains('ios-summary-grid')));
+  assert.match(overview.textContent, /配置比例: 未提供（Sheet 没有组合市值字段/);
+  assert.match(overview.textContent, /账户状态（当前台账，非本报告快照）/);
+  assert.match(overview.textContent, /Demo Broker A · JPY可用现金 500000 JPY/);
+  assert.match(overview.textContent, /Demo Broker B · USD可用现金 未提供/, 'blank cash is 未提供, never 0');
+  assert.doesNotMatch(overview.textContent, /本期 \d+ 项变化/, 'a report without a change layering has no change count');
+  const detailLink = overview.children.find((c) => c.classList.contains('ios-view-links')).children.find((b) => b.textContent === '持仓明细');
+  detailLink.click();
+  assert.ok(document.getElementById('ios-tab-holdingDetail').classList.contains('active'));
+
+  ['absent', 'unreadable'].forEach((state) => {
+    const page = loadDashboard(Object.assign({}, DEMO_BOOTSTRAP, { accountStatus: { state, rows: [] } }), 'daily', {});
+    page.window.selectTab('portfolio');
+    assert.match(portfolioOverview(page.document).textContent, state === 'absent' ? /未提供（Sheet 没有「账户状态」表）/ : /无法读取或缺少必需列/);
+  });
+});
+
+test('Issue #388 PR D: the top view row comes before the report in Index.html', () => {
+  const index = fs.readFileSync(path.join(__dirname, '..', 'Index.html'), 'utf8');
+  const bar = index.indexOf('id="ios-tab-bar"');
+  assert.ok(bar > index.indexOf('</header>'));
+  assert.ok(bar < index.indexOf('id="ios-summary-content"'));
+  assert.ok(index.indexOf('id="ios-tab-report"') > bar);
+});
+
+test('Issue #388 PR D: a non-current generation keeps its reader banner above every view built from it, but not above live 资本配置', () => {
+  const bootstrap = buildBootstrapWithTodos([]);
+  const { document, window } = loadDashboard(bootstrap, 'daily', {});
+  const banner = document.getElementById('ios-view-banner');
+  assert.equal(banner.hidden, true, 'the report view shows the banner itself');
+  window.selectTab('todos');
+  assert.equal(banner.hidden, false);
+  assert.match(banner.textContent, /不作为当前买入依据/);
+  window.selectTab('allocation');
+  assert.equal(banner.hidden, true);
+});
+
+test('the summary grid (now in the 组合 overview, #388 PR D) has exactly the 4 v1.1 metrics (当前持仓/观察名单/核心状态/Review) with their explanatory subtitles, not tab-count shortcuts', () => {
   const { document } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
-  const grid = document.getElementById('ios-summary-content').children.find((c) => c.classList.contains('ios-summary-grid'));
+  const grid = portfolioOverview(document).children.find((c) => c.classList.contains('ios-summary-grid'));
   assert.equal(grid.children.length, 4);
   const labels = grid.children.map((card) => card.children[1].textContent);
   const subtitles = grid.children.map((card) => card.children[2].textContent);
@@ -248,7 +317,7 @@ test('summary grid metrics come from the pinned historical report\'s own summary
     }
   });
   window.selectHistoryReport('daily-2026-08-15');
-  const grid = document.getElementById('ios-summary-content').children.find((c) => c.classList.contains('ios-summary-grid'));
+  const grid = portfolioOverview(document).children.find((c) => c.classList.contains('ios-summary-grid'));
   const values = grid.children.map((card) => card.children[0].textContent);
   assert.deepEqual(values.slice(0, 2), ['7', '3']);
 });
@@ -260,19 +329,19 @@ test('summary grid metrics render "未知" for a blank 当前持仓数/高优先
     })
   });
   const { document } = loadDashboard(bootstrapWithBlankCounts, 'daily', {});
-  const grid = document.getElementById('ios-summary-content').children.find((c) => c.classList.contains('ios-summary-grid'));
+  const grid = portfolioOverview(document).children.find((c) => c.classList.contains('ios-summary-grid'));
   const values = grid.children.map((card) => card.children[0].textContent);
   assert.deepEqual(values.slice(0, 2), ['未知', '未知']);
 });
 
 test('summary metric cards are plain informational cards, not tab shortcuts -- no click handler, no button element', () => {
   const { document } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
-  const grid = document.getElementById('ios-summary-content').children.find((c) => c.classList.contains('ios-summary-grid'));
+  const grid = portfolioOverview(document).children.find((c) => c.classList.contains('ios-summary-grid'));
   grid.children.forEach((card) => {
     assert.notEqual(card.tagName, 'BUTTON');
     card.click(); // must be inert -- no onclick was ever registered
   });
-  assert.ok(document.getElementById('ios-tab-portfolio').classList.contains('active'), 'clicking a metric card must never change the active tab');
+  assert.ok(document.getElementById('ios-tab-report').classList.contains('active'), 'clicking a metric card must never change the active tab');
 });
 
 test('switchView("weekly") re-renders in place without any google.script.run call (both viewModels already cached from bootstrap)', () => {
@@ -330,6 +399,7 @@ test('selectTab switches between 组合/资本配置/风险/待办 without any g
 
 test('selectTab ignores an unrecognized tab name rather than clearing the current tab', () => {
   const { document, window } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
+  window.selectTab('portfolio');
   window.selectTab('not-a-real-tab');
   assert.ok(document.getElementById('ios-tab-portfolio').classList.contains('active'), 'must remain on the previously active tab');
 });
@@ -477,7 +547,7 @@ test('an empty-state (found: false, no error) renders the explicit "no report ye
   };
   const { document } = loadDashboard(emptyBootstrap, 'daily', {});
   assert.match(summaryText(document), /暂无日报/);
-  assert.equal(tabText(document), '', 'the portfolio tab has nothing to show when there is no report yet');
+  assert.match(tabText(document), /暂无日报/, 'Issue #388 PR D: a report-based view replaces the report, so it repeats the "no report yet" card');
 });
 
 test('the "no report yet" empty state points to the onboarding prompt as a next step (Issue #273), without running any profile logic itself', () => {
@@ -659,13 +729,13 @@ test('入场计划ID present but 执行状态 blank: renders an explicit neutral
 
 test('入场计划ID present: 入场计划估值锚点 renders as "锚点: ..." replacing the legacy "参考: ..." text', () => {
   const { document } = loadDashboard(buildBootstrapWithHolding({ '入场计划ID': 'plan-1', '执行状态': '等待价格', '入场计划估值锚点': '$100 附近' }), 'daily', {});
-  const card = document.getElementById('ios-tab-content').children[0].children[1].children[0];
+  const card = portfolioSection(document, '当前持仓').children[1].children[0];
   assert.equal(card.children[3].children[0].textContent, '锚点: $100 附近');
 });
 
 test('入场计划ID present but 入场计划估值锚点 blank: anchor text falls back to an explicit "未知", never fabricated or omitted', () => {
   const { document } = loadDashboard(buildBootstrapWithHolding({ '入场计划ID': 'plan-1', '执行状态': '等待价格', '入场计划估值锚点': '' }), 'daily', {});
-  const card = document.getElementById('ios-tab-content').children[0].children[1].children[0];
+  const card = portfolioSection(document, '当前持仓').children[1].children[0];
   assert.equal(card.children[3].children[0].textContent, '锚点: 未知');
 });
 
@@ -690,13 +760,13 @@ test('入场计划ID blank (no active plan) falls back to the legacy 参考买�
   const { document } = loadDashboard(buildBootstrapWithHolding({ '入场计划ID': '', '执行状态': '', '当前区间': '', '价格位置': '区间内' }), 'daily', {});
   assert.ok(pricePositionBadge(document).classList.contains('ios-severity-low'));
   assert.equal(referenceLineChildCount(document), 2, '参考文本 + 价格位置徽章 only, matching the pre-Issue-#298 shape');
-  const card = document.getElementById('ios-tab-content').children[0].children[1].children[0];
+  const card = portfolioSection(document, '当前持仓').children[1].children[0];
   assert.match(card.children[3].children[0].textContent, /^参考: /);
 });
 
 test('demo dataset: DEMO1 (has an active 入场计划) renders its snapshotted anchor + 执行状态 badge; DEMO2 (no plan) still falls back to 价格位置', () => {
   const { document } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
-  const cards = document.getElementById('ios-tab-content').children[0].children[1].children;
+  const cards = portfolioSection(document, '当前持仓').children[1].children;
   const demo1Card = cards.find((card) => card.children[0].children[0].textContent === 'DEMO1');
   const demo2Card = cards.find((card) => card.children[0].children[0].textContent === 'DEMO2');
   const demo1Badge = demo1Card.children[3].children[1];
@@ -720,7 +790,7 @@ test('demo dataset: DEMO1 (has an active 入场计划) renders its snapshotted a
 
 /** Returns the holding card's children beyond the reference line (index 4+), i.e. the Phase 1 explanation lines actually rendered. */
 function entryPlanExplanationLines(document) {
-  const card = document.getElementById('ios-tab-content').children[0].children[1].children[0];
+  const card = portfolioSection(document, '当前持仓').children[1].children[0];
   return card.children.slice(4);
 }
 
@@ -851,7 +921,7 @@ test('round 2 review correction: 停止条件说明/较上次变化说明 stay p
 
 test('demo dataset: DEMO1 renders its Issue #303 Phase 1 freshness line and all four explanation lines', () => {
   const { document } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
-  const cards = document.getElementById('ios-tab-content').children[0].children[1].children;
+  const cards = portfolioSection(document, '当前持仓').children[1].children;
   const demo1Card = cards.find((card) => card.children[0].children[0].textContent === 'DEMO1');
   // slice(4, 9), not slice(4) -- DEMO1's demo row also has 关键变化/长期逻辑或估值/
   // 下一验证点 populated, which render as three further narrative lines right
@@ -884,7 +954,7 @@ test('demo dataset: DEMO1 renders its Issue #303 Phase 1 freshness line and all 
  * whenever Phase 1 contributes nothing, double-counting them away.
  */
 function orderPrepLines(document) {
-  const card = document.getElementById('ios-tab-content').children[0].children[1].children[0];
+  const card = portfolioSection(document, '当前持仓').children[1].children[0];
   return card.children.slice(4);
 }
 
@@ -961,7 +1031,7 @@ test('准备状态 blank (no active plan) renders no order-prep lines at all, ev
     '当前阻碍': '无可靠 active 入场计划，研究或估值尚未完成',
     '下次检查': '建议先完成研究/估值'
   }), 'daily', {});
-  const card = document.getElementById('ios-tab-content').children[0].children[1].children[0];
+  const card = portfolioSection(document, '当前持仓').children[1].children[0];
   assert.equal(card.children.length, 6, '4 条基础行 + 当前阻碍/下次检查 两条 Phase 1 说明行，没有任何订单准备行');
   assert.equal(card.children[4].textContent, '阻碍: 无可靠 active 入场计划，研究或估值尚未完成');
   assert.equal(card.children[5].textContent, '下次检查: 建议先完成研究/估值');
@@ -986,7 +1056,7 @@ test('semantic badge mapping is the same function regardless of Daily/Weekly/his
 
 test('watchlist candidates render separately from holdings and show their report-provided action', () => {
   const { document } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
-  const text = tabText(document);
+  const text = portfolioSection(document, '本期观察候选').textContent;
   assert.match(text, /DEMOW1/);
   assert.match(text, /insufficient_evidence/);
   assert.doesNotMatch(text, /观察名单/, 'the section provides asset type; cards must not repeat the redundant badge');
@@ -1470,7 +1540,7 @@ function buildBootstrapWithWatchlistAction(action, reportType) {
 }
 
 function watchlistActionBadge(document) {
-  const section = document.getElementById('ios-tab-content').children[1];
+  const section = portfolioSection(document, '本期观察候选');
   const card = section.children[2].children[0];
   return card.children[0].children[1];
 }
@@ -1488,7 +1558,7 @@ test('canonical watchlist action badges keep action, priority, and price positio
   const badge = watchlistActionBadge(document);
   assert.equal(badge.textContent, '等待价格');
   assert.ok(badge.classList.contains('ios-severity-medium'));
-  const cardText = document.getElementById('ios-tab-content').children[1].children[2].children[0].textContent;
+  const cardText = portfolioSection(document, '本期观察候选').children[2].children[0].textContent;
   assert.match(cardText, /未知/, 'price-position snapshot stays separately visible');
   assert.doesNotMatch(cardText, /观察名单/, 'the candidate section supplies asset type; the card does not repeat it');
 });
@@ -1522,7 +1592,7 @@ test('every canonical watchlist action has a deterministic mapping and unknown l
 // collapsed <details> block. Rows without 今日行动 keep their own layout.
 
 function firstCard(document) {
-  return document.getElementById('ios-tab-content').children[0].children[1].children[0];
+  return portfolioSection(document, '当前持仓').children[1].children[0];
 }
 
 function firstScreenText(card) {

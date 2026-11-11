@@ -9,6 +9,11 @@
 
 'use strict';
 
+/** Issue #388 PR D: the 组合 view opens with a 组合概况 card (and a reader banner on a non-current generation); finds a report-asset section by its heading. */
+function portfolioSection(document, title) {
+  return document.getElementById('ios-tab-content').children.find((c) => c.children[0] && c.children[0].tagName === 'H2' && c.children[0].textContent.indexOf(title + ' (') === 0);
+}
+
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -116,7 +121,7 @@ function render(bootstrap) {
 }
 
 function card(document) {
-  return document.getElementById('ios-tab-content').children[0].children[1].children[0];
+  return portfolioSection(document, '当前持仓').children[1].children[0];
 }
 
 function firstScreen(cardNode) {
@@ -282,7 +287,7 @@ test('#20/#21/#22: a generation from another epoch is a pre-change snapshot -- b
     assert.equal(vmodel.readerGate.banner, T.epochChanged);
     const doc = render(logic.buildDashboardBootstrap_(tabs));
     assert.match(doc.getElementById('ios-summary-content').textContent, /该报告生成于购买计划模式变更前，非当前行动/);
-    const cards = doc.getElementById('ios-tab-content').children[0].children[1].children;
+    const cards = portfolioSection(doc, '当前持仓').children[1].children;
     assert.equal(cards[0].children[0].children[1].textContent, '无法判断');
     const first = firstScreen(cards[0]);
     assert.doesNotMatch(first, /已校验订单限价/);
@@ -420,7 +425,7 @@ test('B3: a current hold generation never buys, even from a writer\'s mistaken r
   assert.equal(vmodel.readerGate.mode, 'three_layer_hold');
   assert.deepEqual(vmodel.holdings[0]._iosOrderable, { ok: false, message: T.holdMode });
   const doc = render(logic.buildDashboardBootstrap_(tabs));
-  const cards = doc.getElementById('ios-tab-content').children[0].children[1].children;
+  const cards = portfolioSection(doc, '当前持仓').children[1].children;
   assert.equal(cards[0].children[0].children[1].textContent, '无法判断');
   assert.doesNotMatch(firstScreen(cards[0]), /已校验订单限价/);
   assert.match(firstScreen(cards[0]), /三层购买计划暂停中，非当前行动/);

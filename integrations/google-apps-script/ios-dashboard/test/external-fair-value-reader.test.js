@@ -439,7 +439,8 @@ function legacy(row) {
 }
 
 function cardLines(content) {
-  const section = content.children[0];
+  // #388 PR D: the 组合 view opens with its 组合概况 card; the first card grid is 当前持仓.
+  const section = content.children.find((child) => child.children.some((c) => c.classList && c.classList.contains('ios-card-grid')));
   const card = section.children.find((child) => child.classList && child.classList.contains('ios-card-grid')).children[0];
   return card.children.map((line) => line.textContent);
 }

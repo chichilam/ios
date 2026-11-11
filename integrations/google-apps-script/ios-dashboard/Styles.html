@@ -202,7 +202,19 @@ body {
   margin-bottom: 16px;
   overflow-x: auto;
 }
-.ios-tab-bar .ios-tab-btn { white-space: nowrap; }
+.ios-tab-bar .ios-tab-btn { white-space: nowrap; flex-shrink: 0; }
+
+/* Issue #388 PR D: a hidden view or banner never shows, even where a class sets display (the history banner's flex once left an empty band). */
+#ios-summary-content[hidden], #ios-tab-content[hidden], #ios-view-banner[hidden], .ios-history-banner[hidden] { display: none; }
+
+/* Issue #388 PR D: 组合 overview -- overall state, then links to the other views. */
+.ios-portfolio-overview .ios-summary-grid { margin-top: 8px; }
+.ios-account-list li { min-width: 0; overflow-wrap: anywhere; }
+.ios-view-links { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+.ios-view-link {
+  border: 1px solid var(--ios-accent); background: var(--ios-card-bg); color: var(--ios-accent);
+  border-radius: var(--ios-control-radius); padding: 4px 12px; font: inherit; font-size: 0.85rem; cursor: pointer;
+}
 
 .ios-card {
   background: var(--ios-card-bg);

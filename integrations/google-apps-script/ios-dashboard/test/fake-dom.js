@@ -117,9 +117,9 @@ function createFakeDocument() {
   const STATIC_IDS = [
     'ios-nav-daily', 'ios-nav-weekly', 'ios-refresh-btn', 'ios-history-select',
     'ios-status-banner', 'ios-history-banner',
-    'ios-summary-content',
+    'ios-summary-content', 'ios-tab-report',
     'ios-tab-portfolio', 'ios-tab-holdingDetail', 'ios-tab-allocation', 'ios-tab-risks', 'ios-tab-todos',
-    'ios-tab-content'
+    'ios-view-banner', 'ios-tab-content'
   ];
   const registry = {};
   const body = new FakeElement('body');

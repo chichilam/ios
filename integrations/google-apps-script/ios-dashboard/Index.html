@@ -21,12 +21,8 @@
     </div>
   </header>
 
-  <div id="ios-status-banner" class="ios-status-banner" hidden></div>
-  <div id="ios-history-banner" class="ios-history-banner" hidden></div>
-
-  <div id="ios-summary-content"></div>
-
-  <nav class="ios-tab-bar" id="ios-tab-bar">
+  <nav class="ios-tab-bar" id="ios-tab-bar" aria-label="视图">
+    <button type="button" class="ios-tab-btn" id="ios-tab-report" onclick="selectTab('report')">报告</button>
     <button type="button" class="ios-tab-btn" id="ios-tab-portfolio" onclick="selectTab('portfolio')">组合</button>
     <button type="button" class="ios-tab-btn" id="ios-tab-holdingDetail" onclick="selectTab('holdingDetail')">持仓明细</button>
     <button type="button" class="ios-tab-btn" id="ios-tab-allocation" onclick="selectTab('allocation')">资本配置</button>
@@ -34,6 +30,12 @@
     <button type="button" class="ios-tab-btn" id="ios-tab-todos" onclick="selectTab('todos')">待办</button>
   </nav>
 
+  <div id="ios-status-banner" class="ios-status-banner" hidden></div>
+  <div id="ios-history-banner" class="ios-history-banner" hidden></div>
+
+  <div id="ios-summary-content"></div>
+
+  <div id="ios-view-banner" hidden></div>
   <main id="ios-tab-content"></main>
 
   <script>

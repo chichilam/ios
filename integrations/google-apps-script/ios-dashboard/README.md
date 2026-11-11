@@ -57,7 +57,8 @@ credentials anywhere — every value in [`demo/demo-sheet.json`](demo/demo-sheet
   the PR B 90-day 估值研究日期 rule (89/90/91 days, missing, unreadable, own report date).
 - `test/no-horizontal-overflow.test.js` — Issue #370: renders the real `Index.html`/`Styles.html`/
   `Script.html` in headless Chrome at 320/375/390/430px and desktop, with every report string made long
-  and unbreakable, and asserts no Daily/Weekly tab scrolls sideways (desktop keeps two card columns).
+  and unbreakable, and asserts no Daily/Weekly view scrolls sideways (desktop keeps two card columns), the
+  view row sits above the content and the current view's tab is fully visible (#388 PR D).
   Uses the system Chrome/Chromium (`CHROME_BIN` to point at one); skipped locally without a browser,
   required under CI.
 - `test/fake-dom.js` — a minimal hand-rolled DOM stand-in used only by `dashboard-script.test.js`
@@ -109,7 +110,7 @@ approximation of it:
   separate history section further down the page), and the refresh control (a v2.1 addition on top
   of v1.1, since v1.1 had no live re-read action).
 - A 4-metric summary grid — 当前持仓 (实时组合事实) / 观察名单 (高优先级) / 核心状态 (IOS判断) /
-  Review (数据完整性) — sits above the tabs. All four are presentation-only reads straight from the
+  Review (数据完整性) — opens the 组合 view (Issue #388 PR D; it sat above the tabs before). All four are presentation-only reads straight from the
   selected report's own 报告摘要 row (`当前持仓数`/`高优先级观察数`/`核心状态`/`Review状态`) —
   never recomputed client-side from live or report-detail rows, so a historical report's summary
   always matches the writer's snapshot at generation time. These are v1.1's own metrics with their
@@ -119,7 +120,7 @@ approximation of it:
   conclusion text only, with an accent left border and soft gradient background — report id/
   period/generated-time metadata lives in a small muted caption underneath it instead, not inside
   the headline card itself.
-- The four tabs (组合/资本配置/风险/待办) render as ordinary rounded buttons (10px radius) with a
+- The view tabs (报告/组合/持仓明细/资本配置/风险/待办) render as ordinary rounded buttons (10px radius) with a
   dark active state, matching v1.1's `.tabs`/`.tab` control language — not blue accent pills. Nav
   buttons, tabs, the history `<select>`, and the refresh button all share this same control family.
 - Compact holding/watchlist cards render two per row on desktop, one per row on narrow screens,
@@ -227,9 +228,8 @@ Display only, from the same rows; nothing is hidden that cannot be opened.
   screen; 上周判断, 本周证据, 影响, 下一证据或触发, 关联代码 and 依据性质 fold under 依据与证据. In ④ the
   verdict, reader-gate problem, 适用周 and range lines stay on screen and the #327 price reference folds
   under 本周价格参考. Still nothing on a Weekly folds by `变化标记` (#383).
-- **Daily**: the remaining `无变化` rows are one line `其余 N 只无变化`（另 n 条风险无变化）; on the 组合
-  tab of a post-#364 Daily, rows with exactly `变化标记 = 无变化` fold the same way (blank and `无可比基线`
-  stay open; a Weekly or an old Daily never folds).
+- **Daily**: the remaining `无变化` rows are one line `其余 N 只无变化`（另 n 条风险无变化）. (PR B also folded
+  them on the 组合 tab; since PR D a post-#364 Daily's 组合 shows no cards at all, see below.)
   A Daily card always keeps its own full 本周购买计划 and 价格参考: no snapshot field records which
   Weekly a Daily used (`报告摘要` has no referenced-Weekly id), so the Dashboard does not pair a Daily
   with any Weekly to hide a copy, not even an identical one (field gap, left to the maintainer on #388).
@@ -242,7 +242,27 @@ Display only, from the same rows; nothing is hidden that cannot be opened.
   `出处` (data-source names) move into a collapsed 技术信息 block in the same card. The fund aggregate
   reads as 基金定投（合计）, its code `FUND-SLEEVE` kept in 技术信息 (the 持仓明细 `data-code` stays the raw
   code).
-- The 待办 tab is not part of either report's first screen (组合 is the default tab), so it is left as is.
+- The 待办 tab is not part of either report's first screen, so it is left as is.
+
+### Top view row and 组合 without repeats (Issue #388 PR D)
+
+Display only; no Sheet field, schema, Task or Agent contract changes.
+
+- One row of views sits directly under the topbar: 报告 / 组合 / 持仓明细 / 资本配置 / 风险 / 待办. 报告 is the
+  default and holds the conclusion card, headline, tiers and layering; any other view replaces it on the
+  whole page and the page scrolls back to the top. On a narrow screen the row scrolls sideways and the
+  current view's tab is scrolled fully into sight.
+- A non-current generation's reader banner (#316 P4) repeats above every view built from that generation;
+  the live 资本配置 view shows none. Without a report, every report-based view shows the "no report yet" card.
+- 组合 opens with 组合概况: the report's 4-metric grid, `配置比例: 未提供` (the Sheet has no portfolio market
+  value, and the Dashboard does not compute a ratio), the optional `账户状态` tab read live (labelled
+  “当前台账，非本报告快照”, blank cash shown as 未提供, never 0; absent tab → 未提供, unreadable or missing
+  `账户`/`币种` → a stated read problem; never Blocks the page), the change count (`本期 N 项变化` for a
+  layered Daily = its 本期有变化 group; `本周 N 项判断已变化` for a Weekly) with a link back to 报告, and links
+  to 持仓明细 and 资本配置.
+- A post-#364 Daily already shows every holding and candidate in the report (本期有变化 / 其余 N 只无变化 /
+  无可比基线), so its 组合 lists no card again, only the counts. A Weekly's report has verdict lines only,
+  so its full cards stay in 组合 (unfolded, #383); so does every Daily without a change layering.
 
 ### Conclusion card and three tiers (Issue #388 PR C)
 

@@ -441,7 +441,8 @@ function buildDashboardBootstrap_(tabs, reader) {
     weekly: buildReportViewModel_(tabs, 'weekly', null, inputs),
     dailyHistory: buildHistoryList_(tabs['报告摘要'], 'daily'),
     weeklyHistory: buildHistoryList_(tabs['报告摘要'], 'weekly'),
-    allocation: buildAllocationView_(tabs['当前持仓'])
+    allocation: buildAllocationView_(tabs['当前持仓']),
+    accountStatus: buildAccountStatusView_(tabs[ACCOUNT_STATUS_TAB_])
   };
 }
 
@@ -760,12 +761,10 @@ function buildAllocationView_(currentHoldingsRows) {
 // schema_version 2+). Both tabs are optional and entirely absent on a
 // schema_version 1 installation -- these functions are pure normalization/
 // reconciliation over whatever rows they're given and never assume the
-// tabs exist. Not yet wired into readAllTabs_/SHEET_TABS_/doGet: the
-// Dashboard's existing fail-closed required-tab gate must stay unaffected
-// by these being optional, and no Dashboard UI renders them yet -- these
-// exist now, tested now, as a small, correct wiring change for whenever
-// that UI lands (Issue #259's own Dashboard scope frames it as "if
-// account/capital facts are shown", not a requirement of this change).
+// tabs exist. Never in SHEET_TABS_: the Dashboard's fail-closed
+// required-tab gate must stay unaffected by these being optional. Issue #388
+// PR D reads 账户状态 through readOptionalTab_ for the 组合 view's account
+// card (buildAccountStatusView_); 投资信托明细 is still not rendered.
 // The Weekly Task itself (a ChatGPT Scheduled Task, not this Web App)
 // reads 账户状态/投资信托明细 directly per setup/weekly-task-prompt.md;
 // these functions mirror that same read/reconcile logic in pure,
@@ -790,6 +789,24 @@ function getAccountFacts_(accountStatusRows) {
       note: row['备注'] === '' || row['备注'] == null ? null : row['备注']
     };
   });
+}
+
+var ACCOUNT_STATUS_TAB_ = '账户状态';
+var ACCOUNT_STATUS_REQUIRED_ = ['账户', '币种'];
+
+/**
+ * The 组合 view's account card (Issue #388 PR D): the live 账户状态 rows, like
+ * the live 资本配置 view -- never a report snapshot. state is 'absent' (no tab,
+ * schema_version 1), 'unreadable' (missing a required column or read failure)
+ * or 'ok'; blank cells stay null, never zero.
+ */
+function buildAccountStatusView_(accountStatusRows) {
+  if (accountStatusRows === undefined) return { state: 'absent', rows: [] };
+  if (accountStatusRows === null) return { state: 'unreadable', rows: [] };
+  var rows = getAccountFacts_(accountStatusRows).filter(function (facts) {
+    return !(facts.account === '' || facts.account == null) || !(facts.currency === '' || facts.currency == null);
+  });
+  return { state: 'ok', rows: rows };
 }
 
 /**
@@ -2379,7 +2396,26 @@ function readAllTabs_(spreadsheet) {
   var tabs = {};
   SHEET_TABS_.forEach(function (tabName) { tabs[tabName] = readTab_(spreadsheet, tabName); });
   tabs[WEEKLY_RESEARCH_TAB_] = readWeeklyResearchTab_(spreadsheet);
+  tabs[ACCOUNT_STATUS_TAB_] = readOptionalTab_(spreadsheet, ACCOUNT_STATUS_TAB_, ACCOUNT_STATUS_REQUIRED_);
   return tabs;
+}
+
+/** An optional tab: undefined when absent, null when unreadable or missing a required column. Never Blocks the page. */
+function readOptionalTab_(spreadsheet, tabName, required) {
+  try {
+    var sheet = spreadsheet.getSheetByName(tabName);
+    if (!sheet) return undefined;
+    var values = sheet.getDataRange().getValues();
+    var headers = values.length > 0 ? values[0] : [];
+    if (required.some(function (name) { return headers.indexOf(name) === -1; })) return null;
+    return values.slice(1).map(function (row) {
+      var record = {};
+      headers.forEach(function (header, index) { record[header] = row[index]; });
+      return record;
+    });
+  } catch (err) {
+    return null;
+  }
 }
 
 /**
@@ -2564,7 +2600,8 @@ function buildBootstrapSafe_() {
       weekly: { found: false, reportType: 'weekly' },
       dailyHistory: [],
       weeklyHistory: [],
-      allocation: []
+      allocation: [],
+      accountStatus: { state: 'absent', rows: [] }
     };
   }
 }
@@ -2664,6 +2701,7 @@ if (typeof module !== 'undefined') {
     buildHistoryList_: buildHistoryList_,
     buildAllocationView_: buildAllocationView_,
     getAccountFacts_: getAccountFacts_,
+    buildAccountStatusView_: buildAccountStatusView_,
     hasSuppliedCashFacts_: hasSuppliedCashFacts_,
     getFundSleeveDetail_: getFundSleeveDetail_,
     reconcileFundSleeveValue_: reconcileFundSleeveValue_,

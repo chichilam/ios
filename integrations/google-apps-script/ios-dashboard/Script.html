@@ -28,12 +28,17 @@
 (function () {
   'use strict';
 
-  var TABS = ['portfolio', 'holdingDetail', 'allocation', 'risks', 'todos'];
+  // Issue #388 PR D: one row of views at the top of the page. 报告 shows the
+  // report (conclusion, tiers, layering); every other view replaces it on the
+  // whole page. The last non-report view stays rendered (hidden) so a switch
+  // back is instant and needs no server call.
+  var TABS = ['report', 'portfolio', 'holdingDetail', 'allocation', 'risks', 'todos'];
 
   var STATE = {
     bootstrap: IOS_BOOTSTRAP,
     activeView: IOS_ACTIVE_VIEW === 'weekly' ? 'weekly' : 'daily',
-    activeTab: 'portfolio',
+    activeTab: 'report',
+    detailTab: 'portfolio', // the view #ios-tab-content renders: activeTab unless that is 'report'
     holdingDetailFilter: 'all', // 持仓明细 filter (Issue #388 PR A)
     viewingReportId: null, // non-null while pinned to a specific history entry
     displayedViewModel: null, // the viewModel for viewingReportId, once fetched
@@ -175,10 +180,17 @@
       btn.classList.toggle('active', isActive);
       if (isActive) {
         btn.setAttribute('aria-current', 'page');
+        // A narrow screen scrolls the view row sideways; keep the current view fully in sight.
+        if (typeof btn.scrollIntoView === 'function') { btn.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
       } else {
         btn.removeAttribute('aria-current');
       }
     });
+    var onReport = STATE.activeTab === 'report';
+    document.getElementById('ios-summary-content').hidden = !onReport;
+    document.getElementById('ios-tab-content').hidden = onReport;
+    var viewBanner = document.getElementById('ios-view-banner');
+    viewBanner.hidden = onReport || !viewBanner.firstChild;
   }
 
   function renderStatusBanner() {
@@ -265,7 +277,6 @@
     if (readerBanner) { container.appendChild(readerBanner); }
     var priority = buildPriorityView_(vm);
     container.appendChild(buildConclusionCard_(vm, priority));
-    container.appendChild(buildSummaryGrid(vm));
     container.appendChild(buildHeadlineCard(vm));
     container.appendChild(buildReportCaption(vm));
     container.appendChild(buildPrioritySection_(vm, priority));
@@ -517,14 +528,14 @@
       verdicts.appendChild(buildWeeklyVerdictItem_(asset, vm.todos));
     });
     fourth.push(verdicts.children.length ? verdicts : text('p', 'ios-empty-note', '本报告没有写出今日行动的资产。'));
-    fourth.push(text('p', 'ios-muted', '估值与完整购买计划依据见下方「组合」卡片。'));
+    fourth.push(text('p', 'ios-muted', '估值与完整购买计划依据见顶部「组合」视图。'));
     sections.push(el('section', { className: 'ios-card ios-layer-section' }, fourth));
 
     if (weekly.unplaced.length) {
       sections.push(el('section', { className: 'ios-card ios-layer-section' },
         [text('h2', null, vmText_().shapeError)].concat(weekly.unplaced.map(buildResearchRow_))));
     }
-    sections.push(text('p', 'ios-muted ios-layer-next', '⑤ 全部持仓、观察候选、风险与待办明细见下方标签页。'));
+    sections.push(text('p', 'ios-muted ios-layer-next', '⑤ 全部持仓、观察候选、风险与待办明细见顶部「组合 / 持仓明细 / 风险 / 待办」视图。'));
     return sections;
   }
 
@@ -878,7 +889,9 @@
     if (priority.uncompared.length) {
       lower.push(layerFoldable_('未比较 (' + priority.uncompared.length + ')', [buildTierList_(priority.uncompared)], false));
     }
-    lower.push(text('p', 'ios-muted', '研究条目、市场环境与第三方数据见下方各节；每只标的的完整依据见「组合」卡片。'));
+    lower.push(text('p', 'ios-muted', vm.layering && vm.layering.daily
+      ? '研究条目、市场环境与第三方数据见下方各节；每只标的的完整依据见下方本期变化与无变化折叠。'
+      : '研究条目、市场环境与第三方数据见下方各节；每只标的的完整依据见顶部「组合」视图。'));
     children.push(el('section', { className: 'ios-card ios-tier-section ios-tier-lower' }, lower));
     return el('div', { className: 'ios-tiers' }, children);
   }
@@ -888,10 +901,12 @@
   function renderTabContent() {
     var container = document.getElementById('ios-tab-content');
     clear(container);
+    renderViewBanner_();
 
     if (STATE.bootstrap.error) return;
 
-    if (STATE.activeTab === 'allocation') {
+    var tab = STATE.detailTab;
+    if (tab === 'allocation') {
       // Capital allocation is the live 当前持仓 view -- independent of
       // which Daily/Weekly report (or history entry) is selected, so it
       // renders even when the selected report itself is empty/missing.
@@ -901,24 +916,115 @@
 
     var vm = currentViewModel();
     if (!vm || !vm.found) {
-      // The summary section above already shows the "no report yet" card
-      // -- the tab area just stays empty rather than duplicating it.
+      // Each view now replaces the report on the whole page (Issue #388 PR D),
+      // so a report-based view repeats the "no report yet" card itself.
+      container.appendChild(buildEmptyStateCard(STATE.activeView));
       return;
     }
 
-    if (STATE.activeTab === 'portfolio') {
-      // Issue #388 PR B: a Daily's 无变化 rows fold into one line; a Weekly's
-      // 变化标记 covers business judgment only (#383), so it never folds.
-      var foldUnchanged = !!(vm.layering && vm.layering.daily);
-      container.appendChild(buildAssetSection('当前持仓', vm.holdings, false, vm.todos, foldUnchanged));
-      container.appendChild(buildAssetSection('本期观察候选', vm.watchlistCandidates, true, vm.todos, foldUnchanged));
-    } else if (STATE.activeTab === 'holdingDetail') {
+    if (tab === 'portfolio') {
+      buildPortfolioView_(vm).forEach(function (node) { container.appendChild(node); });
+    } else if (tab === 'holdingDetail') {
       container.appendChild(buildHoldingDetailSection(vm.holdingDetail));
-    } else if (STATE.activeTab === 'risks') {
+    } else if (tab === 'risks') {
       container.appendChild(buildRisksSection(vm.risks, vm.riskGroups));
-    } else if (STATE.activeTab === 'todos') {
+    } else if (tab === 'todos') {
       container.appendChild(buildTodosSection(vm.todos));
     }
+  }
+
+  /**
+   * The report view carries the reader banner at its top (renderSummarySection);
+   * every other view built from the same generation repeats it above its own
+   * content, so leaving 报告 never hides that the report is not current. The
+   * live 资本配置 view is not built from a generation and shows none.
+   */
+  function renderViewBanner_() {
+    var slot = document.getElementById('ios-view-banner');
+    clear(slot);
+    var vm = currentViewModel();
+    var banner = STATE.bootstrap.error || STATE.detailTab === 'allocation' || !vm || !vm.found ? null : buildReaderBanner_(vm);
+    if (banner) { slot.appendChild(banner); }
+    slot.hidden = !banner || STATE.activeTab === 'report';
+  }
+
+  // -- Issue #388 PR D: 组合 keeps the slow-moving overall state; what changed
+  // this period stays in the report only. A Daily with a change layering
+  // already shows every holding and candidate there (本期有变化, 其余 N 只无变化,
+  // 无可比基线), so 组合 shows the counts and a way back instead of the same
+  // cards again. A Weekly's report carries only the verdict lines, so its full
+  // cards stay here, as does every report without a change layering. --
+
+  function viewLink_(label, tab) {
+    return el('button', {
+      className: 'ios-view-link',
+      text: label,
+      attrs: { type: 'button' },
+      onclick: function () { selectTab(tab); }
+    });
+  }
+
+  function changeCountLine_(vm) {
+    var layering = vm.layering;
+    if (layering && layering.daily) { return '本期 ' + layering.daily.changed.length + ' 项变化'; }
+    if (layering && layering.weekly) { return '本周 ' + layering.weekly.judgments.changed.length + ' 项判断已变化'; }
+    return null;
+  }
+
+  function accountStatusLines_() {
+    var status = STATE.bootstrap.accountStatus;
+    var lines = [text('p', 'ios-muted', '账户状态（当前台账，非本报告快照）')];
+    if (!status || status.state === 'absent') {
+      lines.push(text('p', 'ios-empty-note', '未提供（Sheet 没有「账户状态」表）'));
+    } else if (status.state === 'unreadable') {
+      lines.push(text('p', 'ios-entry-plan-incomplete', '「账户状态」表无法读取或缺少必需列，未显示'));
+    } else if (status.rows.length === 0) {
+      lines.push(text('p', 'ios-empty-note', '「账户状态」表没有记录'));
+    } else {
+      var list = el('ul', { className: 'ios-list ios-account-list' });
+      status.rows.forEach(function (row) {
+        var parts = ['可用现金 ' + (row.availableCash === null ? '未提供' : row.availableCash + ' ' + row.currency)];
+        if (row.nisaGrowthRemaining !== null) { parts.push('NISA成长投资额度剩余 ' + row.nisaGrowthRemaining); }
+        if (row.nisaTsumitateRemaining !== null) { parts.push('NISA积立额度剩余 ' + row.nisaTsumitateRemaining); }
+        list.appendChild(el('li', null, [
+          text('strong', null, row.account + ' · ' + row.currency),
+          text('p', 'ios-asset-line', parts.join(' · ')),
+          text('p', 'ios-asset-line ios-muted', '数据时间 ' + (isBlank(row.asOf) ? '未提供' : row.asOf))
+        ]));
+      });
+      lines.push(list);
+    }
+    return lines;
+  }
+
+  function buildPortfolioOverview_(vm) {
+    var children = [text('h2', null, '组合概况'), buildSummaryGrid(vm)];
+    children.push(labelledLine_('配置比例', null, '未提供（Sheet 没有组合市值字段，Dashboard 不自行计算比例）'));
+    accountStatusLines_().forEach(function (line) { children.push(line); });
+    var links = [];
+    var changes = changeCountLine_(vm);
+    if (changes) {
+      links.push(text('span', 'ios-badge', changes));
+      links.push(viewLink_('查看本期变化', 'report'));
+    }
+    links.push(viewLink_('持仓明细', 'holdingDetail'));
+    links.push(viewLink_('资本配置', 'allocation'));
+    children.push(el('div', { className: 'ios-view-links' }, links));
+    return el('section', { className: 'ios-card ios-portfolio-overview' }, children);
+  }
+
+  function buildPortfolioView_(vm) {
+    var nodes = [buildPortfolioOverview_(vm)];
+    if (vm.layering && vm.layering.daily) {
+      nodes.push(el('section', { className: 'ios-card' }, [
+        text('h2', null, '当前持仓 (' + vm.holdings.length + ') · 本期观察候选 (' + vm.watchlistCandidates.length + ')'),
+        text('p', 'ios-hint', '每只标的的本期内容只在「报告」中显示一次（本期有变化 / 其余无变化 / 无可比基线）；估值约束与本周区间见「持仓明细」。')
+      ]));
+      return nodes;
+    }
+    nodes.push(buildAssetSection('当前持仓', vm.holdings, false, vm.todos));
+    nodes.push(buildAssetSection('本期观察候选', vm.watchlistCandidates, true, vm.todos));
+    return nodes;
   }
 
   /**
@@ -1911,7 +2017,7 @@
     return el('div', { className: isWatchlist ? 'ios-asset-card ios-watchlist-card' : 'ios-asset-card' }, lines);
   }
 
-  function buildAssetSection(title, assets, isWatchlist, todos, foldUnchanged) {
+  function buildAssetSection(title, assets, isWatchlist, todos) {
     var heading = text('h2', null, title + ' (' + assets.length + ')');
     var children = [heading];
     if (isWatchlist) {
@@ -1922,18 +2028,9 @@
         (isWatchlist ? '本期报告未涉及任何观察候选' : '本期报告未涉及任何持仓') +
         '——这是合法的空结果，不是错误。'));
     } else {
-      var unchanged = foldUnchanged ? assets.filter(function (asset) { return asset['变化标记'] === '无变化'; }) : [];
-      var shown = assets.filter(function (asset) { return unchanged.indexOf(asset) === -1; });
-      if (shown.length) {
-        var grid = el('div', { className: 'ios-card-grid' });
-        shown.forEach(function (asset) { grid.appendChild(buildAssetCard(asset, isWatchlist, todos)); });
-        children.push(grid);
-      }
-      if (unchanged.length) {
-        var foldGrid = el('div', { className: 'ios-card-grid' });
-        unchanged.forEach(function (asset) { foldGrid.appendChild(buildAssetCard(asset, isWatchlist, todos)); });
-        children.push(layerFoldable_('其余 ' + unchanged.length + ' 只无变化', [foldGrid], false));
-      }
+      var grid = el('div', { className: 'ios-card-grid' });
+      assets.forEach(function (asset) { grid.appendChild(buildAssetCard(asset, isWatchlist, todos)); });
+      children.push(grid);
     }
     return el('section', { className: 'ios-card' }, children);
   }
@@ -2394,8 +2491,11 @@
     if (STATE.loading) return;
     if (TABS.indexOf(tab) === -1) return;
     STATE.activeTab = tab;
+    if (tab !== 'report') { STATE.detailTab = tab; }
     updateTabActive();
     renderTabContent();
+    // The whole page switched: start the new view at its top.
+    if (typeof window.scrollTo === 'function') { window.scrollTo(0, 0); }
   }
 
   function selectHoldingDetailFilter(filter) {

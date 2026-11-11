@@ -11,7 +11,7 @@
   "观察名单": [
     {"代码": "DEMOW1", "名称": "Demo Watch Semiconductor", "市场": "Demo Exchange", "主题": "AI Infrastructure", "关注理由": "示例关注理由", "理想买入区间": "20-25", "当前状态": "研究中", "优先级": "高", "最近研究日期": "2026-08-05", "备注": ""}
   ],
-  "_schema_v2_comment": "账户状态/投资信托明细 below are Issue #259 (schema_version 2) additions -- synthetic examples only, not wired into readAllTabs_/SHEET_TABS_/doGet yet (see Code.gs's own comment on those functions). Used by dashboard-logic.test.js to exercise getAccountFacts_/hasSuppliedCashFacts_/getFundSleeveDetail_/reconcileFundSleeveValue_.",
+  "_schema_v2_comment": "账户状态/投资信托明细 below are Issue #259 (schema_version 2) additions -- synthetic examples only; 账户状态 also feeds the 组合 view's account card (Issue #388 PR D, buildAccountStatusView_), 投资信托明细 is not rendered. Used by dashboard-logic.test.js to exercise getAccountFacts_/hasSuppliedCashFacts_/getFundSleeveDetail_/reconcileFundSleeveValue_.",
   "账户状态": [
     {"账户": "Demo Broker A", "币种": "JPY", "可用现金": 500000, "NISA成长投资额度剩余": 2400000, "NISA积立额度剩余": 400000, "本年计划追加资金": 1000000, "定期定额扣款": "每月自动扣款 30000 日元买入 Demo All Country 基金", "数据时间": "2026-08-20", "来源": "用户手动填写", "备注": ""},
     {"账户": "Demo Broker B", "币种": "USD", "可用现金": "", "NISA成长投资额度剩余": "", "NISA积立额度剩余": "", "本年计划追加资金": "", "定期定额扣款": "", "数据时间": "2026-08-20", "来源": "", "备注": "示例：美元账户暂无现金数据，字段留空表示未知，绝不能默认成 0"}
