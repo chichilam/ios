@@ -209,16 +209,19 @@ test('initial render shows the Daily summary grid + headline and marks the Daily
   assert.match(tabText(document), /DEMO1/, '组合 (portfolio) tab is the default active tab and shows holdings');
 
   const summaryContainer = document.getElementById('ios-summary-content');
-  assert.equal(summaryContainer.children.length, 4, 'summary grid + headline card + report caption + layering (Issue #364), in that order');
-  assert.ok(summaryContainer.children[0].classList.contains('ios-summary-grid'));
-  assert.ok(summaryContainer.children[1].classList.contains('ios-headline-card'));
-  assert.ok(summaryContainer.children[2].classList.contains('ios-report-caption'));
-  assert.ok(summaryContainer.children[3].classList.contains('ios-layering'));
+  assert.equal(summaryContainer.children.length, 6,
+    'conclusion card (#388 PR C) + summary grid + headline card + report caption + tiers (#388 PR C) + layering (Issue #364), in that order');
+  assert.ok(summaryContainer.children[0].classList.contains('ios-conclusion-card'));
+  assert.ok(summaryContainer.children[1].classList.contains('ios-summary-grid'));
+  assert.ok(summaryContainer.children[2].classList.contains('ios-headline-card'));
+  assert.ok(summaryContainer.children[3].classList.contains('ios-report-caption'));
+  assert.ok(summaryContainer.children[4].classList.contains('ios-tiers'));
+  assert.ok(summaryContainer.children[5].classList.contains('ios-layering'));
 });
 
 test('the summary grid has exactly the 4 v1.1 metrics (当前持仓/观察名单/核心状态/Review) with their explanatory subtitles, not tab-count shortcuts', () => {
   const { document } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
-  const grid = document.getElementById('ios-summary-content').children[0];
+  const grid = document.getElementById('ios-summary-content').children.find((c) => c.classList.contains('ios-summary-grid'));
   assert.equal(grid.children.length, 4);
   const labels = grid.children.map((card) => card.children[1].textContent);
   const subtitles = grid.children.map((card) => card.children[2].textContent);
@@ -245,7 +248,7 @@ test('summary grid metrics come from the pinned historical report\'s own summary
     }
   });
   window.selectHistoryReport('daily-2026-08-15');
-  const grid = document.getElementById('ios-summary-content').children[0];
+  const grid = document.getElementById('ios-summary-content').children.find((c) => c.classList.contains('ios-summary-grid'));
   const values = grid.children.map((card) => card.children[0].textContent);
   assert.deepEqual(values.slice(0, 2), ['7', '3']);
 });
@@ -257,14 +260,14 @@ test('summary grid metrics render "未知" for a blank 当前持仓数/高优先
     })
   });
   const { document } = loadDashboard(bootstrapWithBlankCounts, 'daily', {});
-  const grid = document.getElementById('ios-summary-content').children[0];
+  const grid = document.getElementById('ios-summary-content').children.find((c) => c.classList.contains('ios-summary-grid'));
   const values = grid.children.map((card) => card.children[0].textContent);
   assert.deepEqual(values.slice(0, 2), ['未知', '未知']);
 });
 
 test('summary metric cards are plain informational cards, not tab shortcuts -- no click handler, no button element', () => {
   const { document } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
-  const grid = document.getElementById('ios-summary-content').children[0];
+  const grid = document.getElementById('ios-summary-content').children.find((c) => c.classList.contains('ios-summary-grid'));
   grid.children.forEach((card) => {
     assert.notEqual(card.tagName, 'BUTTON');
     card.click(); // must be inert -- no onclick was ever registered

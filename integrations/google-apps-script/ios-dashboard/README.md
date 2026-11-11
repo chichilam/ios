@@ -49,7 +49,7 @@ credentials anywhere — every value in [`demo/demo-sheet.json`](demo/demo-sheet
   `buildLayeringView_` in `Code.gs` and the Weekly/Daily page order, old-report line, shape-error
   labels and folds in `Script.html`, against the synthetic fixture
   `test/report-layering-fixture.json`; also the #388 PR B default folds, Daily increment and
-  技术信息 blocks.
+  技术信息 blocks, and the #388 PR C conclusion card and three tiers.
 - `test/holding-detail.test.js` — Node test suite for the 持仓明细 tab (Issue #388 PR A):
   `buildHoldingDetailView_` in `Code.gs` and its table/card rendering in `Script.html` — three
   separate groups (估值约束（台账）/ 本周执行 / 第三方公允值), the long-term cap never next to the
@@ -238,6 +238,31 @@ Display only, from the same rows; nothing is hidden that cannot be opened.
   reads as 基金定投（合计）, its code `FUND-SLEEVE` kept in 技术信息 (the 持仓明细 `data-code` stays the raw
   code).
 - The 待办 tab is not part of either report's first screen (组合 is the default tab), so it is left as is.
+
+### Conclusion card and three tiers (Issue #388 PR C)
+
+Display only, from the same generation's rows; nothing is parsed from prose and no field is added.
+The page now opens with a conclusion card (要不要动手 / 判断变了没有 / 风险) above the metric grid, and
+below the headline caption 必须执行, 需要复核, (Weekly) 下周前三项, then folded 仅供了解 and 未比较 groups,
+before the existing layering sections. Each asset appears once, in its highest tier, with every reason
+of that tier; the full cards stay where they were.
+
+| Tier | Rule (first tier that matches wins) |
+| --- | --- |
+| 必须执行 | the fixed 今日建议 mapping gives 适合买入 (so the reader gate, hold mode, funding and blockers still apply); `今日行动=暂停新增待复核`; a holding with `变化标记=有变化`; `FUND-SLEEVE` with `今日行动=先核对缺项` (基金聚合数据缺口); `周计划状态=已过期` or `引用失效` |
+| 需要复核 | `周计划状态=事件暂停` on its own (a pause in force; the snapshot cannot prove it started or became releasable this period, so it is not 必须执行 unless another trigger above applies); a `可人工准备限价单`/`沿用定投` row whose verdict fails closed to 无法判断; `需要复核=TRUE`; `周计划结论=长期估值缺失或失效`; `周计划状态=暂停记录不可核验` or `周计划异常`; `今日行动=先核对缺项`; an open todo whose `复核键` is an official event `事件|代码|事件类别|来源标识|事件日期` (lifts that 代码 once, never below a higher tier); a risk with `风险趋势=新增`/`升级` |
+| 仅供了解 | a holding with `变化标记=无变化`; a watchlist row with `变化标记=无变化`/`有变化`; a risk with `风险趋势=降级`/`数值变化`/`无变化`/`解除` |
+| 未比较 | a holding or watchlist row whose `变化标记` is blank, `无可比基线` or unknown; a risk with any other or blank `风险趋势` (pre-#375, `首次记录`, `迁移缺口`, ...) |
+
+- 要不要动手: `需要执行 N 项`, otherwise `今日无需操作`/`本周无需操作`, plus `另有 N 项未比较` and, when the
+  generation is not the current action, `本报告不作为当前买入依据`.
+- 判断变了没有: Weekly counts ① `判断变化` rows (`已变化`, else `维持`); an old or unreadable Weekly is
+  `未比较`. Daily counts `变化标记` of holdings and watchlist rows; blank/`无可比基线` are counted as 未比较.
+- 风险: `风险趋势` 新增/升级 count; rows without a comparable trend are counted as 未比较.
+- 下周前三项 (Weekly): the first three `下周重点` rows by `排序`; an old Weekly says 未提供.
+- Not graded (no structured field in the snapshot, maintainer decision on #388): earnings within two
+  trading days, a pause that meets its release condition, and a tsumitate deduction due this period
+  (a `沿用定投` row is 仅供了解).
 
 ## 持仓明细 tab (Issue #388 PR A)
 

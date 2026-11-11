@@ -451,6 +451,26 @@ body {
 .ios-layering, .ios-layer-group, .ios-layer-unmarked, .ios-layer-verdict { grid-template-columns: minmax(0, 1fr); }
 .ios-layering > *, .ios-layer-group > *, .ios-layer-unmarked > *, .ios-layer-verdict > *, .ios-layer-fact > * { min-width: 0; }
 
+/* Issue #388 PR C: the conclusion card sits first so the three answers are on
+   the first screen; tiers are compact one-line items that wrap on a phone. */
+.ios-conclusion-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; margin-bottom: 12px;
+  padding: 14px 18px; background: var(--ios-card-bg); border: 1px solid var(--ios-border);
+  border-left: 4px solid var(--ios-accent); border-radius: var(--ios-radius); box-shadow: var(--ios-shadow); }
+.ios-conclusion-card .ios-eyebrow { margin: 0; }
+.ios-conclusion-row { display: grid; grid-template-columns: 7em minmax(0, 1fr); gap: 8px; align-items: baseline; }
+.ios-conclusion-row > * { min-width: 0; overflow-wrap: anywhere; }
+.ios-conclusion-label { color: var(--ios-muted); font-size: 0.85rem; }
+.ios-conclusion-act .ios-conclusion-answer { color: var(--ios-severity-high); }
+.ios-tiers { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; margin: 12px 0; }
+.ios-tiers > * { min-width: 0; }
+.ios-tier-section h2 { margin-top: 0; }
+.ios-tier-must { border-left: 4px solid var(--ios-severity-high); }
+.ios-tier-review { border-left: 4px solid var(--ios-severity-medium); }
+.ios-tier-item { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; overflow-wrap: anywhere; }
+.ios-tier-item > * { min-width: 0; }
+.ios-tier-reasons { color: var(--ios-muted); }
+.ios-tier-focus { margin: 0; padding-left: 1.4em; overflow-wrap: anywhere; }
+
 .ios-table-wrap { overflow-x: auto; }
 .ios-allocation-cards { display: none; }
 

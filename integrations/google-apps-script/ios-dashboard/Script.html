@@ -242,9 +242,12 @@
 
     var readerBanner = buildReaderBanner_(vm);
     if (readerBanner) { container.appendChild(readerBanner); }
+    var priority = buildPriorityView_(vm);
+    container.appendChild(buildConclusionCard_(vm, priority));
     container.appendChild(buildSummaryGrid(vm));
     container.appendChild(buildHeadlineCard(vm));
     container.appendChild(buildReportCaption(vm));
+    container.appendChild(buildPrioritySection_(vm, priority));
     var layering = buildLayeringSection(vm);
     if (layering) { container.appendChild(layering); }
   }
@@ -618,6 +621,239 @@
       buildDailyLayering_(vm).forEach(function (node) { children.push(node); });
     }
     return el('div', { className: 'ios-layering' }, children);
+  }
+
+  // -- Issue #388 PR C: a conclusion card (要不要动手 / 判断变了没有 / 风险) and
+  // three tiers (必须执行 / 需要复核 / 仅供了解, plus 未比较). Every tier is a
+  // direct lookup on a structured field of this generation's own rows (the
+  // fixed 今日建议 mapping, 周计划状态, 周计划结论, 需要复核, 今日行动, 变化标记,
+  // 风险趋势, an open todo's 事件 复核键); nothing is parsed from prose. One
+  // asset appears once, in its highest tier, with every reason of that tier. --
+
+  var TIER_RISK_UP_ = ['新增', '升级'];
+  var TIER_RISK_INFO_ = ['降级', '数值变化', '无变化', '解除'];
+
+  function cellText_(value) {
+    return value == null ? '' : String(value).trim();
+  }
+
+  function isTrueCell_(value) {
+    return value === true || cellText_(value).toUpperCase() === 'TRUE';
+  }
+
+  function assetTitle_(asset) {
+    var code = displayCode_(asset['代码']);
+    var name = cellText_(asset['名称']);
+    return name && name !== code ? code + ' ' + name : code;
+  }
+
+  function changeFlagGap_(flag) {
+    if (flag === '') { return '变化标记未提供'; }
+    if (flag === '无可比基线') { return '无可比基线'; }
+    return '变化标记无法识别';
+  }
+
+  /** One holding/watchlist row: its tier and that tier's reasons. */
+  function assetTier_(asset) {
+    var action = cellText_(asset['今日行动']);
+    var weekly = cellText_(asset['周计划状态']);
+    var flag = cellText_(asset['变化标记']);
+    var holding = asset['资产类型'] === 'holding';
+    var verdict = todayVerdict_(asset);
+    var must = [];
+    if (verdict === '适合买入') { must.push('价格进入本期购买区间，可人工准备限价单'); }
+    if (action === '暂停新增待复核') { must.push('暂停新增待复核'); }
+    if (holding && flag === '有变化') { must.push('持仓判断或动作有变化'); }
+    if (asset['代码'] === 'FUND-SLEEVE' && action === '先核对缺项') { must.push('基金定投数据有缺口，需对账补录'); }
+    if (weekly === '已过期') { must.push('购买计划已过期，需确认新一期'); }
+    if (weekly === '引用失效') { must.push('购买计划引用失效，需确认新一期'); }
+    if (must.length) { return { tier: 'must', reasons: must }; }
+    var review = [];
+    if ((action === '可人工准备限价单' || action === '沿用定投') && verdict === '无法判断') {
+      review.push('报告标注 ' + action + '，但未通过核验');
+    }
+    // A pause in force is shown, but the snapshot cannot prove it started (or became releasable) this period.
+    if (weekly === '事件暂停') { review.push('事件暂停中（快照无法确认是否本期新触发）'); }
+    if (isTrueCell_(asset['需要复核'])) { review.push('入场计划触发复核'); }
+    if (cellText_(asset['周计划结论']) === '长期估值缺失或失效') { review.push('长期估值缺失或失效'); }
+    if (weekly === '暂停记录不可核验' || weekly === '周计划异常') { review.push(weekly); }
+    if (action === '先核对缺项') { review.push('先核对缺项'); }
+    if (review.length) { return { tier: 'review', reasons: review }; }
+    // A holding's 有变化 is already 必须执行; any flag that compares nothing is 未比较 for holdings and watchlist alike.
+    if (flag !== '无变化' && flag !== '有变化') { return { tier: 'uncompared', reasons: [changeFlagGap_(flag)] }; }
+    var info = [];
+    if (action === '沿用定投') { info.push('沿用定投（不是额外申购）'); }
+    else if (action) { info.push(action); }
+    if (flag === '有变化') { info.push('观察有变化'); }
+    else if (flag === '无变化') { info.push('无变化'); }
+    return { tier: 'info', reasons: info.length ? info : ['无执行信号'] };
+  }
+
+  /** One 报告风险 row: 新增/升级 needs review; a trend that compares nothing is 未比较 (#375). */
+  function riskTier_(risk) {
+    var trend = cellText_(risk['风险趋势']);
+    if (TIER_RISK_UP_.indexOf(trend) !== -1) { return { tier: 'review', reasons: ['风险' + trend] }; }
+    if (TIER_RISK_INFO_.indexOf(trend) !== -1) { return { tier: 'info', reasons: ['风险' + trend] }; }
+    return { tier: 'uncompared', reasons: [trend ? '风险趋势：' + trend : '风险趋势未提供'] };
+  }
+
+  /** An open todo's official-event review key 事件|代码|事件类别|来源标识|事件日期, or null. */
+  function eventTodoKey_(todo) {
+    if (isTodoCompleted(todo['状态'] || '待处理')) { return null; }
+    var parts = cellText_(todo['复核键']).split('|');
+    if (parts.length !== 5 || parts[0] !== '事件' || parts[1] === '') { return null; }
+    return { code: parts[1], category: parts[2] };
+  }
+
+  function buildPriorityView_(vm) {
+    var tiers = { must: [], review: [], info: [], uncompared: [] };
+    var byCode = {};
+    var order = 0;
+    (vm.holdings || []).concat(vm.watchlistCandidates || []).forEach(function (asset) {
+      var result = assetTier_(asset);
+      var item = { kind: asset['资产类型'] === 'holding' ? 'holding' : 'watchlist', title: assetTitle_(asset),
+        tier: result.tier, reasons: result.reasons, order: order++ };
+      tiers[result.tier].push(item);
+      byCode[cellText_(asset['代码'])] = item;
+    });
+    // An open official-event review lifts its asset to 需要复核, unless it already sits higher.
+    (vm.todos || []).forEach(function (todo) {
+      var key = eventTodoKey_(todo);
+      if (!key) { return; }
+      var reason = '官方事件待复核' + (key.category ? '（' + key.category + '）' : '');
+      var item = byCode[key.code];
+      if (item && item.tier === 'must') { return; }
+      if (item && item.tier === 'review') {
+        if (item.reasons.indexOf(reason) === -1) { item.reasons.push(reason); }
+        return;
+      }
+      if (item) {
+        tiers[item.tier].splice(tiers[item.tier].indexOf(item), 1);
+        item.tier = 'review';
+        item.reasons = [reason];
+        tiers.review.push(item);
+        tiers.review.sort(function (a, b) { return a.order - b.order; });
+        return;
+      }
+      item = { kind: 'event', title: displayCode_(key.code), tier: 'review', reasons: [reason], order: order++ };
+      byCode[key.code] = item;
+      tiers.review.push(item);
+    });
+    (vm.risks || []).forEach(function (risk) {
+      var result = riskTier_(risk);
+      tiers[result.tier].push({ kind: 'risk', title: cellText_(risk['风险']) || '（未命名风险）', tier: result.tier, reasons: result.reasons });
+    });
+    return tiers;
+  }
+
+  function actionAnswer_(vm, priority) {
+    var none = vm.reportType === 'weekly' ? '本周无需操作' : '今日无需操作';
+    var answer = priority.must.length ? '需要执行 ' + priority.must.length + ' 项（见「必须执行」）' : none;
+    var gaps = priority.uncompared.length ? '另有 ' + priority.uncompared.length + ' 项未比较' : '';
+    if (gaps) { answer += '；' + gaps; }
+    if (!(vm.readerGate && vm.readerGate.current === true)) { answer += '；本报告不作为当前买入依据'; }
+    return answer;
+  }
+
+  function judgmentAnswer_(vm) {
+    var layering = vm.layering;
+    if (vm.reportType === 'weekly') {
+      if (!layering || !layering.weekly) {
+        return '未比较（' + (layering && layering.unreadable ? '周度研究读取失败' : '本报告版本未提供周度研究') + '）';
+      }
+      var judgments = layering.weekly.judgments;
+      if (judgments.changed.length) { return '判断已变化 ' + judgments.changed.length + ' 条（见 ①）'; }
+      if (judgments.maintained.length) { return '判断未变化（维持 ' + judgments.maintained.length + ' 条）'; }
+      return '未比较（本周没有可与上周比较的判断）';
+    }
+    var assets = (vm.holdings || []).concat(vm.watchlistCandidates || []);
+    var changed = assets.filter(function (a) { return cellText_(a['变化标记']) === '有变化'; }).length;
+    var same = assets.filter(function (a) { return cellText_(a['变化标记']) === '无变化'; }).length;
+    var gaps = assets.length - changed - same;
+    if (changed === 0 && same === 0) { return assets.length ? '未比较（变化标记未提供或无可比基线）' : '本期无持仓或观察条目'; }
+    var answer = changed ? changed + ' 只有变化' : '无变化';
+    return gaps ? answer + '；' + gaps + ' 只未比较' : answer;
+  }
+
+  function riskAnswer_(vm) {
+    var risks = vm.risks || [];
+    if (risks.length === 0) { return '本期无风险条目'; }
+    var up = risks.filter(function (r) { return TIER_RISK_UP_.indexOf(cellText_(r['风险趋势'])) !== -1; }).length;
+    var compared = risks.filter(function (r) {
+      var trend = cellText_(r['风险趋势']);
+      return TIER_RISK_UP_.indexOf(trend) !== -1 || TIER_RISK_INFO_.indexOf(trend) !== -1;
+    }).length;
+    if (compared === 0) { return '未比较（风险趋势未提供或不可比较）'; }
+    var answer = up ? '新增或升级 ' + up + ' 条' : '无新增或升级';
+    return compared < risks.length ? answer + '；' + (risks.length - compared) + ' 条未比较' : answer;
+  }
+
+  function buildConclusionCard_(vm, priority) {
+    var rows = [
+      ['要不要动手', actionAnswer_(vm, priority), priority.must.length ? 'ios-conclusion-act' : ''],
+      ['判断变了没有', judgmentAnswer_(vm), ''],
+      ['风险', riskAnswer_(vm), '']
+    ];
+    return el('section', { className: 'ios-conclusion-card' }, [text('p', 'ios-eyebrow', '本期结论')].concat(rows.map(function (row) {
+      return el('div', { className: 'ios-conclusion-row' + (row[2] ? ' ' + row[2] : '') }, [
+        text('span', 'ios-conclusion-label', row[0]),
+        text('strong', 'ios-conclusion-answer', row[1])
+      ]);
+    })));
+  }
+
+  var TIER_KIND_LABEL_ = { holding: '持仓', watchlist: '观察', risk: '风险', event: '事件' };
+
+  function buildTierList_(items) {
+    var list = el('ul', { className: 'ios-list ios-tier-list' });
+    items.forEach(function (item) {
+      list.appendChild(el('li', { className: 'ios-tier-item' }, [
+        text('span', 'ios-badge ios-badge-muted', TIER_KIND_LABEL_[item.kind]),
+        text('strong', null, item.title),
+        text('span', 'ios-tier-reasons', item.reasons.join('；'))
+      ]));
+    });
+    return list;
+  }
+
+  function tierSection_(title, items, emptyNote, className) {
+    var children = [text('h2', null, title + ' (' + items.length + ')')];
+    children.push(items.length ? buildTierList_(items) : text('p', 'ios-empty-note', emptyNote));
+    return el('section', { className: 'ios-card ios-tier-section ' + className }, children);
+  }
+
+  function weeklyFocusSection_(vm) {
+    var weekly = vm.layering && vm.layering.weekly;
+    var children = [text('h2', null, '下周前三项')];
+    if (!weekly) {
+      children.push(text('p', 'ios-empty-note', '未提供（本报告版本未提供周度研究）'));
+    } else if (weekly.focus.length === 0) {
+      children.push(text('p', 'ios-empty-note', '本周未标出下周重点。'));
+    } else {
+      var list = el('ol', { className: 'ios-tier-focus' });
+      weekly.focus.slice(0, 3).forEach(function (row) {
+        list.appendChild(text('li', null, isBlank(row['标题']) ? row['结论'] : row['标题']));
+      });
+      children.push(list);
+      if (weekly.focus.length > 3) { children.push(text('p', 'ios-muted', '另 ' + (weekly.focus.length - 3) + ' 项见 ④。')); }
+    }
+    return el('section', { className: 'ios-card ios-tier-section ios-tier-focus-section' }, children);
+  }
+
+  function buildPrioritySection_(vm, priority) {
+    var children = [
+      tierSection_('必须执行', priority.must, vm.reportType === 'weekly' ? '本周无需操作。' : '今日无需操作。', 'ios-tier-must'),
+      tierSection_('需要复核', priority.review, '没有需要复核的条目。', 'ios-tier-review')
+    ];
+    if (vm.reportType === 'weekly') { children.push(weeklyFocusSection_(vm)); }
+    var lower = [layerFoldable_('仅供了解 (' + priority.info.length + ')',
+      priority.info.length ? [buildTierList_(priority.info)] : [text('p', 'ios-empty-note', '没有条目。')], false)];
+    if (priority.uncompared.length) {
+      lower.push(layerFoldable_('未比较 (' + priority.uncompared.length + ')', [buildTierList_(priority.uncompared)], false));
+    }
+    lower.push(text('p', 'ios-muted', '研究条目、市场环境与第三方数据见下方各节；每只标的的完整依据见「组合」卡片。'));
+    children.push(el('section', { className: 'ios-card ios-tier-section ios-tier-lower' }, lower));
+    return el('div', { className: 'ios-tiers' }, children);
   }
 
   // -- Tab content (组合 portfolio / 资本配置 capital allocation / 风险 risks / 待办 todos) --
