@@ -640,3 +640,22 @@ three tiers are removed. Every block reads the shown report's own snapshot (a hi
   (`无可比基线`, blank or any other value), each with `较上次变化说明` (else `今日行动说明`).
 - Below a 报告明细 heading the report's layering, 报告概况 and full cards follow unchanged.
 
+### Production acceptance fixes (Issue #396 PR D)
+
+Display only; no Sheet field, schema, Task or Agent contract changes.
+
+- **计划买入区间** (买入判断): `下限 – 上限` only when both ends are numbers (optionally with a 3-letter currency).
+  Otherwise the report's own wording: identical text once (never `A – A`), different text as
+  `下限：… · 上限：…`, a blank end 未提供, both blank 未提供. 长期买入上限, 参考买入价 and fair values never fill it.
+- **Weekly plan IDs** (`wp-YYYYMMDD-<代码>-vN[-<生成ID>]`) never appear in reading text, latest or history: a
+  change between two of them (`周计划ID由 A 变为 B`, also 从 / 改为 / → ...) reads `周计划已更新`, any other mention
+  reads `周计划`. The raw ID stays only in 技术信息. This is in the shared `readable_` formatter, so todos,
+  买入判断, 本期变化, 持仓明细 and the report cards all read the same.
+- **Pipe-joined plan names**: `名称|名称 vN` and `名称 vN|名称 vN` (after the #388 PR E `ep-…-vN` → `入场计划 vN`
+  rewrite) read once as `名称 vN`, in the same `readable_`.
+- The Weekly 报告明细 no longer points at the removed 「组合」 view: ④ points at 持仓明细, ⑤ at the cards below and
+  the 持仓明细 / 风险 / 待办 tabs.
+- 报告时价格's 截至: an ISO instant with `Z` or an offset reads `YYYY-MM-DD HH:mm JST`; a bare date or free text
+  (e.g. `16:00 美东`) is unchanged.
+- 当前阻碍 identical to the row's 今日行动说明 (already in 报告结论) reads `同报告结论` instead of repeating it.
+

@@ -99,9 +99,28 @@
   // entry plan ID or the fund aggregate's code. Reading text shows the readable name instead; the raw
   // value stays only in 技术信息 (written with raw: true) and in attributes. Nothing is inferred from it.
   var ENTRY_PLAN_ID_PATTERN_ = /\bep-\d{8}-[^\s,，;；、:：()（）「」]+?-v(\d+)\b/g;
+  // Issue #396 PR D: a weekly plan ID `wp-YYYYMMDD-<代码>-vN[-<生成ID>]` is never
+  // shown in reading text. A change between two of them reads 周计划已更新; any
+  // other mention reads 周计划. The raw ID stays only in 技术信息 (raw: true).
+  var WEEKLY_PLAN_ID_SRC_ = 'wp-\\d{8}-[A-Za-z0-9._-]+';
+  var WEEKLY_PLAN_CHANGE_PATTERN_ = new RegExp('(?:周计划\\s*ID\\s*)?(?:由|从)?\\s*' + WEEKLY_PLAN_ID_SRC_ +
+    '\\s*(?:变为|变成|改为|更新为|→|->)\\s*' + WEEKLY_PLAN_ID_SRC_, 'g');
+  var WEEKLY_PLAN_LABELLED_PATTERN_ = new RegExp('周计划\\s*ID\\s*[:：]?\\s*' + WEEKLY_PLAN_ID_SRC_, 'g');
+  var WEEKLY_PLAN_ID_PATTERN_ = new RegExp('\\b' + WEEKLY_PLAN_ID_SRC_, 'g');
+  // `名称|名称 vN` (a reference that repeats the plan's name around a pipe) and
+  // `名称 vN|名称 vN` read once, as `名称 vN`.
+  var PIPE_NAME_PATTERN_ = /([^\s|,，;；、:：()（）「」]+)\|\1 v(\d+)\b/g;
+  var PIPE_REPEAT_PATTERN_ = /([^\s|,，;；、:：()（）「」]+ v\d+)\|\1\b/g;
 
   function readable_(value) {
-    return String(value).replace(ENTRY_PLAN_ID_PATTERN_, '入场计划 v$1').replace(/\bFUND-SLEEVE\b/g, FUND_SLEEVE_LABEL_);
+    return String(value)
+      .replace(ENTRY_PLAN_ID_PATTERN_, '入场计划 v$1')
+      .replace(PIPE_NAME_PATTERN_, '$1 v$2')
+      .replace(PIPE_REPEAT_PATTERN_, '$1')
+      .replace(WEEKLY_PLAN_CHANGE_PATTERN_, '周计划已更新')
+      .replace(WEEKLY_PLAN_LABELLED_PATTERN_, '周计划')
+      .replace(WEEKLY_PLAN_ID_PATTERN_, '周计划')
+      .replace(/\bFUND-SLEEVE\b/g, FUND_SLEEVE_LABEL_);
   }
 
   /** A third-party source's display name without the export-format suffix (e.g. "InvestingPro Premium Export" → "InvestingPro"). */
@@ -330,7 +349,7 @@
     var price = part('当前价格');
     var currency = part('报价币种');
     var session = part('行情属性');
-    var asOf = part('行情截至时间');
+    var asOf = tokyoTimeText_(part('行情截至时间'));
     if (price === '' && currency === '' && session === '' && asOf === '') { return '未提供'; }
     return [
       (price === '' ? '价格未提供' : price) + ' ' + (currency === '' ? '币种未提供' : currency),
@@ -339,9 +358,42 @@
     ].join(' · ');
   }
 
+  /**
+   * An as-of time in Tokyo time (#396 PR D): an ISO instant with Z or an offset
+   * becomes `YYYY-MM-DD HH:mm JST`; a bare date, or anything else the report
+   * wrote (e.g. `16:00 美东`), is shown unchanged.
+   */
+  function tokyoTimeText_(value) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/.exec(value);
+    if (!m) { return value; }
+    var ms = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], m[6] ? +m[6] : 0);
+    if (isNaN(ms)) { return value; }
+    if (m[7] !== 'Z') { ms -= (m[7][0] === '-' ? -1 : 1) * (+m[7].slice(1, 3) * 60 + +m[7].slice(4, 6)) * 60000; }
+    var t = new Date(ms + 9 * 3600 * 1000);
+    var pad = function (n) { return (n < 10 ? '0' : '') + n; };
+    return t.getUTCFullYear() + '-' + pad(t.getUTCMonth() + 1) + '-' + pad(t.getUTCDate()) + ' ' +
+      pad(t.getUTCHours()) + ':' + pad(t.getUTCMinutes()) + ' JST';
+  }
+
+  /** A price end as written: a number, optionally with a 3-letter currency (e.g. `350`, `350 USD`, `1,234.5 JPY`). */
+  function isRangeNumber_(value) {
+    if (typeof value === 'number') { return isFinite(value); }
+    return /^[-+]?\d[\d,]*(?:\.\d+)?(?:\s*[A-Z]{3})?$/.test(cellText_(value));
+  }
+
+  /**
+   * 计划买入区间 (#396 PR D): both ends numbers → `下限 – 上限`; both blank →
+   * 未提供; otherwise the report's own wording, never a range: identical text
+   * once, different text side by side (`下限：… · 上限：…`, a blank end 未提供).
+   * Nothing else (长期买入上限, 参考买入价, fair value) fills the gap.
+   */
   function planRangeText_(row) {
-    if (isBlank(row['计划买入下限']) && isBlank(row['计划买入上限'])) { return '未提供'; }
-    return (isBlank(row['计划买入下限']) ? '未提供' : row['计划买入下限']) + ' – ' + (isBlank(row['计划买入上限']) ? '未提供' : row['计划买入上限']);
+    var low = isBlank(row['计划买入下限']) ? '' : cellText_(row['计划买入下限']);
+    var high = isBlank(row['计划买入上限']) ? '' : cellText_(row['计划买入上限']);
+    if (low === '' && high === '') { return '未提供'; }
+    if (isRangeNumber_(low) && isRangeNumber_(high)) { return low + ' – ' + high; }
+    if (low === high) { return low; }
+    return '下限：' + (low === '' ? '未提供' : low) + ' · 上限：' + (high === '' ? '未提供' : high);
   }
 
   /**
@@ -417,7 +469,10 @@
     if (verdict !== '适合买入') {
       // Every row that is not 适合买入 -- including a watchlist row the report
       // did not judge -- shows its 当前阻碍 and 阻塞待办ID as written.
-      children.push(judgmentField_('当前阻碍', row['当前阻碍'], 'ios-buy-field-wide'));
+      // 当前阻碍 identical to the 今日行动说明 already in 报告结论 is not repeated.
+      var blocker = isBlank(row['当前阻碍']) ? '' : cellText_(row['当前阻碍']);
+      children.push(judgmentField_('当前阻碍', blocker !== '' && blocker === cellText_(row['今日行动说明']) ? '同报告结论' : row['当前阻碍'],
+        'ios-buy-field-wide'));
       if (verdict === '无法判断') {
         var reason = buildReasonLine_(row, verdict);
         if (reason) { children.push(reason); }
@@ -776,14 +831,14 @@
       verdicts.appendChild(buildWeeklyVerdictItem_(asset, vm.todos));
     });
     fourth.push(verdicts.children.length ? verdicts : text('p', 'ios-empty-note', '本报告没有写出今日行动的资产。'));
-    fourth.push(text('p', 'ios-muted', '估值与完整购买计划依据见顶部「组合」视图。'));
+    fourth.push(text('p', 'ios-muted', '估值与完整购买计划依据见顶部「持仓明细」。'));
     sections.push(el('section', { className: 'ios-card ios-layer-section' }, fourth));
 
     if (weekly.unplaced.length) {
       sections.push(el('section', { className: 'ios-card ios-layer-section' },
         [text('h2', null, vmText_().shapeError)].concat(weekly.unplaced.map(buildResearchRow_))));
     }
-    sections.push(text('p', 'ios-muted ios-layer-next', '⑤ 全部持仓、观察候选、风险与待办明细见顶部「组合 / 持仓明细 / 风险 / 待办」视图。'));
+    sections.push(text('p', 'ios-muted ios-layer-next', '⑤ 全部持仓与观察候选的完整卡片见下方；持仓明细、风险与待办见顶部对应 tab。'));
     return sections;
   }
 

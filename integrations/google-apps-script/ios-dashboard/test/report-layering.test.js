@@ -222,7 +222,7 @@ test('Weekly page order: header facts, then sections ① to ④, then the detail
   const headings = findAll(root, (n) => n.tagName === 'H2').map((n) => n.textContent);
   assert.deepEqual(headings, ['① 本周结论与较上周变化', '② 资本配置比较与组合风险', '③ 本周事件与估值复核',
     '④ 下周重点与适用周购买结论']);
-  assert.match(root.textContent, /⑤ 全部持仓、观察候选、风险与待办明细见顶部「组合 \/ 持仓明细 \/ 风险 \/ 待办」视图/);
+  assert.match(root.textContent, /⑤ 全部持仓与观察候选的完整卡片见下方；持仓明细、风险与待办见顶部对应 tab/);
   assert.match(root.textContent, /较上周基线：weekly-2026-10-31/);
 });
 
@@ -980,4 +980,90 @@ test('#396 PR B review: a history report shows its own pause records, quotes and
   assert.equal(panel.getAttribute('data-panel'), 'todos');
   assert.match(panel.textContent, /历史待办/);
   assert.doesNotMatch(panel.textContent, /最新待办/);
+});
+
+// -- #396 PR D: fixes from the production acceptance. --
+
+test('#396 PR D: 计划买入区间 is a range only when both ends are numbers; the report wording otherwise, once', () => {
+  const r = (code, lo, hi) => weeklyAsset({ 代码: code, 今日行动: '等待价格', 计划买入下限: lo, 计划买入上限: hi, 长期买入上限快照: 999 });
+  const pause = '本周无可执行区间：暂停新增待复核';
+  const rows = [r('NUM', '350 USD', '380 USD'), r('PLAIN', 350, 380), r('SAME', pause, pause),
+    r('DIFF', '需补全：下限', '需补全：上限'), r('HALF', 350, '需补全：上限'), r('NONE', '', ''), r('ONE', '', '380 USD')];
+  const { document } = loadWithWindow(null, weeklyWith(rows), 'weekly');
+  const range = (code) => fieldLines(document, code, '计划买入区间')[0];
+  assert.equal(range('NUM'), '350 USD – 380 USD');
+  assert.equal(range('PLAIN'), '350 – 380');
+  assert.equal(range('SAME'), pause, 'identical wording reads once, never "A – A"');
+  assert.equal(range('DIFF'), '下限：需补全：下限 · 上限：需补全：上限');
+  assert.equal(range('HALF'), '下限：350 · 上限：需补全：上限');
+  assert.equal(range('NONE'), '未提供');
+  assert.equal(range('ONE'), '下限：未提供 · 上限：380 USD');
+  assert.doesNotMatch(range('NONE') + range('SAME'), /999/, '长期买入上限 never fills the gap');
+});
+
+test('#396 PR D: weekly plan IDs never reach reading text, latest or history; a change reads 周计划已更新', () => {
+  const said = '周计划ID由 wp-20261101-AAA-v11 变为 wp-20261108-AAA-v13-gen-w2-b；价格未变';
+  const mk = () => weeklyWith([weeklyAsset({ 变化标记: '有变化', 较上次变化说明: said }),
+    weeklyAsset({ 代码: 'BBB', 变化标记: '无变化', 较上次变化说明: '沿用 wp-20261101-BBB-v2' })]);
+  const latest = mk();
+  const history = Object.assign(mk(), { error: null });
+  history.summary = Object.assign({}, history.summary, { 报告ID: 'weekly-2026-11-01', 报告日期: '2026-11-01' });
+  const { document, window } = loadWithWindow(null, latest, 'weekly', { getReport: () => history });
+  window.selectTab('weekly');
+  const check = () => {
+    const changes = summaryChild(document, 'ios-period-changes').textContent;
+    assert.match(changes, /周计划已更新；价格未变/);
+    assert.match(changes, /沿用 周计划/);
+    assert.doesNotMatch(changes, /wp-/);
+    assert.doesNotMatch(summaryChild(document, 'ios-buy-judgment').textContent, /wp-/);
+  };
+  check();
+  window.selectHistoryReport('weekly-2026-11-01');
+  check();
+});
+
+test('#396 PR D: 「名称|名称 vN」 and repeated names read once, in todos, 买入判断 and 持仓明细 alike', () => {
+  const weekly = weeklyWith([weeklyAsset({ 今日行动: '等待价格', 今日行动说明: '依据 入场计划|ep-20261101-AAA-v4', 当前阻碍: '依据 入场计划|入场计划 v9' })],
+    { todos: [{ 待办ID: 'T-1', 待办: '复核 依据 入场计划|ep-20261101-AAA-v3', 状态: '待处理' },
+      { 待办ID: 'T-2', 待办: '复核 ep-20261101-AAA-v2|ep-20261101-AAA-v2', 状态: '待处理' }] });
+  const { document, window } = loadWithWindow(null, weekly, 'weekly');
+  window.selectTab('weekly');
+  const buy = summaryChild(document, 'ios-buy-judgment').textContent;
+  assert.match(buy, /依据 入场计划 v4/);
+  assert.match(buy, /依据 入场计划 v9/);
+  window.selectTab('todos');
+  const todos = document.getElementById('ios-tab-content').textContent;
+  assert.match(todos, /复核 依据 入场计划 v3/);
+  assert.match(todos, /复核 入场计划 v2(?!\|)/);
+  assert.doesNotMatch(buy + todos, /\|/, 'no pipe-joined name is left');
+});
+
+test('#396 PR D: no page text points at the removed 「组合」 view', () => {
+  const { document, window } = loadWithWindow(null, weeklyWith([weeklyAsset()]), 'weekly');
+  ['todos', 'daily', 'weekly', 'holdingDetail', 'risks'].forEach((tab) => {
+    window.selectTab(tab);
+    const page = document.getElementById('ios-summary-content').textContent + document.getElementById('ios-tab-content').textContent;
+    assert.doesNotMatch(page, /「组合」|组合 \/|资本配置」视图/, tab);
+  });
+  assert.doesNotMatch(SCRIPT_HTML_SRC, /「组合」视图|「组合 \//);
+});
+
+test('#396 PR D: an ISO as-of instant reads in Tokyo time; a bare date or free text is unchanged', () => {
+  const q = (code, asOf) => weeklyAsset({ 代码: code, 当前价格: 100, 报价币种: 'USD', 行情属性: '收盘', 行情截至时间: asOf });
+  const rows = [q('UTC', '2026-11-07T00:59:59Z'), q('OFF', '2026-11-06T15:00:00-05:00'), q('DAY', '2026-11-09'), q('FREE', '2026-11-06 16:00 美东')];
+  const { document } = loadWithWindow(null, weeklyWith(rows), 'weekly');
+  const quote = (code) => fieldLines(document, code, '报告时价格')[0];
+  assert.equal(quote('UTC'), '100 USD · 收盘 · 截至 2026-11-07 09:59 JST');
+  assert.equal(quote('OFF'), '100 USD · 收盘 · 截至 2026-11-07 05:00 JST');
+  assert.equal(quote('DAY'), '100 USD · 收盘 · 截至 2026-11-09');
+  assert.equal(quote('FREE'), '100 USD · 收盘 · 截至 2026-11-06 16:00 美东');
+});
+
+test('#396 PR D: 当前阻碍 identical to the 今日行动说明 in 报告结论 is not repeated', () => {
+  const rows = [weeklyAsset({ 代码: 'SAME', 今日行动: '等待价格', 今日行动说明: '高于计划区间', 当前阻碍: '高于计划区间', 阻塞待办ID: '无' }),
+    weeklyAsset({ 代码: 'DIFF', 今日行动: '等待价格', 今日行动说明: '高于计划区间', 当前阻碍: '等待财报', 阻塞待办ID: '无' })];
+  const { document } = loadWithWindow(null, weeklyWith(rows), 'weekly');
+  assert.deepEqual(fieldLines(document, 'SAME', '报告结论'), ['等待价格。高于计划区间']);
+  assert.deepEqual(fieldLines(document, 'SAME', '当前阻碍'), ['同报告结论']);
+  assert.deepEqual(fieldLines(document, 'DIFF', '当前阻碍'), ['等待财报']);
 });
