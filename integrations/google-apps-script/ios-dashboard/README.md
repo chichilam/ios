@@ -564,7 +564,8 @@ Display only; no Sheet field, schema, Task or Agent contract changes, and nothin
 - 日报/周报 render the report as before (conclusion card, headline, tiers, layering), then the former 组合
   content: 报告概况 (the 4-metric grid of the report's own 报告摘要) and, unless a Daily change layering
   already shows every asset, the holding / candidate cards. PR B reworks this page.
-- 持仓明细 and 风险 read the report last chosen under 日报/周报 and say which one (`来源：日报 YYYY-MM-DD（最新）`).
+- 持仓明细 reads the report last chosen under 日报/周报 and says which one (`来源：日报 YYYY-MM-DD（最新）`); 风险
+  merges the latest reports since PR C (below).
   配置概况 keeps the former 组合 account list (NISA 额度, 数据时间) in a collapsed `账户明细`.
 - **待办** always merges the latest Daily and the latest Weekly, each read from its current generation only
   (`filterLiveDetailRows_`), whatever a history selection shows; a non-current generation's reader banner is
@@ -583,4 +584,28 @@ Display only; no Sheet field, schema, Task or Agent contract changes, and nothin
 - Blocker links: on the latest report they open 待办 and highlight that report's todo (the key is
   `报告类型|待办ID`, so the two reports may reuse an ID); on a history report they open that report's own
   folded `本期待办（该期快照）` list on its page.
+
+### 风险 tab: latest Daily + Weekly, 投资风险 and 数据维护 (Issue #396 PR C)
+
+Display only; no Sheet field, schema, Task or Agent contract changes.
+
+- 风险 always reads the latest Daily and the latest Weekly (each its current generation), whatever a history
+  selection shows; a non-current generation's reader banner is repeated above it.
+- **投资风险**: `风险评估=触发` rows, and pre-#375 rows without `风险评估` (the `buildRiskGroups_` 当前 group).
+  Rows whose `风险键` is written are merged by that key across both reports **and** all three groups
+  (触发 / 未触发 / 未核验·未覆盖), then shown exactly once. The lead source is the report with the newest
+  `报告日期` (same day: 日报); its row decides the group and the wording. If the lead report itself lists the
+  key in more than one group, 触发 leads, then 未核验, then 未触发. Every other source stays beneath it with
+  `来源：周报 MM/DD、日报 MM/DD`; its differing 严重度/风险 is kept, and when its own `风险评估` differs from the
+  lead's it is labelled `（该报告风险评估：<the value as written>）` -- `未覆盖` stays 未覆盖, and a pre-#375 row
+  without the field reads `未提供（旧版行）`, never 触发. The group only picks the section. A row without `风险键` is listed once per report, never given a key. The key and rule ID
+  are not shown. Only the 触发 group counts as 投资风险.
+- **数据维护** (does not affect this period's decisions; every group folded):
+  - 估值需更新: a 持仓明细 row whose `估值研究日期快照` is more than `VALUATION_RESEARCH_STALE_DAYS` (90) days
+    before that report's own date (the existing rule; exactly 90 days is not stale; 未比较 dates are not listed).
+  - 延续暂停: a holding or watchlist row with `今日行动=暂停新增待复核` or `周计划状态=事件暂停` and its own
+    `变化标记=无变化`. `有变化`, blank and `无可比基线` pauses are not folded here.
+  - One entry per 代码, each report that lists it on its own line. No 数据缺失 group and no row built from
+    `暂停事件载荷` (owner decisions 3 and 4 on #396). The owner confirmed on 2026-11-11 (option A) that
+    decision 3 only excludes 数据缺失 and that these two groups keep coming from 报告持仓 / 持仓明细.
 

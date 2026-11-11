@@ -399,9 +399,9 @@ test('selectTab ignores an unrecognized tab name rather than clearing the curren
   assert.ok(document.getElementById('ios-tab-risks').classList.contains('active'), 'must remain on the previously active tab');
 });
 
-test('Issue #396 PR A: 持仓明细 and 风险 read the report last chosen under 日报 / 周报, and say which one', () => {
+test('Issue #396 PR A: 持仓明细 reads the report last chosen under 日报 / 周报, and says which one', () => {
   const { document, window } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
-  window.selectTab('risks');
+  window.selectTab('holdingDetail');
   assert.match(tabText(document), /^来源：日报 2026-08-15（最新）/);
   window.selectTab('weekly');
   window.selectTab('holdingDetail');
@@ -570,6 +570,8 @@ test('an empty-state (found: false, no error) renders the explicit "no report ye
   assert.match(summaryText(document), /暂无日报/);
   assert.match(tabText(document), /暂无报告/, 'Issue #396 PR A: 待办 has nothing to merge before either report exists');
   window.selectTab('risks');
+  assert.match(tabText(document), /暂无报告/, 'Issue #396 PR C: 风险 has nothing to merge before either report exists');
+  window.selectTab('holdingDetail');
   assert.match(tabText(document), /暂无日报/, 'Issue #388 PR D: a report-based view replaces the report, so it repeats the "no report yet" card');
 });
 
@@ -1324,7 +1326,7 @@ test('todos: a history report never changes the 待办 tab; its own blocker link
   const { document, window } = loadDashboard(latestBootstrap(latest, null), 'daily', { getReport: () => history });
   window.selectHistoryReport('daily-2026-11-01');
   assert.ok(document.getElementById('ios-tab-daily').classList.contains('active'));
-  assert.match(document.getElementById('ios-history-banner').textContent, /待办 tab 仍是最新日报 \+ 最新周报的合并结果/);
+  assert.match(document.getElementById('ios-history-banner').textContent, /待办与风险 tab 仍是最新日报 \+ 最新周报的合并结果/);
   const period = document.getElementById('ios-summary-content').children.find((c) => c.classList.contains('ios-period-todos'));
   assert.equal(period.children[0].getAttribute('open'), null, 'the period list starts folded');
   const link = allElements(document.getElementById('ios-summary-content')).find((n) => n.classList && n.classList.contains('ios-blocker-link'));

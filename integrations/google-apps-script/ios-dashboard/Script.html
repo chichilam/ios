@@ -160,6 +160,11 @@
     return tab === 'daily' || tab === 'weekly';
   }
 
+  /** 待办 and 风险 always merge the latest Daily and Weekly, whatever a history selection shows (Issue #396). */
+  function isMergedTab_(tab) {
+    return tab === 'todos' || tab === 'risks';
+  }
+
   function reportLabel_(type) {
     return type === 'weekly' ? '周报' : '日报';
   }
@@ -220,7 +225,7 @@
 
   function renderHistoryBanner() {
     var banner = document.getElementById('ios-history-banner');
-    if (!STATE.viewingReportId || STATE.activeTab === 'todos') {
+    if (!STATE.viewingReportId || isMergedTab_(STATE.activeTab)) {
       banner.hidden = true;
       clear(banner);
       return;
@@ -228,7 +233,7 @@
     banner.hidden = false;
     clear(banner);
     banner.appendChild(document.createTextNode('正在查看历史' + reportLabel_(STATE.activeView) + '（' + STATE.viewingReportId +
-      '）。只显示这一期自己的内容；待办 tab 仍是最新日报 + 最新周报的合并结果。'));
+      '）。只显示这一期自己的内容；待办与风险 tab 仍是最新日报 + 最新周报的合并结果。'));
     banner.appendChild(el('button', {
       className: 'ios-back-to-latest-btn',
       text: '返回最新报告',
@@ -974,6 +979,10 @@
       buildMergedTodosView_().forEach(function (node) { container.appendChild(node); });
       return;
     }
+    if (tab === 'risks') {
+      buildMergedRisksView_().forEach(function (node) { container.appendChild(node); });
+      return;
+    }
     var vm = currentViewModel();
     if (!vm || !vm.found) {
       // Each view now replaces the report on the whole page (Issue #388 PR D),
@@ -989,15 +998,11 @@
     }
 
     container.appendChild(reportSourceLine_(vm));
-    if (tab === 'holdingDetail') {
-      container.appendChild(buildAllocationOverview_());
-      container.appendChild(buildHoldingDetailSection(vm.holdingDetail));
-    } else if (tab === 'risks') {
-      container.appendChild(buildRisksSection(vm.risks, vm.riskGroups));
-    }
+    container.appendChild(buildAllocationOverview_());
+    container.appendChild(buildHoldingDetailSection(vm.holdingDetail));
   }
 
-  /** 持仓明细 / 风险 read the report last chosen under 日报 / 周报; say which one. */
+  /** 持仓明细 reads the report last chosen under 日报 / 周报; say which one. */
   function reportSourceLine_(vm) {
     var summary = vm.summary || {};
     return text('p', 'ios-report-caption ios-view-source', '来源：' + reportLabel_(vm.reportType) + ' ' +
@@ -1013,12 +1018,13 @@
   function renderViewBanner_() {
     var slot = document.getElementById('ios-view-banner');
     clear(slot);
-    var vms = STATE.detailTab === 'todos' ? latestReports_().map(function (entry) { return entry.vm; }) : [currentViewModel()];
+    var merged = isMergedTab_(STATE.detailTab);
+    var vms = merged ? latestReports_().map(function (entry) { return entry.vm; }) : [currentViewModel()];
     if (!STATE.bootstrap.error) {
       vms.forEach(function (vm) {
         var banner = vm && vm.found ? buildReaderBanner_(vm) : null;
         if (!banner) { return; }
-        if (STATE.detailTab === 'todos') { slot.appendChild(text('p', 'ios-muted', '最新' + reportLabel_(vm.reportType) + '：')); }
+        if (merged) { slot.appendChild(text('p', 'ios-muted', '最新' + reportLabel_(vm.reportType) + '：')); }
         slot.appendChild(banner);
       });
     }
@@ -2073,6 +2079,202 @@
     var list = el('ul', { className: 'ios-list' });
     rows.forEach(function (risk) { list.appendChild(buildRiskItem_(risk)); });
     return list;
+  }
+
+  // -- 风险 tab (Issue #396 PR C): the latest Daily and Weekly, each from its
+  // own current generation. 投资风险 rows that carry a 风险键 are merged by that
+  // key across the two reports, naming every source; a row without a key is
+  // listed on its own, never given an invented key. 数据维护 holds only the
+  // two groups #396 confirmed (估值需更新, 延续暂停); nothing new is derived. --
+
+  function reportShortLabel_(entry) {
+    return reportLabel_(entry.type) + ' ' + shortDate_(entry.vm.summary && entry.vm.summary['报告日期']);
+  }
+
+  var RISK_GROUP_ORDER_ = ['current', 'unverified', 'released'];
+
+  /** The source's own 风险评估, as written; a pre-#375 row without one is said so, never called 触发. */
+  function riskEvaluationText_(row) {
+    var said = cellText_(row['风险评估']);
+    return said === '' ? '未提供（旧版行）' : said;
+  }
+
+  function reportDate_(entry) {
+    return String(entry.vm.summary && entry.vm.summary['报告日期'] || '');
+  }
+
+  /**
+   * Every risk row of both reports, merged by 风险键 across reports AND groups,
+   * then placed in exactly one group. The lead source is the newest 报告日期
+   * (same day: 日报); its row decides the group and the wording. Inside the
+   * lead report a key listed in more than one group leads with 触发, then
+   * 未核验, then 未触发 -- the most cautious reading, never a hidden one: every
+   * other row of that key stays beneath it. A row without 风险键 stays its own
+   * item, never given an invented key.
+   */
+  function mergeRiskModel_(reports) {
+    var items = [];
+    var byKey = {};
+    reports.forEach(function (entry) {
+      var groups = entry.vm.riskGroups || { current: entry.vm.risks || [], released: [], unverified: [] };
+      RISK_GROUP_ORDER_.forEach(function (group) {
+        (groups[group] || []).forEach(function (row) {
+          var key = cellText_(row['风险键']);
+          var source = { entry: entry, row: row, group: group };
+          if (key === '') { items.push({ sources: [source] }); return; }
+          if (!byKey[key]) {
+            byKey[key] = { sources: [] };
+            items.push(byKey[key]);
+          }
+          byKey[key].sources.push(source);
+        });
+      });
+    });
+    var model = { current: [], released: [], unverified: [] };
+    items.forEach(function (item) {
+      item.lead = item.sources.reduce(function (best, source) {
+        var a = reportDate_(best.entry);
+        var b = reportDate_(source.entry);
+        if (b > a) { return source; }
+        if (b === a && source.entry !== best.entry && source.entry.type === 'daily') { return source; }
+        return best;
+      }, item.sources[0]);
+      model[item.lead.group].push(item);
+    });
+    return model;
+  }
+
+  /**
+   * The lead row is shown; every other source names its report, and its own
+   * 风险评估 exactly as written when that differs from the lead's -- the group
+   * only picks the section, it never stands in for the field.
+   */
+  function buildMergedRiskItem_(item) {
+    var lead = item.lead || item.sources[0];
+    var li = buildRiskItem_(lead.row);
+    var labels = [];
+    item.sources.forEach(function (source) {
+      var label = reportShortLabel_(source.entry);
+      if (labels.indexOf(label) === -1) { labels.push(label); }
+    });
+    li.appendChild(text('p', 'ios-muted ios-risk-sources', '来源：' + labels.join('、')));
+    item.sources.forEach(function (source) {
+      if (source === lead) { return; }
+      var sameEvaluation = riskEvaluationText_(source.row) === riskEvaluationText_(lead.row);
+      if (sameEvaluation && cellText_(source.row['风险']) === cellText_(lead.row['风险']) &&
+          cellText_(source.row['严重度']) === cellText_(lead.row['严重度'])) { return; }
+      var words = [cellText_(source.row['严重度']), cellText_(source.row['风险'])].filter(Boolean).join(' ');
+      li.appendChild(text('p', 'ios-muted ios-risk-other-source', reportShortLabel_(source.entry) + '：' + words +
+        (sameEvaluation ? '' : '（该报告风险评估：' + riskEvaluationText_(source.row) + '）')));
+    });
+    return li;
+  }
+
+  function mergedRiskList_(items) {
+    var list = el('ul', { className: 'ios-list' });
+    items.forEach(function (item) { list.appendChild(buildMergedRiskItem_(item)); });
+    return list;
+  }
+
+  /** A paused row whose own 变化标记 says 无变化 -- the pause carried over; nothing is compared across reports. */
+  function isContinuedPauseRow_(row) {
+    var paused = cellText_(row['今日行动']) === '暂停新增待复核' || cellText_(row['周计划状态']) === '事件暂停';
+    return paused && cellText_(row['变化标记']) === '无变化';
+  }
+
+  /** Assets of one maintenance group, one entry per 代码 with every report that lists it. */
+  function maintenanceEntries_(reports, pick) {
+    var entries = [];
+    var byCode = {};
+    reports.forEach(function (entry) {
+      pick(entry.vm).forEach(function (found) {
+        var code = found.code;
+        if (!byCode[code]) {
+          byCode[code] = { code: code, name: found.name, lines: [] };
+          entries.push(byCode[code]);
+        }
+        byCode[code].lines.push(reportShortLabel_(entry) + '：' + found.text);
+      });
+    });
+    return entries;
+  }
+
+  function buildRiskModel_(reports) {
+    var stale = maintenanceEntries_(reports, function (vm) {
+      return (vm.holdingDetail || []).filter(function (row) { return row.valuation && row.valuation.researchStale; })
+        .map(function (row) { return { code: row.code, name: row.name, text: '估值研究日期 ' + row.valuation.researchDate }; });
+    });
+    var paused = maintenanceEntries_(reports, function (vm) {
+      return (vm.holdings || []).concat(vm.watchlistCandidates || []).filter(isContinuedPauseRow_).map(function (row) {
+        var said = cellText_(row['当前阻碍']) || cellText_(row['今日行动说明']);
+        return { code: cellText_(row['代码']), name: cellText_(row['名称']),
+          text: (cellText_(row['周计划状态']) === '事件暂停' ? '事件暂停' : '暂停新增待复核') + '，本期无变化' + (said ? '（' + said + '）' : '') };
+      });
+    });
+    var merged = mergeRiskModel_(reports);
+    return {
+      invest: merged.current,
+      released: merged.released,
+      unverified: merged.unverified,
+      stale: stale,
+      paused: paused
+    };
+  }
+
+  /** 风险 N (投资风险 only) and 数据维护 M for a set of reports; the same counts the 风险 tab shows. */
+  function riskCounts_(reports) {
+    var model = buildRiskModel_(reports);
+    return { invest: model.invest.length, maintenance: model.stale.length + model.paused.length };
+  }
+
+  function maintenanceFold_(title, entries) {
+    var list = el('ul', { className: 'ios-list' });
+    entries.forEach(function (entry) {
+      list.appendChild(el('li', null, [
+        el('div', { className: 'ios-todo-asset-head' }, [text('strong', null, displayCode_(entry.code)),
+          isBlank(entry.name) ? null : text('span', 'ios-muted', entry.name)]),
+        el('div', null, entry.lines.map(function (line) { return text('p', 'ios-asset-line', line); }))
+      ]));
+    });
+    return el('details', { className: 'ios-layer-fold ios-maintenance-group' }, [
+      text('summary', 'ios-layer-fold-title', title + ' ' + entries.length + ' 项（展开查看）'), list]);
+  }
+
+  function buildMergedRisksView_() {
+    var reports = latestReports_();
+    if (reports.length === 0) {
+      return [el('section', { className: 'ios-card ios-empty-state' }, [
+        text('h2', null, '暂无报告'),
+        text('p', null, '日报和周报都还没有生成，风险来自报告，暂时没有内容。这是全新安装的正常状态，不是错误。')
+      ])];
+    }
+    var model = buildRiskModel_(reports);
+    var invest = [text('h2', null, '投资风险 (' + model.invest.length + ')'),
+      text('p', 'ios-hint', '合并' + reports.map(function (r) { return '最新' + reportShortLabel_(r); }).join(' 与 ') +
+        '。同一风险（报告写出的风险键相同）合并为一行并注明来源；没有风险键的风险逐条并列。只列评估为触发的风险。')];
+    invest.push(model.invest.length === 0
+      ? text('p', 'ios-empty-note', '最新报告未标记任何投资风险——这是合法的空结果，不是错误。')
+      : mergedRiskList_(model.invest));
+    if (model.released.length) {
+      invest.push(text('h3', null, '已解除或评估未触发 (' + model.released.length + ')'));
+      invest.push(mergedRiskList_(model.released));
+    }
+    if (model.unverified.length) {
+      invest.push(text('h3', null, '未核验或未覆盖——不等于解除 (' + model.unverified.length + ')'));
+      invest.push(mergedRiskList_(model.unverified));
+    }
+    var maintenance = [text('h2', null, '数据维护 (' + (model.stale.length + model.paused.length) + ')'),
+      text('p', 'ios-hint', '不影响当期交易决策。估值需更新：估值研究日期早于该报告日期超过 90 天；延续暂停：暂停中且该报告的变化标记为无变化。')];
+    if (model.stale.length + model.paused.length === 0) {
+      maintenance.push(text('p', 'ios-empty-note', '没有需要维护的数据。'));
+    } else {
+      if (model.stale.length) { maintenance.push(maintenanceFold_('估值需更新', model.stale)); }
+      if (model.paused.length) { maintenance.push(maintenanceFold_('延续暂停', model.paused)); }
+    }
+    return [
+      el('section', { className: 'ios-card ios-risk-invest' }, invest),
+      el('section', { className: 'ios-card ios-risk-maintenance' }, maintenance)
+    ];
   }
 
   function buildRisksSection(risks, groups) {
