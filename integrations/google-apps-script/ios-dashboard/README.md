@@ -246,7 +246,8 @@ Display only, from the same rows; nothing is hidden that cannot be opened.
 
 ### Top view row and 组合 without repeats (Issue #388 PR D)
 
-Display only; no Sheet field, schema, Task or Agent contract changes.
+Display only; no Sheet field, schema, Task or Agent contract changes. Superseded by Issue #396 PR A (five
+views, no 组合, see below); kept as the history of the change.
 
 - One row of views sits directly under the topbar: 报告 / 组合 / 持仓明细 / 风险 / 待办 (资本配置 was folded into
   持仓明细 by PR F, see below). 报告 is the
@@ -552,3 +553,34 @@ suite above, and/or paste `demo/demo-sheet.json`'s rows into a scratch Sheet mat
 [`setup/schema/sheet-schema.json`](../../../setup/schema/sheet-schema.json)'s seven tabs to see the
 real `doGet` path render it end to end. Never point a real installation's `IOS_SPREADSHEET_ID` at
 data you don't want a browser tab to display.
+
+### Five views and the merged 待办 tab (Issue #396 PR A)
+
+Display only; no Sheet field, schema, Task or Agent contract changes, and nothing is computed.
+
+- The view row is **待办 / 日报 / 周报 / 持仓明细 / 风险**, 待办 first and opened by default. The separate
+  日报/周报 toggle in the topbar and the 报告 and 组合 views are gone. The history `<select>` shows only on
+  日报/周报; choosing a history report opens it on its own 日报/周报 page.
+- 日报/周报 render the report as before (conclusion card, headline, tiers, layering), then the former 组合
+  content: 报告概况 (the 4-metric grid of the report's own 报告摘要) and, unless a Daily change layering
+  already shows every asset, the holding / candidate cards. PR B reworks this page.
+- 持仓明细 and 风险 read the report last chosen under 日报/周报 and say which one (`来源：日报 YYYY-MM-DD（最新）`).
+  配置概况 keeps the former 组合 account list (NISA 额度, 数据时间) in a collapsed `账户明细`.
+- **待办** always merges the latest Daily and the latest Weekly, each read from its current generation only
+  (`filterLiveDetailRows_`), whatever a history selection shows; a non-current generation's reader banner is
+  repeated above it, labelled 最新日报/最新周报.
+  - **卡住买入** (owner decision on #396): a todo that a buy-judgment row (`报告持仓` holding or watchlist row,
+    not `FUND-SLEEVE`) of the same generation names in `阻塞待办ID` (exact `待办ID` match). Grouped under that
+    row's 代码; Weekly and Daily entries of one asset sit side by side, neither dropped. A named ID without
+    a todo reads `阻塞待办未找到`. A todo named by two rows of one report is listed once; the second asset
+    points to it. No asset is inferred from `复核键`, an ID prefix or free text.
+  - **其他待办**: every other open todo, one by one, newest `报告日期` first (`排序` within one report).
+  - Only `已完成` / `done` (any case, trimmed) are completed; they go to a folded `已完成 N 项（展开查看）`
+    (except inside 卡住买入, where the referenced todo stays with its asset). `未完成` carries a red mark, a
+    blank 状态 reads `状态未填写`, any other value is shown as written and stays open. `跟进类型` is a tag only.
+  - Each todo names its report (`日报 MM/DD` / `周报 MM/DD`). No open todo anywhere reads `本期无需操作`.
+    Nothing on the page can tick a todo off (#337: closing a todo is a report revision).
+- Blocker links: on the latest report they open 待办 and highlight that report's todo (the key is
+  `报告类型|待办ID`, so the two reports may reuse an ID); on a history report they open that report's own
+  folded `本期待办（该期快照）` list on its page.
+

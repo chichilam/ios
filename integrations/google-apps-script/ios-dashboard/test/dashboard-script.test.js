@@ -28,9 +28,9 @@ const SCRIPT_HTML_SRC = fs.readFileSync(path.join(__dirname, '..', 'Script.html'
 
 const DEMO_BOOTSTRAP = logic.buildDashboardBootstrap_(demoSheet);
 
-/** Issue #388 PR D: the 组合 view opens with a 组合概况 card (and a reader banner on a non-current generation); finds a report-asset section by its heading. */
+/** Issue #396 PR A: the former 组合 view's asset sections close the 日报 / 周报 page; finds one by its heading. */
 function portfolioSection(document, title) {
-  return document.getElementById('ios-tab-content').children.find((c) => c.children[0] && c.children[0].tagName === 'H2' && c.children[0].textContent.indexOf(title + ' (') === 0);
+  return document.getElementById('ios-summary-content').children.find((c) => c.children[0] && c.children[0].tagName === 'H2' && c.children[0].textContent.indexOf(title + ' (') === 0);
 }
 
 /**
@@ -56,8 +56,9 @@ function loadDashboard(bootstrap, activeView, googleHandlers) {
   return { document, window: sandbox.window };
 }
 
+/** Issue #396 PR A: the 4-metric summary grid moved from the removed 组合 view into the report's 报告概况 card. */
 function portfolioOverview(document) {
-  return document.getElementById('ios-tab-content').children.find((c) => c.classList.contains('ios-portfolio-overview'));
+  return document.getElementById('ios-summary-content').children.find((c) => c.classList.contains('ios-report-overview'));
 }
 
 function summaryText(document) {
@@ -207,97 +208,77 @@ function referenceLineChildCount(document) {
   return card.children[3].children.length;
 }
 
-test('initial render shows the Daily report view (报告 active, detail views hidden) and marks the Daily nav button active', () => {
+test('Issue #396 PR A: the page opens on 待办; 日报 is rendered (hidden) behind it and the history select is hidden', () => {
   const { document } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
-  assert.match(summaryText(document), /daily-2026-08-15/);
-  assert.ok(document.getElementById('ios-nav-daily').classList.contains('active'));
-  assert.equal(document.getElementById('ios-nav-daily').getAttribute('aria-current'), 'page');
-  assert.ok(!document.getElementById('ios-nav-weekly').classList.contains('active'));
-  assert.ok(document.getElementById('ios-tab-report').classList.contains('active'));
-  assert.equal(document.getElementById('ios-tab-report').getAttribute('aria-current'), 'page');
-  assert.equal(document.getElementById('ios-tab-portfolio').getAttribute('aria-current'), null);
-  assert.equal(document.getElementById('ios-summary-content').hidden, false);
-  assert.equal(document.getElementById('ios-tab-content').hidden, true, 'Issue #388 PR D: only the report shows on the page');
-  assert.match(tabText(document), /DEMO1/, 'the 组合 view stays rendered (hidden) so switching to it is instant');
-
-  const summaryContainer = document.getElementById('ios-summary-content');
-  assert.equal(summaryContainer.children.length, 5,
-    'conclusion card (#388 PR C) + headline card + report caption + tiers (#388 PR C) + layering (Issue #364), in that order; the summary grid moved to 组合 (#388 PR D)');
-  assert.ok(summaryContainer.children[0].classList.contains('ios-conclusion-card'));
-  assert.ok(summaryContainer.children[1].classList.contains('ios-headline-card'));
-  assert.ok(summaryContainer.children[2].classList.contains('ios-report-caption'));
-  assert.ok(summaryContainer.children[3].classList.contains('ios-tiers'));
-  assert.ok(summaryContainer.children[4].classList.contains('ios-layering'));
+  assert.ok(document.getElementById('ios-tab-todos').classList.contains('active'));
+  assert.equal(document.getElementById('ios-tab-todos').getAttribute('aria-current'), 'page');
+  ['daily', 'weekly', 'holdingDetail', 'risks'].forEach((tab) => assert.equal(document.getElementById('ios-tab-' + tab).getAttribute('aria-current'), null));
+  assert.equal(document.getElementById('ios-summary-content').hidden, true);
+  assert.equal(document.getElementById('ios-tab-content').hidden, false);
+  assert.match(tabText(document), /^待办/);
+  assert.equal(document.getElementById('ios-history-select').hidden, true, 'the history selector belongs to 日报 / 周报 only');
+  assert.match(summaryText(document), /daily-2026-08-15/, 'the Daily report stays rendered (hidden) so switching to it is instant');
 });
 
-test('Issue #388 PR D: each top view replaces the whole page, and 报告 brings the report back', () => {
+test('Issue #396 PR A: 日报 shows the report in its order, closing with the former 组合 summary grid and cards', () => {
+  const { document, window } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
+  window.selectTab('daily');
+  assert.equal(document.getElementById('ios-summary-content').hidden, false);
+  assert.equal(document.getElementById('ios-tab-content').hidden, true);
+  assert.equal(document.getElementById('ios-history-select').hidden, false);
+  const classes = document.getElementById('ios-summary-content').children.map((c) => c.className);
+  assert.deepEqual(classes.slice(0, 6), ['ios-conclusion-card', 'ios-headline-card', 'ios-report-caption', 'ios-tiers', 'ios-layering', 'ios-card ios-report-overview']);
+  assert.ok(portfolioSection(document, '当前持仓'), 'the demo Daily has no change layering, so its cards close the page');
+});
+
+test('Issue #396 PR A: each view replaces the whole page; 日报 / 周报 bring a report back', () => {
   let scrolled = 0;
   const { document, window } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
   window.scrollTo = () => { scrolled += 1; };
-  ['portfolio', 'holdingDetail', 'risks', 'todos'].forEach((tab) => {
+  ['holdingDetail', 'risks', 'todos'].forEach((tab) => {
     window.selectTab(tab);
     assert.equal(document.getElementById('ios-summary-content').hidden, true, tab + ' hides the report');
     assert.equal(document.getElementById('ios-tab-content').hidden, false, tab + ' shows its own content');
     assert.ok(document.getElementById('ios-tab-' + tab).classList.contains('active'));
-    assert.ok(!document.getElementById('ios-tab-report').classList.contains('active'));
   });
-  window.selectTab('report');
-  assert.equal(document.getElementById('ios-summary-content').hidden, false);
-  assert.equal(document.getElementById('ios-tab-content').hidden, true);
+  ['daily', 'weekly'].forEach((tab) => {
+    window.selectTab(tab);
+    assert.equal(document.getElementById('ios-summary-content').hidden, false);
+    assert.equal(document.getElementById('ios-tab-content').hidden, true);
+    assert.match(summaryText(document), new RegExp(tab + '-2026-08-15'));
+  });
   assert.equal(scrolled, 5, 'every switch starts the new view at the top of the page');
 });
 
-test('Issue #388 PR F: the view row has no 资本配置; selecting it is ignored, and 组合 links to 持仓明细 instead', () => {
+test('Issue #396 PR A: the view row is 待办 / 日报 / 周报 / 持仓明细 / 风险; 组合, 报告 and 资本配置 are gone and ignored', () => {
   const index = fs.readFileSync(path.join(__dirname, '..', 'Index.html'), 'utf8');
-  assert.doesNotMatch(index, /资本配置|ios-tab-allocation/);
+  assert.doesNotMatch(index, /资本配置|ios-tab-allocation|ios-tab-portfolio|ios-tab-report|ios-nav-/);
   const labels = [...index.matchAll(/class="ios-tab-btn"[^>]*>([^<]+)</g)].map((m) => m[1]);
-  assert.deepEqual(labels, ['报告', '组合', '持仓明细', '风险', '待办']);
+  assert.deepEqual(labels, ['待办', '日报', '周报', '持仓明细', '风险']);
   const { document, window } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
-  window.selectTab('portfolio');
-  window.selectTab('allocation');
-  assert.ok(document.getElementById('ios-tab-portfolio').classList.contains('active'), 'an unknown view name is ignored');
-  const links = portfolioOverview(document).children.find((c) => c.classList.contains('ios-view-links')).children.map((b) => b.textContent);
-  assert.ok(links.includes('持仓明细'));
-  assert.ok(!links.includes('资本配置'));
+  window.selectTab('holdingDetail');
+  ['portfolio', 'report', 'allocation'].forEach((tab) => window.selectTab(tab));
+  assert.ok(document.getElementById('ios-tab-holdingDetail').classList.contains('active'), 'an unknown view name is ignored');
 });
 
-test('Issue #388 PR D: the 组合 overview shows the report summary grid, live account state labelled as such, and 配置比例 as 未提供', () => {
-  const { document, window } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
-  window.selectTab('portfolio');
-  const overview = portfolioOverview(document);
-  assert.ok(overview.children.some((c) => c.classList.contains('ios-summary-grid')));
-  assert.match(overview.textContent, /配置比例: 未提供（Sheet 没有组合市值字段/);
-  assert.match(overview.textContent, /账户状态（当前台账，非本报告快照）/);
-  assert.match(overview.textContent, /Demo Broker A · JPY可用现金 500000 JPY/);
-  assert.match(overview.textContent, /Demo Broker B · USD可用现金 未提供/, 'blank cash is 未提供, never 0');
-  assert.doesNotMatch(overview.textContent, /本期 \d+ 项变化/, 'a report without a change layering has no change count');
-  const detailLink = overview.children.find((c) => c.classList.contains('ios-view-links')).children.find((b) => b.textContent === '持仓明细');
-  detailLink.click();
-  assert.ok(document.getElementById('ios-tab-holdingDetail').classList.contains('active'));
-
-  ['absent', 'unreadable'].forEach((state) => {
-    const page = loadDashboard(Object.assign({}, DEMO_BOOTSTRAP, { accountStatus: { state, rows: [] } }), 'daily', {});
-    page.window.selectTab('portfolio');
-    assert.match(portfolioOverview(page.document).textContent, state === 'absent' ? /未提供（Sheet 没有「账户状态」表）/ : /无法读取或缺少必需列/);
-  });
-});
-
-test('Issue #388 PR D: the top view row comes before the report in Index.html', () => {
+test('Issue #396 PR A: the top view row comes before every view in Index.html, and the topbar keeps no separate 日报/周报 toggle', () => {
   const index = fs.readFileSync(path.join(__dirname, '..', 'Index.html'), 'utf8');
   const bar = index.indexOf('id="ios-tab-bar"');
   assert.ok(bar > index.indexOf('</header>'));
   assert.ok(bar < index.indexOf('id="ios-summary-content"'));
-  assert.ok(index.indexOf('id="ios-tab-report"') > bar);
+  assert.ok(index.indexOf('id="ios-tab-todos"') > bar);
+  assert.doesNotMatch(index, /ios-view-toggle/);
 });
 
-test('Issue #388 PR D/F: a non-current generation keeps its reader banner above every view built from it, including 持仓明细 with its live ledger group', () => {
+test('Issue #388 PR D/F, #396: a non-current generation keeps its reader banner above every view built from it; 待办 names which latest report it is', () => {
   const bootstrap = buildBootstrapWithTodos([]);
   const { document, window } = loadDashboard(bootstrap, 'daily', {});
   const banner = document.getElementById('ios-view-banner');
-  assert.equal(banner.hidden, true, 'the report view shows the banner itself');
-  window.selectTab('todos');
-  assert.equal(banner.hidden, false);
+  assert.equal(banner.hidden, false, '待办 opens first and carries the banner of the latest Daily');
+  assert.match(banner.textContent, /^最新日报：/);
   assert.match(banner.textContent, /不作为当前买入依据/);
+  window.selectTab('daily');
+  assert.equal(banner.hidden, true, 'the report view shows the banner itself');
   window.selectTab('holdingDetail');
   assert.equal(banner.hidden, false, 'PR F: 持仓明细 is report-based, so the banner stays; the ledger group carries its own 当前台账 label');
 });
@@ -355,10 +336,10 @@ test('summary metric cards are plain informational cards, not tab shortcuts -- n
     assert.notEqual(card.tagName, 'BUTTON');
     card.click(); // must be inert -- no onclick was ever registered
   });
-  assert.ok(document.getElementById('ios-tab-report').classList.contains('active'), 'clicking a metric card must never change the active tab');
+  assert.ok(document.getElementById('ios-tab-todos').classList.contains('active'), 'clicking a metric card must never change the active tab');
 });
 
-test('switchView("weekly") re-renders in place without any google.script.run call (both viewModels already cached from bootstrap)', () => {
+test('switchView("weekly") opens the latest 周报 without any google.script.run call (both viewModels already cached from bootstrap)', () => {
   let runCalls = 0;
   const { document, window } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {
     getReport: () => { runCalls += 1; return {}; },
@@ -366,8 +347,8 @@ test('switchView("weekly") re-renders in place without any google.script.run cal
   });
   window.switchView('weekly');
   assert.match(summaryText(document), /weekly-2026-08-15/);
-  assert.ok(document.getElementById('ios-nav-weekly').classList.contains('active'));
-  assert.ok(!document.getElementById('ios-nav-daily').classList.contains('active'));
+  assert.ok(document.getElementById('ios-tab-weekly').classList.contains('active'));
+  assert.ok(!document.getElementById('ios-tab-daily').classList.contains('active'));
   assert.equal(runCalls, 0, 'toggling between the two already-fetched latest reports must never hit the server');
 });
 
@@ -385,7 +366,7 @@ test('switchView repopulates the history <select> with that view\'s own history 
   assert.deepEqual(historySelectOptionValues(document), ['', 'weekly-2026-08-15']);
 });
 
-test('selectTab switches between 组合/持仓明细/风险/待办 without any google.script.run call, and updates aria-current', () => {
+test('selectTab switches between the five views without any google.script.run call, and updates aria-current', () => {
   let runCalls = 0;
   const { document, window } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {
     getReport: () => { runCalls += 1; return {}; },
@@ -394,7 +375,7 @@ test('selectTab switches between 组合/持仓明细/风险/待办 without any g
 
   window.selectTab('holdingDetail');
   assert.ok(document.getElementById('ios-tab-holdingDetail').classList.contains('active'));
-  assert.equal(document.getElementById('ios-tab-portfolio').getAttribute('aria-current'), null);
+  assert.equal(document.getElementById('ios-tab-todos').getAttribute('aria-current'), null);
   assert.match(tabText(document), /DEMO1/, '持仓明细 shows the live current-holdings ledger (former 资本配置, #388 PR F)');
 
   window.selectTab('risks');
@@ -403,19 +384,28 @@ test('selectTab switches between 组合/持仓明细/风险/待办 without any g
 
   window.selectTab('todos');
   assert.ok(document.getElementById('ios-tab-todos').classList.contains('active'));
-  assert.match(tabText(document), /待办事项/);
+  assert.match(tabText(document), /卡住买入/);
 
-  window.selectTab('portfolio');
-  assert.ok(document.getElementById('ios-tab-portfolio').classList.contains('active'));
+  window.selectTab('weekly');
+  assert.ok(document.getElementById('ios-tab-weekly').classList.contains('active'));
 
   assert.equal(runCalls, 0, 'tab switching only re-renders already-cached data, never hits the server');
 });
 
 test('selectTab ignores an unrecognized tab name rather than clearing the current tab', () => {
   const { document, window } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
-  window.selectTab('portfolio');
+  window.selectTab('risks');
   window.selectTab('not-a-real-tab');
-  assert.ok(document.getElementById('ios-tab-portfolio').classList.contains('active'), 'must remain on the previously active tab');
+  assert.ok(document.getElementById('ios-tab-risks').classList.contains('active'), 'must remain on the previously active tab');
+});
+
+test('Issue #396 PR A: 持仓明细 and 风险 read the report last chosen under 日报 / 周报, and say which one', () => {
+  const { document, window } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
+  window.selectTab('risks');
+  assert.match(tabText(document), /^来源：日报 2026-08-15（最新）/);
+  window.selectTab('weekly');
+  window.selectTab('holdingDetail');
+  assert.match(tabText(document), /^来源：周报 2026-08-15（最新）/);
 });
 
 function ledgerGroups(document) {
@@ -576,8 +566,10 @@ test('an empty-state (found: false, no error) renders the explicit "no report ye
     weeklyHistory: [],
     allocation: []
   };
-  const { document } = loadDashboard(emptyBootstrap, 'daily', {});
+  const { document, window } = loadDashboard(emptyBootstrap, 'daily', {});
   assert.match(summaryText(document), /暂无日报/);
+  assert.match(tabText(document), /暂无报告/, 'Issue #396 PR A: 待办 has nothing to merge before either report exists');
+  window.selectTab('risks');
   assert.match(tabText(document), /暂无日报/, 'Issue #388 PR D: a report-based view replaces the report, so it repeats the "no report yet" card');
 });
 
@@ -594,9 +586,9 @@ test('the "no report yet" empty state points to the onboarding prompt as a next 
   assert.match(summaryText(document), /onboarding-prompt\.md/, 'the empty state should name the onboarding prompt file as the next step, not just describe the empty state');
 });
 
-test('reference-price/price-position mapping renders explicit missing-value text, never a blank or shifted column, on the 组合 tab', () => {
+test('reference-price/price-position mapping renders explicit missing-value text, never a blank or shifted column, on the asset cards', () => {
   const { document } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
-  const portfolioText = tabText(document);
+  const portfolioText = summaryText(document);
   // DEMO1 has an active 入场计划 (since Issue #298), so its primary display
   // is the plan's snapshotted anchor + 执行状态, not its legacy 参考买入价/
   // 区间 (still present in the underlying data, but no longer the row's
@@ -613,7 +605,7 @@ test('reference-price/price-position mapping renders explicit missing-value text
 
 test('holding cards render the v1.1 content order -- 价格/参考(+价格位置)/变化/逻辑/验证 -- not a Thesis line', () => {
   const { document } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
-  const portfolioText = tabText(document);
+  const portfolioText = summaryText(document);
   assert.match(portfolioText, /价格: 41\.2/);
   // DEMO1 has an active plan, so its second line is the plan anchor, not
   // the legacy 参考 line -- see the dedicated Entry Plan tests below for
@@ -1093,459 +1085,279 @@ test('watchlist candidates render separately from holdings and show their report
   assert.doesNotMatch(text, /观察名单/, 'the section provides asset type; cards must not repeat the redundant badge');
 });
 
-// -- Todo checklist (Issue #255): count summary, open-before-done grouping
-// with 排序 preserved within each group, conservative status handling. --
+// -- 待办 tab (Issue #396 PR A): the latest Daily and the latest Weekly merged
+// on one page. 卡住买入 is decided only by 阻塞待办ID (owner decision on #396);
+// every other todo stands alone, newest report date first. Completion keeps
+// the Issue #255/#260 classifier: only 已完成 / done count as completed. --
 
-test('todos: count summary shows the open/done split, and open items render before done ones with 排序 order preserved within each group', () => {
+function reportVm(type, date, extra) {
+  return Object.assign({
+    found: true, reportType: type,
+    summary: {
+      报告ID: type + '-' + date, 报告日期: date, 周期开始: '', 周期结束: '', 一句话结论: type + ' headline',
+      核心状态: '正常', Review状态: '未Review', 当前持仓数: 0, 高优先级观察数: 0, 生成时间: date + 'T09:00:00+09:00'
+    },
+    holdings: [], watchlistCandidates: [], risks: [], todos: []
+  }, extra || {});
+}
+
+function latestBootstrap(daily, weekly) {
+  return { error: null, daily: daily || { found: false, reportType: 'daily' }, weekly: weekly || { found: false, reportType: 'weekly' },
+    dailyHistory: [], weeklyHistory: [], allocation: [] };
+}
+
+function todoSection(document, cls) {
+  return document.getElementById('ios-tab-content').children.find((c) => c.classList.contains(cls));
+}
+
+function todoItems(node) {
+  return node ? allElements(node).filter((n) => n.tagName === 'LI' && n.classList.contains('ios-todo-item')) : [];
+}
+
+function todoNames(node) {
+  return todoItems(node).filter((li) => li.children[0].children[1]).map((li) => li.children[0].children[1].textContent);
+}
+
+function itemNamed(document, name) {
+  return todoItems(document.getElementById('ios-tab-content')).find((li) => li.textContent.indexOf(name) !== -1);
+}
+
+test('todos: the 待办 tab is the default view; open items list before a folded 已完成 group, 排序 kept within one report', () => {
   const todos = [
     { 排序: 1, 分类: 'research', 待办: 'Task A', 状态: 'open', 备注: '' },
     { 排序: 2, 分类: 'follow-up', 待办: 'Task B', 状态: 'done', 备注: 'note B' },
     { 排序: 3, 分类: '', 待办: 'Task C', 状态: '', 备注: '' },
     { 排序: 4, 分类: '', 待办: 'Task D', 状态: 'done', 备注: '' }
   ];
-  const { document, window } = loadDashboard(buildBootstrapWithTodos(todos), 'daily', {});
-  window.selectTab('todos');
-  const section = document.getElementById('ios-tab-content').children[0];
-  const summary = section.children[1];
-  assert.match(summary.textContent, /2 待处理/);
-  assert.match(summary.textContent, /2 已完成/);
-  const items = section.children[2].children;
-  const taskNames = items.map((li) => li.children[0].children[1].textContent);
-  assert.deepEqual(taskNames, ['Task A', 'Task C', 'Task B', 'Task D'],
-    'open items (A, C -- their own 排序 order) render before done items (B, D -- their own 排序 order), never re-sorted across the whole list');
+  const { document } = loadDashboard(buildBootstrapWithTodos(todos), 'daily', {});
+  const overview = todoSection(document, 'ios-todo-overview');
+  assert.match(overview.textContent, /卡住买入 0 项 · 其他待办 2 项/);
+  assert.match(overview.textContent, /已完成 2/);
+  assert.deepEqual(todoNames(todoSection(document, 'ios-todo-others')), ['Task A', 'Task C']);
+  const done = todoSection(document, 'ios-todo-completed');
+  const fold = done.children[0];
+  assert.equal(fold.tagName, 'DETAILS');
+  assert.equal(fold.getAttribute('open'), null, '已完成 is folded by default');
+  assert.equal(fold.children[0].textContent, '已完成 2 项（展开查看）');
+  assert.deepEqual(todoNames(done), ['Task B', 'Task D']);
 });
 
-test('todos: a completed item is struck through and its indicator marks it done; an open item is not', () => {
-  const todos = [
+test('todos: a completed item is struck through and marked done; an open one is not', () => {
+  const { document } = loadDashboard(buildBootstrapWithTodos([
     { 排序: 1, 分类: '', 待办: 'Open task', 状态: 'open', 备注: '' },
     { 排序: 2, 分类: '', 待办: 'Done task', 状态: 'done', 备注: '' }
-  ];
-  const { document, window } = loadDashboard(buildBootstrapWithTodos(todos), 'daily', {});
-  window.selectTab('todos');
-  const items = document.getElementById('ios-tab-content').children[0].children[2].children;
-  const openItem = items.find((li) => li.textContent.indexOf('Open task') !== -1);
-  const doneItem = items.find((li) => li.textContent.indexOf('Done task') !== -1);
+  ]), 'daily', {});
+  const openItem = itemNamed(document, 'Open task');
+  const doneItem = itemNamed(document, 'Done task');
   assert.ok(openItem.classList.contains('ios-todo-open'));
   assert.ok(!openItem.classList.contains('ios-todo-done'));
   assert.ok(doneItem.classList.contains('ios-todo-done'));
-  assert.ok(!doneItem.classList.contains('ios-todo-open'));
+  assert.ok(doneItem.children[1].children[0].classList.contains('ios-badge-done'));
 });
 
-test('todos: an unrecognized status is displayed explicitly but conservatively treated as open, never assumed completed', () => {
-  const todos = [{ 排序: 1, 分类: '', 待办: 'Task with a custom status', 状态: 'in-progress', 备注: '' }];
-  const { document, window } = loadDashboard(buildBootstrapWithTodos(todos), 'daily', {});
-  window.selectTab('todos');
-  const li = document.getElementById('ios-tab-content').children[0].children[2].children[0];
-  assert.ok(!li.classList.contains('ios-todo-done'), 'an unrecognized status must never be treated as completed');
-  assert.ok(li.classList.contains('ios-todo-open'));
-  assert.match(li.textContent, /in-progress/, 'the raw status text is still shown explicitly, not hidden or relabeled');
-});
-
-test('todos: a blank 状态 is treated the same as "待处理" (conservative default), and is shown as such', () => {
-  const todos = [{ 排序: 1, 分类: '', 待办: 'No status set', 状态: '', 备注: '' }];
-  const { document, window } = loadDashboard(buildBootstrapWithTodos(todos), 'daily', {});
-  window.selectTab('todos');
-  const li = document.getElementById('ios-tab-content').children[0].children[2].children[0];
-  assert.ok(li.classList.contains('ios-todo-open'));
-  assert.match(li.textContent, /待处理/);
-});
-
-test('todos: 分类 and 状态 render as badges on every item; 备注 renders as a secondary note only when present', () => {
-  const withNote = loadDashboard(buildBootstrapWithTodos([
-    { 排序: 1, 分类: 'ops', 待办: 'Has a note', 状态: 'open', 备注: 'secondary detail' }
-  ]), 'daily', {});
-  withNote.window.selectTab('todos');
-  const liWithNote = withNote.document.getElementById('ios-tab-content').children[0].children[2].children[0];
-  assert.match(liWithNote.children[1].textContent, /ops/, '分类 badge');
-  assert.match(liWithNote.children[1].textContent, /open/, '状态 badge');
-  assert.equal(liWithNote.children.length, 3, 'head + meta + note when 备注 is present');
-  assert.match(liWithNote.children[2].textContent, /secondary detail/);
-
-  const withoutNote = loadDashboard(buildBootstrapWithTodos([
-    { 排序: 1, 分类: '', 待办: 'No note', 状态: 'open', 备注: '' }
-  ]), 'daily', {});
-  withoutNote.window.selectTab('todos');
-  const liWithoutNote = withoutNote.document.getElementById('ios-tab-content').children[0].children[2].children[0];
-  assert.equal(liWithoutNote.children.length, 2, 'no note element at all when 备注 is blank -- never an empty note line');
-});
-
-test('todos: an empty result shows only the explicit empty-state note -- no count summary or list for zero items', () => {
-  const { document, window } = loadDashboard(buildBootstrapWithTodos([]), 'daily', {});
-  window.selectTab('todos');
-  const section = document.getElementById('ios-tab-content').children[0];
-  assert.equal(section.children.length, 2, 'h2 + empty-note only');
-  assert.match(section.children[1].textContent, /合法的空结果/);
-});
-
-// -- Todo status classifier (Issue #260): counts, grouping, card styling,
-// and the status badge class must all derive from the same normalized
-// completion classification, so a real report's status text can never
-// make one of them disagree with the others. --
-
-test('todos: "Done"/"DONE"/whitespace-padded "done" all classify as completed -- counts, grouping, card class, and badge class all agree', () => {
+test('todos: only 已完成 / done count as completed (any case, padded); 待处理, 未完成, blank and unknown values stay open and are shown as written', () => {
   const todos = [
-    { 排序: 1, 分类: '', 待办: 'Mixed case', 状态: 'Done', 备注: '' },
-    { 排序: 2, 分类: '', 待办: 'All caps', 状态: 'DONE', 备注: '' },
-    { 排序: 3, 分类: '', 待办: 'Padded', 状态: '  done  ', 备注: '' },
-    { 排序: 4, 分类: '', 待办: 'Actually open', 状态: 'open', 备注: '' }
+    { 排序: 1, 待办: 'Mixed case', 状态: 'Done' },
+    { 排序: 2, 待办: 'All caps', 状态: 'DONE' },
+    { 排序: 3, 待办: 'Padded', 状态: '  done  ' },
+    { 排序: 4, 待办: 'Chinese done', 状态: '已完成' },
+    { 排序: 5, 待办: 'Pending', 状态: '待处理' },
+    { 排序: 6, 待办: 'Unfinished', 状态: '未完成' },
+    { 排序: 7, 待办: 'Blank', 状态: '' },
+    { 排序: 8, 待办: 'Custom', 状态: 'in-progress' }
   ];
-  const { document, window } = loadDashboard(buildBootstrapWithTodos(todos), 'daily', {});
-  window.selectTab('todos');
-  const section = document.getElementById('ios-tab-content').children[0];
-  const summary = section.children[1];
-  assert.match(summary.textContent, /1 待处理/, 'only the literal "open" status counts as 待处理');
-  assert.match(summary.textContent, /3 已完成/, 'Done/DONE/whitespace-padded done must all count as 已完成');
-  const items = section.children[2].children;
-  const byName = (name) => items.find((li) => li.textContent.indexOf(name) !== -1);
-  for (const name of ['Mixed case', 'All caps', 'Padded']) {
-    const li = byName(name);
-    assert.ok(li.classList.contains('ios-todo-done'), `${name}: must be grouped/styled as done`);
-    assert.ok(!li.classList.contains('ios-todo-open'), `${name}: must not also carry the open class`);
-    const statusBadge = li.children[1].children[0];
-    assert.ok(statusBadge.classList.contains('ios-badge-done'), `${name}: status badge must carry the done tier class`);
-  }
-  const openLi = byName('Actually open');
-  assert.ok(openLi.classList.contains('ios-todo-open'));
-  const openBadge = openLi.children[1].children[0];
-  assert.ok(!openBadge.classList.contains('ios-badge-done'), 'an open item\'s status badge must never carry the done tier class');
+  const { document } = loadDashboard(buildBootstrapWithTodos(todos), 'daily', {});
+  assert.deepEqual(todoNames(todoSection(document, 'ios-todo-completed')), ['Mixed case', 'All caps', 'Padded', 'Chinese done']);
+  assert.deepEqual(todoNames(todoSection(document, 'ios-todo-others')), ['Pending', 'Unfinished', 'Blank', 'Custom']);
+  ['Mixed case', 'All caps', 'Padded', 'Chinese done'].forEach((name) => {
+    const li = itemNamed(document, name);
+    assert.ok(li.classList.contains('ios-todo-done'), name);
+    assert.ok(li.children[1].children[0].classList.contains('ios-badge-done'), name);
+  });
+  const badge = (name) => itemNamed(document, name).children[1].children[0];
+  assert.equal(badge('Pending').textContent, '待处理');
+  assert.ok(!badge('Pending').classList.contains('ios-badge-done'));
+  assert.equal(badge('Unfinished').textContent, '未完成');
+  assert.ok(badge('Unfinished').classList.contains('ios-badge-incomplete'), '未完成 carries a visible mark');
+  assert.equal(badge('Blank').textContent, '状态未填写', 'a blank 状态 is open and said to be blank, never relabelled 待处理');
+  assert.equal(badge('Custom').textContent, 'in-progress');
+  assert.match(todoSection(document, 'ios-todo-overview').textContent, /其他待办 4 项/);
 });
 
-test('todos: the real Chinese canonical values 已完成/待处理 classify correctly -- Issue #260 reopened, production evidence from weekly-2026-08-31', () => {
-  // Exact shape of the production defect: live report rows used 已完成/待处理,
-  // but TODO_COMPLETED_STATUSES_ only recognized the literal 'done', so every
-  // 已完成 row was conservatively treated as open -- a Dashboard showing
-  // "6 open / 0 done" while multiple visible cards said 已完成.
+test('todos: 跟进类型 is a display tag only -- it never moves a todo between groups, and a malformed cell never crashes rendering', () => {
   const todos = [
-    { 排序: 1, 分类: 'research', 待办: '复核 TSM 论点', 状态: '已完成', 备注: '' },
-    { 排序: 2, 分类: 'research', 待办: '复核 GOOGL 论点', 状态: '已完成', 备注: '' },
-    { 排序: 3, 分类: 'research', 待办: '复核 ORCL 论点', 状态: '已完成', 备注: '' },
-    { 排序: 4, 分类: 'research', 待办: '复核 6501 论点', 状态: '已完成', 备注: '' },
-    { 排序: 5, 分类: 'research', 待办: '风险调整后收益对比', 状态: '已完成', 备注: '' },
-    { 排序: 6, 分类: 'follow-up', 待办: '跟进新增观察名单候选', 状态: '待处理', 备注: '' }
+    { 排序: 1, 待办: 'Monitor', 状态: '待处理', 跟进类型: '持续观察' },
+    { 排序: 2, 待办: 'Wait', 状态: '待处理', 跟进类型: '等待证据' },
+    { 排序: 3, 待办: 'Act', 状态: '待处理', 跟进类型: '可执行' },
+    { 排序: 4, 待办: 'Legacy', 状态: '待处理' },
+    { 排序: 5, 待办: 'Numeric kind', 状态: '待处理', 跟进类型: 42 },
+    { 排序: 6, 待办: 'False kind', 状态: '待处理', 跟进类型: false },
+    { 排序: 7, 待办: 'Monitoring concluded', 状态: '已完成', 跟进类型: '持续观察' }
   ];
-  const { document, window } = loadDashboard(buildBootstrapWithTodos(todos), 'daily', {});
-  window.selectTab('todos');
-  const section = document.getElementById('ios-tab-content').children[0];
-  const summary = section.children[1];
-  assert.match(summary.textContent, /1 待处理/, '待处理 must count as 待处理');
-  assert.match(summary.textContent, /5 已完成/, 'every 已完成 row must count as 已完成');
-  const items = section.children[2].children;
-  const byName = (name) => items.find((li) => li.textContent.indexOf(name) !== -1);
-  for (const name of ['复核 TSM 论点', '复核 GOOGL 论点', '复核 ORCL 论点', '复核 6501 论点', '风险调整后收益对比']) {
-    const li = byName(name);
-    assert.ok(li.classList.contains('ios-todo-done'), `${name}: 已完成 must be grouped/styled as done`);
-    const statusBadge = li.children[1].children[0];
-    assert.ok(statusBadge.classList.contains('ios-badge-done'), `${name}: 已完成 badge must carry the done tier class (green)`);
-    assert.match(statusBadge.textContent, /已完成/, `${name}: raw 已完成 text must still render on the badge`);
-  }
-  const openLi = byName('跟进新增观察名单候选');
-  assert.ok(openLi.classList.contains('ios-todo-open'), '待处理 must be grouped/styled as open, not completed');
-  const openBadge = openLi.children[1].children[0];
-  assert.ok(!openBadge.classList.contains('ios-badge-done'), '待处理 badge must never carry the done tier class');
-  assert.match(openBadge.textContent, /待处理/, 'raw 待处理 text must still render on the badge');
+  let document;
+  assert.doesNotThrow(() => { ({ document } = loadDashboard(buildBootstrapWithTodos(todos), 'daily', {})); });
+  assert.deepEqual(todoNames(todoSection(document, 'ios-todo-others')), ['Monitor', 'Wait', 'Act', 'Legacy', 'Numeric kind', 'False kind']);
+  const kind = (name) => itemNamed(document, name).children[1].children.find((c) => c.classList.contains('ios-todo-kind'));
+  assert.ok(kind('Monitor').classList.contains('ios-badge-monitoring'));
+  assert.ok(itemNamed(document, 'Monitor').classList.contains('ios-todo-monitoring'));
+  assert.ok(kind('Wait').classList.contains('ios-badge-waiting'));
+  assert.equal(kind('Act').textContent, '可执行');
+  assert.equal(kind('Legacy'), undefined, 'a row without 跟进类型 shows no tag');
+  assert.equal(kind('Numeric kind').textContent, '42');
+  assert.ok(itemNamed(document, 'Numeric kind').classList.contains('ios-todo-open'));
+  const concluded = itemNamed(document, 'Monitoring concluded');
+  assert.ok(concluded.classList.contains('ios-todo-done'));
+  assert.ok(!concluded.classList.contains('ios-todo-monitoring'));
+  assert.equal(concluded.children[1].children[0].textContent, '已完成');
 });
 
-test('todos: Weekly and history-selected reports classify 已完成/待处理 the same way as the live Daily view', () => {
-  const bootstrap = buildBootstrapWithTodos([
-    { 排序: 1, 分类: '', 待办: 'Daily 已完成', 状态: '已完成', 备注: '' }
-  ]);
-  bootstrap.weekly = {
-    found: true,
-    reportType: 'weekly',
-    summary: {
-      报告ID: 'weekly-2026-08-31', 报告日期: '2026-08-31', 周期开始: '2026-08-25', 周期结束: '2026-08-31',
-      一句话结论: 'weekly headline', 核心状态: '正常', Review状态: '未Review',
-      当前持仓数: 0, 高优先级观察数: 0, 生成时间: '2026-08-31T09:00:00+09:00'
-    },
-    holdings: [], watchlistCandidates: [], risks: [],
+test('todos: 分类, 状态 and the source report render as badges; 备注 only when present', () => {
+  const { document } = loadDashboard(buildBootstrapWithTodos([
+    { 排序: 1, 分类: 'ops', 待办: 'Has a note', 状态: 'open', 备注: 'secondary detail' },
+    { 排序: 2, 分类: '', 待办: 'No note', 状态: 'open', 备注: '' }
+  ]), 'daily', {});
+  const withNote = itemNamed(document, 'Has a note');
+  assert.match(withNote.children[1].textContent, /^open.*ops日报 08\/20$/);
+  assert.equal(withNote.children.length, 3);
+  assert.match(withNote.children[2].textContent, /secondary detail/);
+  assert.equal(itemNamed(document, 'No note').children.length, 2, 'no empty note line');
+});
+
+test('todos: no open todo anywhere reads 本期无需操作; with no report at all the tab says so', () => {
+  const none = loadDashboard(buildBootstrapWithTodos([]), 'daily', {});
+  assert.match(todoSection(none.document, 'ios-todo-overview').textContent, /本期无需操作/);
+  assert.equal(todoSection(none.document, 'ios-todo-completed'), undefined, 'no 已完成 fold when nothing is completed');
+  const allDone = loadDashboard(buildBootstrapWithTodos([{ 排序: 1, 待办: 'x', 状态: '已完成' }]), 'daily', {});
+  assert.match(todoSection(allDone.document, 'ios-todo-overview').textContent, /本期无需操作/);
+  const empty = loadDashboard(latestBootstrap(null, null), 'daily', {});
+  assert.match(tabText(empty.document), /暂无报告/);
+});
+
+test('todos: the latest Daily and Weekly are merged; other todos run newest report date first and name their report', () => {
+  const daily = reportVm('daily', '2026-11-11', { todos: [{ 排序: 1, 待办: 'Daily item', 状态: '待处理', 报告日期: '2026-11-11' }] });
+  const weekly = reportVm('weekly', '2026-11-09', { todos: [
+    { 排序: 1, 待办: 'Weekly first', 状态: '待处理', 报告日期: '2026-11-09' },
+    { 排序: 2, 待办: 'Weekly second', 状态: '待处理' }
+  ] });
+  const { document } = loadDashboard(latestBootstrap(daily, weekly), 'daily', {});
+  const others = todoSection(document, 'ios-todo-others');
+  assert.deepEqual(todoNames(others), ['Daily item', 'Weekly first', 'Weekly second']);
+  assert.match(itemNamed(document, 'Daily item').textContent, /日报 11\/11/);
+  assert.match(itemNamed(document, 'Weekly second').textContent, /周报 11\/09/, 'a row without 报告日期 takes its report\'s date');
+  assert.match(todoSection(document, 'ios-todo-overview').textContent, /合并最新周报 11\/09 与 最新日报 11\/11/);
+  assert.equal(allElements(document.getElementById('ios-tab-content')).filter((n) => n.tagName === 'INPUT').length, 0, 'nothing on the page can tick a todo off');
+});
+
+function blockedRow(code, ids, extra) {
+  return Object.assign({ 代码: code, 名称: code + ' Co.', 资产类型: 'holding', 今日行动: '先核对缺项', 阻塞待办ID: ids }, extra || {});
+}
+
+test('todos: 卡住买入 is decided by 阻塞待办ID only -- Daily ref, Weekly ref, both refs on one asset (one row, both kept), a missing ID shown as 未找到', () => {
+  const daily = reportVm('daily', '2026-11-11', {
+    holdings: [blockedRow('AAA', 'AAA-1'), blockedRow('CCC', 'C-9')],
+    watchlistCandidates: [blockedRow('WWW', 'W-1', { 资产类型: 'watchlist' })],
     todos: [
-      { 排序: 1, 分类: '', 待办: 'Weekly 已完成', 状态: '已完成', 备注: '' },
-      { 排序: 2, 分类: '', 待办: 'Weekly 待处理', 状态: '待处理', 备注: '' }
+      { 待办ID: 'AAA-1', 待办: 'Daily AAA blocker', 状态: '未完成' },
+      { 待办ID: 'W-1', 待办: 'Watch blocker', 状态: '待处理' },
+      { 待办ID: 'BBB-1', 待办: 'Unreferenced, looks like BBB', 状态: '待处理', 复核键: '事件|BBB|x' }
     ]
-  };
-  const { document, window } = loadDashboard(bootstrap, 'weekly', {});
-  window.selectTab('todos');
-  const section = document.getElementById('ios-tab-content').children[0];
-  assert.match(section.children[1].textContent, /1 待处理/);
-  assert.match(section.children[1].textContent, /1 已完成/);
-  const items = section.children[2].children;
-  const doneLi = items.find((li) => li.textContent.indexOf('Weekly 已完成') !== -1);
-  const openLi = items.find((li) => li.textContent.indexOf('Weekly 待处理') !== -1);
-  assert.ok(doneLi.classList.contains('ios-todo-done'), 'Weekly must classify 已完成 as completed the same as Daily does');
-  assert.ok(openLi.classList.contains('ios-todo-open'), 'Weekly must classify 待处理 as actionable the same as Daily does');
-
-  const historyReport = {
-    error: null, found: true, reportType: 'daily',
-    summary: {
-      报告ID: 'daily-2026-08-30', 报告日期: '2026-08-30', 周期开始: '', 周期结束: '',
-      一句话结论: 'history headline', 核心状态: '正常', Review状态: '未Review',
-      当前持仓数: 0, 高优先级观察数: 0, 生成时间: '2026-08-30T09:00:00+09:00'
-    },
-    holdings: [], watchlistCandidates: [], risks: [],
-    todos: [{ 排序: 1, 分类: '', 待办: 'History 已完成', 状态: '已完成', 备注: '' }]
-  };
-  const historyView = loadDashboard(buildBootstrapWithTodos([]), 'daily', { getReport: () => historyReport });
-  historyView.window.selectHistoryReport('daily-2026-08-30');
-  historyView.window.selectTab('todos');
-  const historySection = historyView.document.getElementById('ios-tab-content').children[0];
-  assert.match(historySection.children[1].textContent, /1 已完成/, 'a history-selected report must classify 已完成 as completed the same as the live view');
-  assert.ok(historySection.children[2].children[0].classList.contains('ios-todo-done'));
-});
-
-test('todos: an unrecognized status\'s badge never carries the done tier class either, matching its open/actionable grouping', () => {
-  const todos = [{ 排序: 1, 分类: '', 待办: 'Custom status', 状态: 'in-progress', 备注: '' }];
-  const { document, window } = loadDashboard(buildBootstrapWithTodos(todos), 'daily', {});
-  window.selectTab('todos');
-  const li = document.getElementById('ios-tab-content').children[0].children[2].children[0];
-  const statusBadge = li.children[1].children[0];
-  assert.ok(!statusBadge.classList.contains('ios-badge-done'));
-  assert.match(statusBadge.textContent, /in-progress/, 'the raw status text is still shown verbatim on the badge');
-});
-
-test('todos: the Weekly view classifies the same status vocabulary the same way as Daily', () => {
-  const bootstrap = buildBootstrapWithTodos([
-    { 排序: 1, 分类: '', 待办: 'Daily done', 状态: 'Done', 备注: '' }
-  ]);
-  bootstrap.weekly = {
-    found: true,
-    reportType: 'weekly',
-    summary: {
-      报告ID: 'weekly-2026-08-16', 报告日期: '2026-08-16', 周期开始: '2026-08-10', 周期结束: '2026-08-16',
-      一句话结论: 'weekly headline', 核心状态: '正常', Review状态: '未Review',
-      当前持仓数: 0, 高优先级观察数: 0, 生成时间: '2026-08-16T09:00:00+09:00'
-    },
-    holdings: [], watchlistCandidates: [], risks: [],
-    todos: [{ 排序: 1, 分类: '', 待办: 'Weekly done', 状态: 'DONE', 备注: '' }]
-  };
-  const { document, window } = loadDashboard(bootstrap, 'weekly', {});
-  window.selectTab('todos');
-  const section = document.getElementById('ios-tab-content').children[0];
-  assert.match(section.children[1].textContent, /1 已完成/);
-  const li = section.children[2].children[0];
-  assert.ok(li.classList.contains('ios-todo-done'), 'Weekly must classify "DONE" as completed the same as Daily does');
-});
-
-test('todos: a history-selected report classifies the same status vocabulary the same way as the live view', () => {
-  const historyReport = {
-    error: null,
-    found: true,
-    reportType: 'daily',
-    summary: {
-      报告ID: 'daily-2026-08-10', 报告日期: '2026-08-10', 周期开始: '', 周期结束: '',
-      一句话结论: 'history headline', 核心状态: '正常', Review状态: '未Review',
-      当前持仓数: 0, 高优先级观察数: 0, 生成时间: '2026-08-10T09:00:00+09:00'
-    },
-    holdings: [], watchlistCandidates: [], risks: [],
-    todos: [{ 排序: 1, 分类: '', 待办: 'History done', 状态: '  Done  ', 备注: '' }]
-  };
-  const { document, window } = loadDashboard(buildBootstrapWithTodos([]), 'daily', {
-    getReport: () => historyReport
   });
-  window.selectHistoryReport('daily-2026-08-10');
-  window.selectTab('todos');
-  const section = document.getElementById('ios-tab-content').children[0];
-  assert.match(section.children[1].textContent, /1 已完成/, 'a history-selected report must classify a padded/mixed-case done status the same as the live view');
-  const li = section.children[2].children[0];
-  assert.ok(li.classList.contains('ios-todo-done'));
-});
-
-// -- 跟进类型 classifier (Issue #267): distinguishes actionable work from
-// ongoing monitoring and waiting-for-external-evidence items, so neither
-// inflates the 待处理 backlog count or reads as ordinary unfinished work. --
-
-test('todos: a row with no 跟进类型 field at all (every pre-#267 report) renders exactly like before -- no kind badge, counted as 待处理', () => {
-  const todos = [{ 排序: 1, 分类: '', 待办: 'Legacy row', 状态: '待处理', 备注: '' }];
-  const { document, window } = loadDashboard(buildBootstrapWithTodos(todos), 'daily', {});
-  window.selectTab('todos');
-  const section = document.getElementById('ios-tab-content').children[0];
-  const summary = section.children[1];
-  assert.match(summary.textContent, /1 待处理/);
-  assert.doesNotMatch(summary.textContent, /持续观察/, 'zero monitoring items -- that badge must not render at all');
-  assert.doesNotMatch(summary.textContent, /等待证据/, 'zero waiting-for-evidence items -- that badge must not render at all');
-  const li = section.children[2].children[0];
-  assert.ok(!li.classList.contains('ios-todo-monitoring'));
-  assert.ok(!li.classList.contains('ios-todo-waiting'));
-  const statusBadge = li.children[1].children[0];
-  assert.match(statusBadge.textContent, /待处理/, 'the plain 状态 badge renders, unchanged from before Issue #267');
-});
-
-test('todos: 跟进类型=持续观察 shows the monitoring badge instead of the 状态 badge, does not count as 待处理, and gets its own summary count', () => {
-  const todos = [
-    { 排序: 1, 分类: '', 待办: 'Track NVIDIA Rubin ramp', 状态: '待处理', 跟进类型: '持续观察', 备注: '' },
-    { 排序: 2, 分类: '', 待办: 'Actual actionable work', 状态: '待处理', 备注: '' }
-  ];
-  const { document, window } = loadDashboard(buildBootstrapWithTodos(todos), 'daily', {});
-  window.selectTab('todos');
-  const section = document.getElementById('ios-tab-content').children[0];
-  const summary = section.children[1];
-  assert.match(summary.textContent, /1 待处理/, 'only the genuinely actionable row counts as backlog');
-  assert.match(summary.textContent, /1 持续观察/);
-  const items = section.children[2].children;
-  const monitoringItem = items.find((li) => li.textContent.indexOf('Track NVIDIA Rubin ramp') !== -1);
-  assert.ok(monitoringItem.classList.contains('ios-todo-monitoring'));
-  assert.ok(monitoringItem.classList.contains('ios-todo-open'), 'still open -- just not backlog');
-  const kindBadge = monitoringItem.children[1].children[0];
-  assert.match(kindBadge.textContent, /^持续观察$/);
-  assert.ok(kindBadge.classList.contains('ios-badge-monitoring'));
-});
-
-test('todos: 跟进类型=等待证据 shows the waiting badge, does not count as 待处理, and gets its own summary count', () => {
-  const todos = [
-    { 排序: 1, 分类: '', 待办: 'Wait for board decision', 状态: '待处理', 跟进类型: '等待证据', 备注: '' }
-  ];
-  const { document, window } = loadDashboard(buildBootstrapWithTodos(todos), 'daily', {});
-  window.selectTab('todos');
-  const section = document.getElementById('ios-tab-content').children[0];
-  const summary = section.children[1];
-  assert.match(summary.textContent, /0 待处理/);
-  assert.match(summary.textContent, /1 等待证据/);
-  const li = section.children[2].children[0];
-  assert.ok(li.classList.contains('ios-todo-waiting'));
-  const kindBadge = li.children[1].children[0];
-  assert.match(kindBadge.textContent, /^等待证据$/);
-  assert.ok(kindBadge.classList.contains('ios-badge-waiting'));
-});
-
-test('todos: an unrecognized or blank 跟进类型 value falls back to 可执行 (actionable) -- the safe, conservative default, never invented monitoring/waiting semantics', () => {
-  const todos = [
-    { 排序: 1, 分类: '', 待办: 'Blank kind', 状态: '待处理', 跟进类型: '', 备注: '' },
-    { 排序: 2, 分类: '', 待办: 'Unrecognized kind', 状态: '待处理', 跟进类型: 'some-future-value', 备注: '' }
-  ];
-  const { document, window } = loadDashboard(buildBootstrapWithTodos(todos), 'daily', {});
-  window.selectTab('todos');
-  const section = document.getElementById('ios-tab-content').children[0];
-  const summary = section.children[1];
-  assert.match(summary.textContent, /2 待处理/);
-  assert.doesNotMatch(summary.textContent, /持续观察/);
-  assert.doesNotMatch(summary.textContent, /等待证据/);
-  const items = section.children[2].children;
-  items.forEach((li) => {
-    assert.ok(!li.classList.contains('ios-todo-monitoring'));
-    assert.ok(!li.classList.contains('ios-todo-waiting'));
+  const weekly = reportVm('weekly', '2026-11-09', {
+    holdings: [blockedRow('AAA', 'AAA-1'), blockedRow('BBB', 'B-2'), blockedRow('FUND-SLEEVE', 'F-1')],
+    todos: [
+      { 待办ID: 'AAA-1', 待办: 'Weekly AAA blocker', 状态: '待处理' },
+      { 待办ID: 'B-2', 待办: 'Weekly BBB blocker', 状态: '待处理' },
+      { 待办ID: 'F-1', 待办: 'Fund check', 状态: '待处理' }
+    ]
   });
+  let document;
+  assert.doesNotThrow(() => { ({ document } = loadDashboard(latestBootstrap(daily, weekly), 'daily', {})); });
+  const blocked = todoSection(document, 'ios-todo-blocked');
+  const assets = blocked.children.filter((c) => c.classList.contains('ios-todo-asset'));
+  assert.deepEqual(assets.map((a) => a.children[0].children[0].textContent), ['AAA', 'BBB', 'CCC', 'WWW'], 'AAA appears once although both reports name it');
+  assert.deepEqual(todoNames(assets[0]), ['Weekly AAA blocker', 'Daily AAA blocker'], 'neither source is dropped; Weekly first, then Daily');
+  assert.match(assets[0].textContent, /周报 11\/09[\s\S]*日报 11\/11/);
+  assert.match(assets[2].textContent, /阻塞待办未找到：日报 11\/11 的买入判断引用了待办ID C-9/);
+  assert.deepEqual(todoNames(assets[3]), ['Watch blocker'], 'a watchlist row\'s blocker counts too');
+  assert.deepEqual(todoNames(todoSection(document, 'ios-todo-others')), ['Unreferenced, looks like BBB', 'Fund check'],
+    'no asset is inferred from 复核键 or an ID prefix, and the fund aggregate is not a buy-judgment row');
+  assert.match(blocked.children[0].textContent, /卡住买入 \(4 个标的\)/);
+  assert.match(todoSection(document, 'ios-todo-overview').textContent, /卡住买入 4 项 · 其他待办 2 项/);
 });
 
-test('todos: a malformed non-string 跟进类型 value (a pasted number or boolean) never crashes rendering and still falls back to 可执行', () => {
-  // PR #268 review: classifyTodoKind_ previously did `(rawKind || '').trim()`,
-  // which throws on any truthy non-string value (numbers/booleans have no
-  // .trim()) -- one malformed cell in this optional Sheet column could crash
-  // the entire todo section, hiding otherwise-valid actionable work too.
-  const todos = [
-    { 排序: 1, 分类: '', 待办: 'Numeric kind', 状态: '待处理', 跟进类型: 42, 备注: '' },
-    { 排序: 2, 分类: '', 待办: 'Boolean kind', 状态: '待处理', 跟进类型: true, 备注: '' },
-    { 排序: 3, 分类: '', 待办: 'Zero kind', 状态: '待处理', 跟进类型: 0, 备注: '' },
-    { 排序: 4, 分类: '', 待办: 'False kind', 状态: '待处理', 跟进类型: false, 备注: '' }
-  ];
-  assert.doesNotThrow(() => {
-    const { document, window } = loadDashboard(buildBootstrapWithTodos(todos), 'daily', {});
-    window.selectTab('todos');
-    const section = document.getElementById('ios-tab-content').children[0];
-    const summary = section.children[1];
-    assert.match(summary.textContent, /4 待处理/, 'every malformed-kind row still counts as actionable backlog');
-    assert.doesNotMatch(summary.textContent, /持续观察/);
-    assert.doesNotMatch(summary.textContent, /等待证据/);
-    const items = section.children[2].children;
-    assert.equal(items.length, 4);
-    items.forEach((li) => {
-      assert.ok(!li.classList.contains('ios-todo-monitoring'));
-      assert.ok(!li.classList.contains('ios-todo-waiting'));
-      assert.ok(li.classList.contains('ios-todo-open'));
-    });
-    const taskNames = items.map((li) => li.children[0].children[1].textContent);
-    assert.deepEqual(
-      taskNames, ['Numeric kind', 'Boolean kind', 'Zero kind', 'False kind'],
-      'raw report data (每一行的 待办 文本) is preserved verbatim despite the malformed 跟进类型 cell'
-    );
-  }, 'a malformed non-string 跟进类型 value must never crash Daily/Weekly/history rendering');
-});
-
-test('todos: a malformed non-string 跟进类型 value never crashes the Weekly view either, and still falls back to 可执行', () => {
-  const bootstrap = buildBootstrapWithTodos([]);
-  bootstrap.weekly = {
-    found: true,
-    reportType: 'weekly',
-    summary: {
-      报告ID: 'weekly-2026-08-16', 报告日期: '2026-08-16', 周期开始: '2026-08-10', 周期结束: '2026-08-16',
-      一句话结论: 'weekly headline', 核心状态: '正常', Review状态: '未Review',
-      当前持仓数: 0, 高优先级观察数: 0, 生成时间: '2026-08-16T09:00:00+09:00'
-    },
-    holdings: [], watchlistCandidates: [], risks: [],
-    todos: [{ 排序: 1, 分类: '', 待办: 'Weekly numeric kind', 状态: '待处理', 跟进类型: 7, 备注: '' }]
-  };
-  assert.doesNotThrow(() => {
-    const { document, window } = loadDashboard(bootstrap, 'weekly', {});
-    window.selectTab('todos');
-    const section = document.getElementById('ios-tab-content').children[0];
-    assert.match(section.children[1].textContent, /1 待处理/);
-    const li = section.children[2].children[0];
-    assert.ok(li.classList.contains('ios-todo-open'));
-    assert.match(li.children[0].children[1].textContent, /Weekly numeric kind/);
-  }, 'a malformed 跟进类型 value must never crash the Weekly view');
-});
-
-test('todos: a malformed non-string 跟进类型 value never crashes a history-selected report either, and still falls back to 可执行', () => {
-  const historyReport = {
-    error: null,
-    found: true,
-    reportType: 'daily',
-    summary: {
-      报告ID: 'daily-2026-08-10', 报告日期: '2026-08-10', 周期开始: '', 周期结束: '',
-      一句话结论: 'history headline', 核心状态: '正常', Review状态: '未Review',
-      当前持仓数: 0, 高优先级观察数: 0, 生成时间: '2026-08-10T09:00:00+09:00'
-    },
-    holdings: [], watchlistCandidates: [], risks: [],
-    todos: [{ 排序: 1, 分类: '', 待办: 'History boolean kind', 状态: '待处理', 跟进类型: false, 备注: '' }]
-  };
-  assert.doesNotThrow(() => {
-    const { document, window } = loadDashboard(buildBootstrapWithTodos([]), 'daily', {
-      getReport: () => historyReport
-    });
-    window.selectHistoryReport('daily-2026-08-10');
-    window.selectTab('todos');
-    const section = document.getElementById('ios-tab-content').children[0];
-    assert.match(section.children[1].textContent, /1 待处理/);
-    const li = section.children[2].children[0];
-    assert.ok(li.classList.contains('ios-todo-open'));
-    assert.match(li.children[0].children[1].textContent, /History boolean kind/);
-  }, 'a malformed 跟进类型 value must never crash a history-selected report view');
-});
-
-test('todos: a completed monitoring/waiting item shows the plain 已完成 badge, not its kind badge, and counts as 已完成 -- not its open kind bucket', () => {
-  const todos = [
-    { 排序: 1, 分类: '', 待办: 'Monitoring concluded', 状态: '已完成', 跟进类型: '持续观察', 备注: '' },
-    { 排序: 2, 分类: '', 待办: 'Evidence arrived', 状态: '已完成', 跟进类型: '等待证据', 备注: '' }
-  ];
-  const { document, window } = loadDashboard(buildBootstrapWithTodos(todos), 'daily', {});
-  window.selectTab('todos');
-  const section = document.getElementById('ios-tab-content').children[0];
-  const summary = section.children[1];
-  assert.match(summary.textContent, /0 待处理/);
-  assert.doesNotMatch(summary.textContent, /持续观察/, 'a completed monitoring item is no longer counted as open monitoring');
-  assert.doesNotMatch(summary.textContent, /等待证据/, 'a completed waiting item is no longer counted as open waiting');
-  assert.match(summary.textContent, /2 已完成/);
-  const items = section.children[2].children;
-  items.forEach((li) => {
-    assert.ok(li.classList.contains('ios-todo-done'));
-    assert.ok(!li.classList.contains('ios-todo-monitoring'));
-    assert.ok(!li.classList.contains('ios-todo-waiting'));
-    const badge = li.children[1].children[0];
-    assert.match(badge.textContent, /已完成/, 'shows the plain completed badge, not the monitoring/waiting kind badge');
-    assert.ok(badge.classList.contains('ios-badge-done'));
+test('todos: one todo named by two rows of the same report is listed once, the second asset points to it', () => {
+  const daily = reportVm('daily', '2026-11-11', {
+    holdings: [blockedRow('AAA', 'X-1'), blockedRow('BBB', 'X-1')],
+    todos: [{ 待办ID: 'X-1', 待办: 'Shared blocker', 状态: '待处理' }]
   });
+  const { document } = loadDashboard(latestBootstrap(daily, null), 'daily', {});
+  const blocked = todoSection(document, 'ios-todo-blocked');
+  assert.equal(todoNames(blocked).length, 1);
+  assert.match(blocked.textContent, /BBB[\s\S]*与 AAA 共用同一条阻塞待办/);
+  assert.match(todoSection(document, 'ios-todo-overview').textContent, /卡住买入 1 项/);
 });
 
-test('todos: render order is actionable-open, then monitoring, then waiting-for-evidence, then completed -- actionable work is never buried behind non-backlog groups', () => {
-  const todos = [
-    { 排序: 1, 分类: '', 待办: 'Done item', 状态: '已完成', 备注: '' },
-    { 排序: 2, 分类: '', 待办: 'Waiting item', 状态: '待处理', 跟进类型: '等待证据', 备注: '' },
-    { 排序: 3, 分类: '', 待办: 'Monitoring item', 状态: '待处理', 跟进类型: '持续观察', 备注: '' },
-    { 排序: 4, 分类: '', 待办: 'Actionable item', 状态: '待处理', 备注: '' }
-  ];
-  const { document, window } = loadDashboard(buildBootstrapWithTodos(todos), 'daily', {});
+test('todos: a blocker link on the latest report highlights that report\'s todo, even when the other report reuses the same 待办ID', () => {
+  const daily = reportVm('daily', '2026-11-11', {
+    holdings: [blockedRow('AAA', 'T-1', { 当前阻碍: 'x' })],
+    todos: [{ 待办ID: 'T-1', 待办: 'Daily T-1', 状态: '待处理' }]
+  });
+  const weekly = reportVm('weekly', '2026-11-09', {
+    holdings: [blockedRow('AAA', 'T-1', { 当前阻碍: 'x' })],
+    todos: [{ 待办ID: 'T-1', 待办: 'Weekly T-1', 状态: '待处理' }]
+  });
+  const { document, window } = loadDashboard(latestBootstrap(daily, weekly), 'daily', {});
+  window.selectTab('weekly');
+  const link = allElements(document.getElementById('ios-summary-content')).find((n) => n.classList && n.classList.contains('ios-blocker-link'));
+  link.click();
+  assert.ok(document.getElementById('ios-tab-todos').classList.contains('active'));
+  const highlighted = todoItems(document.getElementById('ios-tab-content')).filter((li) => li.classList.contains('ios-todo-highlight'));
+  assert.deepEqual(highlighted.map((li) => li.getAttribute('data-todo-key')), ['weekly|T-1']);
+});
+
+test('todos: a history report never changes the 待办 tab; its own blocker links open its own 本期待办 on its page', () => {
+  const latest = reportVm('daily', '2026-11-11', { todos: [{ 待办ID: 'N-1', 待办: 'Latest todo', 状态: '待处理' }] });
+  const history = Object.assign(reportVm('daily', '2026-11-01', {
+    holdings: [blockedRow('AAA', 'H-1', { 当前阻碍: 'old blocker' })],
+    todos: [{ 待办ID: 'H-1', 待办: 'History todo', 状态: '待处理' }]
+  }), { error: null });
+  const { document, window } = loadDashboard(latestBootstrap(latest, null), 'daily', { getReport: () => history });
+  window.selectHistoryReport('daily-2026-11-01');
+  assert.ok(document.getElementById('ios-tab-daily').classList.contains('active'));
+  assert.match(document.getElementById('ios-history-banner').textContent, /待办 tab 仍是最新日报 \+ 最新周报的合并结果/);
+  const period = document.getElementById('ios-summary-content').children.find((c) => c.classList.contains('ios-period-todos'));
+  assert.equal(period.children[0].getAttribute('open'), null, 'the period list starts folded');
+  const link = allElements(document.getElementById('ios-summary-content')).find((n) => n.classList && n.classList.contains('ios-blocker-link'));
+  link.click();
+  assert.ok(document.getElementById('ios-tab-daily').classList.contains('active'), 'a history link stays on the history page');
+  const reopened = document.getElementById('ios-summary-content').children.find((c) => c.classList.contains('ios-period-todos'));
+  assert.equal(reopened.children[0].getAttribute('open'), 'open');
+  assert.deepEqual(todoItems(reopened).filter((li) => li.classList.contains('ios-todo-highlight')).map((li) => li.getAttribute('data-todo-id')), ['H-1']);
   window.selectTab('todos');
-  const items = document.getElementById('ios-tab-content').children[0].children[2].children;
-  const taskNames = items.map((li) => li.children[0].children[1].textContent);
-  assert.deepEqual(taskNames, ['Actionable item', 'Monitoring item', 'Waiting item', 'Done item']);
+  assert.match(tabText(document), /Latest todo/);
+  assert.doesNotMatch(tabText(document), /History todo/);
+  assert.equal(document.getElementById('ios-history-banner').hidden, true);
+});
+
+test('todos: when a report was written twice, only the generation its 报告摘要 points to is listed (filterLiveDetailRows_)', () => {
+  const sheet = JSON.parse(JSON.stringify(demoSheet));
+  sheet['报告待办'].push({
+    报告ID: 'daily-2026-08-15', 生成ID: 'gen-daily-0815-a', 报告类型: 'daily', 报告日期: '2026-08-15', 排序: 1, 分类: '',
+    待办: 'Orphaned first write', 状态: '待处理', 跟进类型: '可执行', 备注: ''
+  });
+  sheet['报告待办'].push({
+    报告ID: 'weekly-2026-08-15', 生成ID: 'gen-weekly-0815-old', 报告类型: 'weekly', 报告日期: '2026-08-15', 排序: 1, 分类: '',
+    待办: 'Orphaned weekly write', 状态: '待处理', 跟进类型: '可执行', 备注: ''
+  });
+  sheet['报告待办'].push({
+    报告ID: 'weekly-2026-08-15', 生成ID: 'gen-weekly-0815-a', 报告类型: 'weekly', 报告日期: '2026-08-15', 排序: 1, 分类: '',
+    待办: 'Current weekly write', 状态: '待处理', 跟进类型: '可执行', 备注: ''
+  });
+  const { document } = loadDashboard(logic.buildDashboardBootstrap_(sheet), 'daily', {});
+  const page = tabText(document);
+  assert.doesNotMatch(page, /Orphaned/);
+  assert.match(page, /Current weekly write/);
+  assert.equal(todoItems(todoSection(document, 'ios-todo-others')).filter((li) => /跟踪 Demo Cloud Systems/.test(li.textContent)).length, 1);
 });
 
 test('refresh() re-fetches the whole bootstrap via google.script.run.getDashboardBootstrap and re-renders from it, on the currently active tab', () => {
@@ -2112,8 +1924,8 @@ test('Issue #388 PR E: entry plan IDs and FUND-SLEEVE read as names in todos, ex
   assert.match(todos, /补齐 入场计划 v3 与 入场计划 v12 的估值；核对 基金定投（合计）/);
   assert.match(todos, /见 入场计划 v3/);
   assert.doesNotMatch(todos, /ep-2026/);
-  window.selectTab('portfolio');
-  const card = document.getElementById('ios-tab-content').children.find((c) => c.children[0] && c.children[0].textContent.indexOf('当前持仓 (') === 0);
+  window.selectTab('daily');
+  const card = portfolioSection(document, '当前持仓');
   const tech = findAllNodes(card, (n) => n.tagName === 'DETAILS' && n.children[0].textContent === '技术信息');
   const techText = tech.map((n) => n.textContent).join('');
   const visible = card.textContent.replace(techText, '');

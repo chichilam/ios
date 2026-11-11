@@ -572,7 +572,7 @@ test('PR B: the fund aggregate reads as 基金定投（合计）; its code is ke
   vmodel.holdings = [fund];
   vmodel.watchlistCandidates = [];
   const { document } = loadWithWindow(null, vmodel, 'weekly');
-  const cardNode = findAll(document.getElementById('ios-tab-content'), (n) => n.classList.contains('ios-asset-card'))[0];
+  const cardNode = findAll(document.getElementById('ios-summary-content'), (n) => n.classList.contains('ios-asset-card'))[0];
   assert.equal(cardNode.children[0].children[0].textContent, '基金定投（合计）');
   const tech = findAll(cardNode, (n) => n.classList.contains('ios-tech-info'))[0];
   assert.match(tech.textContent, /代码: FUND-SLEEVE/);
@@ -583,7 +583,7 @@ test('PR B: plan ids leave the 今日行动依据 reading flow for its 技术信
   vmodel.holdings = [weeklyAsset()];
   vmodel.watchlistCandidates = [];
   const { document } = loadWithWindow(null, vmodel, 'weekly');
-  const cardNode = findAll(document.getElementById('ios-tab-content'), (n) => n.classList.contains('ios-asset-card'))[0];
+  const cardNode = findAll(document.getElementById('ios-summary-content'), (n) => n.classList.contains('ios-asset-card'))[0];
   const basis = cardNode.children.find((c) => c.tagName === 'DETAILS');
   const flow = basis.children.filter((c) => !c.classList.contains('ios-tech-info')).map((c) => c.textContent).join('\n');
   assert.doesNotMatch(flow, /wp-a-8|plan-a-v3/);
@@ -655,7 +655,7 @@ test('PR B: no Daily↔Weekly link exists in the snapshot, so a Daily always kee
   assert.match(t, /支撑参考: 350 前低/);
 });
 
-test('PR D: a layered Daily shows each asset once, in the report; 组合 keeps the overall state and the change count', () => {
+test('#396 PR A: a layered Daily shows each asset once, in the report; a Weekly or an old Daily closes its page with the cards the removed 组合 view held', () => {
   const rows = [
     dailyTwin({ 代码: 'AAA', 变化标记: '有变化' }),
     dailyTwin({ 代码: 'BBB', 变化标记: '无变化' }),
@@ -663,30 +663,24 @@ test('PR D: a layered Daily shows each asset once, in the report; 组合 keeps t
     dailyTwin({ 代码: 'DDD', 变化标记: '' }),
     dailyTwin({ 代码: 'EEE', 变化标记: '无可比基线' })
   ];
-  const { document, window } = dailyWithWeekly(rows, []);
-  const tab = document.getElementById('ios-tab-content');
-  assert.equal(findAll(tab, (n) => n.classList.contains('ios-asset-card')).length, 0, '组合 repeats no card the report already shows');
-  const overview = tab.children.find((c) => c.classList.contains('ios-portfolio-overview'));
-  assert.match(overview.textContent, /本期 2 项变化/, 'AAA and the unmarked DDD are the changed group');
-  assert.match(overview.textContent, /组合概况/);
-  assert.match(tab.textContent, /当前持仓 \(5\)/);
+  const { document } = dailyWithWeekly(rows, []);
+  const report = document.getElementById('ios-summary-content');
+  assert.ok(!report.children.some((c) => c.children[0] && /^当前持仓 \(/.test(c.children[0].textContent)), 'a layered Daily adds no second card section');
+  assert.ok(report.children.some((c) => c.classList.contains('ios-report-overview')), 'the summary grid of the removed 组合 view closes the report');
   const codes = portfolioCards(document).map((c) => c.children[0].children[0].textContent);
   assert.deepEqual(codes.slice().sort(), ['AAA', 'BBB', 'CCC', 'DDD', 'EEE'], 'every asset is in the report exactly once');
-  const fold = findAll(document.getElementById('ios-summary-content'), (n) => n.tagName === 'DETAILS' && /^其余 2 只无变化/.test(n.children[0].textContent))[0];
+  const fold = findAll(report, (n) => n.tagName === 'DETAILS' && /^其余 2 只无变化/.test(n.children[0].textContent))[0];
   assert.equal(fold.getAttribute('open'), null);
   assert.match(fold.textContent, /BBB[\s\S]*CCC/);
-  const back = findAll(overview, (n) => n.tagName === 'BUTTON' && n.textContent === '查看本期变化')[0];
-  window.selectTab('portfolio');
-  back.click();
-  assert.equal(document.getElementById('ios-summary-content').hidden, false, 'the count links back to the report');
+  assert.equal(document.getElementById('ios-tab-portfolio'), null, 'there is no 组合 view any more');
 
   const weekly = view('weekly');
   weekly.holdings = rows.map((r) => Object.assign({}, r, { 报告类型: 'weekly' }));
   weekly.watchlistCandidates = [];
   const w = loadWithWindow(null, weekly, 'weekly');
-  const wTab = w.document.getElementById('ios-tab-content');
-  assert.equal(findAll(wTab, (n) => n.classList.contains('ios-asset-card')).length, 5, 'a Weekly report has no per-asset cards, so 组合 keeps them');
-  assert.equal(findAll(wTab, (n) => n.tagName === 'DETAILS' && /无变化/.test(n.children[0].textContent)).length, 0, '#383: a Weekly 无变化 hides nothing');
+  const wReport = w.document.getElementById('ios-summary-content');
+  assert.equal(findAll(wReport, (n) => n.classList.contains('ios-asset-card')).length, 5, 'a Weekly verdict layering has no per-asset cards, so the cards close its page');
+  assert.equal(findAll(wReport, (n) => n.tagName === 'DETAILS' && /无变化/.test(n.children[0].textContent)).length, 0, '#383: a Weekly 无变化 hides nothing');
   const legacyDaily = view('daily', null, (t) => {
     t['报告持仓'].forEach((r) => { r['变化标记'] = ''; });
     t['报告风险'].forEach((r) => { r['变化标记'] = ''; });
@@ -694,9 +688,8 @@ test('PR D: a layered Daily shows each asset once, in the report; 组合 keeps t
   });
   assert.equal(legacyDaily.layering.legacy, true);
   const old = loadWithWindow(legacyDaily, null, 'daily');
-  const oldTab = old.document.getElementById('ios-tab-content');
-  assert.equal(findAll(oldTab, (n) => n.classList.contains('ios-asset-card')).length, legacyDaily.holdings.length + legacyDaily.watchlistCandidates.length,
-    'an old Daily without a change layering keeps its cards in 组合');
+  assert.equal(findAll(old.document.getElementById('ios-summary-content'), (n) => n.classList.contains('ios-asset-card')).length,
+    legacyDaily.holdings.length + legacyDaily.watchlistCandidates.length, 'an old Daily without a change layering keeps its cards on its page');
 });
 
 // -- Issue #388 PR C: conclusion card and three tiers --

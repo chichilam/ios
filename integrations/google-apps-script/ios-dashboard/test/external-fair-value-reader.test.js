@@ -284,7 +284,7 @@ function render(viewModelExtra) {
   };
   vm.createContext(sandbox);
   vm.runInContext(SCRIPT_HTML_SRC, sandbox, { filename: 'Script.html' });
-  return document.getElementById('ios-tab-content');
+  return document.getElementById('ios-summary-content');
 }
 
 function moduleSection(content) {

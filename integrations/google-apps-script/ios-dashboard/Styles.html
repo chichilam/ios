@@ -61,9 +61,8 @@ body {
 
    Control family (v1.1): ordinary rounded buttons -- 10px radius, not a
    999px pill -- with a dark active state (background: var(--ios-text)),
-   not a blue accent pill. Nav buttons, tabs, the history <select>, and
+   not a blue accent pill. Tabs, the history <select>, and
    the refresh button all share this same control language. */
-.ios-view-toggle button,
 .ios-tab-bar .ios-tab-btn,
 .ios-history-select,
 .ios-refresh-btn {
@@ -77,10 +76,6 @@ body {
   border: 1px solid var(--ios-border);
 }
 
-.ios-view-toggle button { margin-left: 6px; }
-.ios-view-toggle button:first-child { margin-left: 0; }
-
-.ios-nav-btn.active,
 .ios-tab-bar .ios-tab-btn.active {
   background: var(--ios-text);
   color: #fff;
@@ -95,7 +90,6 @@ body {
 
 .ios-refresh-btn { color: var(--ios-muted); }
 
-.ios-loading .ios-view-toggle button,
 .ios-loading .ios-history-select,
 .ios-loading .ios-refresh-btn,
 .ios-loading .ios-tab-bar button {
@@ -205,7 +199,7 @@ body {
 .ios-tab-bar .ios-tab-btn { white-space: nowrap; flex-shrink: 0; }
 
 /* Issue #388 PR D: a hidden view or banner never shows, even where a class sets display (the history banner's flex once left an empty band). */
-#ios-summary-content[hidden], #ios-tab-content[hidden], #ios-view-banner[hidden], .ios-history-banner[hidden] { display: none; }
+#ios-summary-content[hidden], #ios-tab-content[hidden], #ios-view-banner[hidden], .ios-history-banner[hidden], .ios-history-select[hidden] { display: none; }
 
 /* Issue #388 PR D: 组合 overview -- overall state, then links to the other views. */
 .ios-portfolio-overview .ios-summary-grid { margin-top: 8px; }
@@ -417,6 +411,15 @@ body {
    its own indicator -- so the distinction reads at a glance without a full
    card background tint fighting the badge color in .ios-todo-meta. */
 .ios-todo-monitoring .ios-todo-indicator { color: #0369a1; }
+/* Issue #396 待办 tab: 未完成 is marked, blocked todos are grouped per asset,
+   each todo names the report it came from. */
+.ios-badge-incomplete { background: #fee2e2; color: var(--ios-severity-high); font-weight: 600; }
+.ios-todo-source { font-size: 0.75rem; color: var(--ios-muted); align-self: center; }
+.ios-todo-asset { border-top: 1px solid var(--ios-border); padding: 10px 0 4px; }
+.ios-todo-asset:first-of-type { border-top: none; }
+.ios-todo-asset-head { display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; overflow-wrap: anywhere; }
+.ios-todo-none { font-weight: 600; color: var(--ios-severity-low); }
+.ios-account-detail { margin: 4px 0; }
 .ios-todo-waiting .ios-todo-indicator { color: var(--ios-severity-medium); }
 
 .ios-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }

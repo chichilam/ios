@@ -106,8 +106,9 @@ function harnessScript() {
     var doc = win.document;
     ['daily', 'weekly'].forEach(function (view) {
       win.switchView(view);
-      ['report', 'portfolio', 'holdingDetail', 'risks', 'todos'].forEach(function (tab) {
-        win.selectTab(tab);
+      // Issue #396: 日报 / 周报 are views of their own; 持仓明细 and 风险 read the report chosen there.
+      ['report', 'holdingDetail', 'risks', 'todos'].forEach(function (tab) {
+        win.selectTab(tab === 'report' ? view : tab);
         Array.prototype.forEach.call(doc.querySelectorAll('details'), function (d) { d.open = true; });
         var root = doc.documentElement;
         var offenders = [];
@@ -235,15 +236,15 @@ test('no Daily or Weekly tab scrolls sideways at 320-430px or desktop, and deskt
   }
   const boot = stressBootstrap();
   const results = runInChrome(chrome, harnessHtml(dashboardHtml(boot, 'daily')));
-  assert.equal(results.length, WIDTHS.length * 10, JSON.stringify(results.filter((r) => r.error)));
+  assert.equal(results.length, WIDTHS.length * 8, JSON.stringify(results.filter((r) => r.error)));
   results.forEach((r) => {
     assert.ok(r.scrollWidth <= r.clientWidth,
       `${r.width}px ${r.view}/${r.tab}: scrollWidth ${r.scrollWidth} > clientWidth ${r.clientWidth}; widest: ${r.offenders.join(', ')}`);
   });
   results.forEach((r) => {
     assert.deepEqual(r.clipped, [], `${r.width}px ${r.view}/${r.tab}: summary card text clipped`);
-    // Issue #388 PR D: the summary grid lives in the 组合 view.
-    assert.equal(r.proseFullRow.length, r.tab === 'portfolio' ? 2 : 0, `${r.width}px ${r.view}/${r.tab}: 核心状态 and 数据检查 render as prose cards`);
+    // Issue #396 PR A: the summary grid closes the report (the 组合 view is gone).
+    assert.equal(r.proseFullRow.length, r.tab === 'report' ? 2 : 0, `${r.width}px ${r.view}/${r.tab}: 核心状态 and 数据检查 render as prose cards`);
     r.proseFullRow.forEach((full) => assert.equal(full, r.width < 600, `${r.width}px ${r.view}: prose cards take a full row only on a phone`));
     assert.ok(r.activeTabVisible, `${r.width}px ${r.view}/${r.tab}: the current view's tab is fully visible in the view row`);
     assert.ok(r.barAboveContent, `${r.width}px ${r.view}/${r.tab}: the view row sits above the content`);
@@ -252,13 +253,12 @@ test('no Daily or Weekly tab scrolls sideways at 320-430px or desktop, and deskt
   ['daily', 'weekly'].forEach((view) => {
     assert.ok(at(390, view, 'report').sections.includes('.ios-layering'), `${view} renders the layering view`);
     assert.ok(at(390, view, 'report').sections.includes('.ios-layer-fact'), `${view} renders the layering facts`);
-    assert.ok(!at(390, view, 'portfolio').sections.includes('.ios-layering'), `${view}: 组合 replaces the report on the page`);
+    assert.ok(!at(390, view, 'todos').sections.includes('.ios-layering'), `${view}: 待办 replaces the report on the page`);
   });
-  // A layered Daily's cards live in the report only (#388 PR D); the Weekly's 组合 keeps its card grid.
-  assert.equal(at(1280, 'weekly', 'portfolio').cardColumns, 2, 'weekly keeps two card columns on desktop');
-  assert.equal(at(390, 'weekly', 'portfolio').cardColumns, 1, 'weekly uses one card column on a phone');
+  // A Weekly's card grid closes its page (#396 PR A, formerly the 组合 view).
+  assert.equal(at(1280, 'weekly', 'report').cardColumns, 2, 'weekly keeps two card columns on desktop');
+  assert.equal(at(390, 'weekly', 'report').cardColumns, 1, 'weekly uses one card column on a phone');
   assert.ok(at(390, 'daily', 'report').sections.includes('.ios-asset-card'), 'the Daily report carries its asset cards');
-  assert.ok(!at(390, 'daily', 'portfolio').sections.includes('.ios-asset-card'), 'the Daily 组合 repeats none of them');
   assert.ok(at(390, 'daily', 'report').sections.includes('.ios-inline-fair-value'), 'the inline fair value line is covered');
   assert.ok(at(390, 'weekly', 'report').sections.includes('.ios-layer-verdict'), 'the Weekly verdict rows are covered');
   ['daily', 'weekly'].forEach((view) => {

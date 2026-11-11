@@ -28,23 +28,24 @@
 (function () {
   'use strict';
 
-  // Issue #388 PR D: one row of views at the top of the page. 报告 shows the
-  // report (conclusion, tiers, layering); every other view replaces it on the
-  // whole page. The last non-report view stays rendered (hidden) so a switch
-  // back is instant and needs no server call.
-  // Issue #388 PR F folded the former 资本配置 view into 持仓明细.
-  var TABS = ['report', 'portfolio', 'holdingDetail', 'risks', 'todos'];
+  // Issue #396: five views in one row at the top, 待办 first and opened by
+  // default. 日报 / 周报 render one report each (#ios-summary-content, with
+  // the history <select>); 待办 / 持仓明细 / 风险 render into #ios-tab-content.
+  // 待办 always merges the latest Daily and the latest Weekly, whatever
+  // report a history selection shows. The former 组合 view is gone; its
+  // cash / allocation facts live in 持仓明细's 配置概况 (Issue #388 PR F).
+  var TABS = ['todos', 'daily', 'weekly', 'holdingDetail', 'risks'];
 
   var STATE = {
     bootstrap: IOS_BOOTSTRAP,
-    activeView: IOS_ACTIVE_VIEW === 'weekly' ? 'weekly' : 'daily',
-    activeTab: 'report',
-    detailTab: 'portfolio', // the view #ios-tab-content renders: activeTab unless that is 'report'
+    activeView: IOS_ACTIVE_VIEW === 'weekly' ? 'weekly' : 'daily', // the report 日报/周报, 持仓明细 and 风险 read
+    activeTab: 'todos',
+    detailTab: 'todos', // the view #ios-tab-content renders: activeTab unless that is a report tab
     holdingDetailFilter: 'all', // 持仓明细 filter (Issue #388 PR A)
     viewingReportId: null, // non-null while pinned to a specific history entry
     displayedViewModel: null, // the viewModel for viewingReportId, once fetched
     loading: false,
-    highlightTodoId: null, // 待办ID a first-screen blocker link jumped to (Issue #306)
+    highlightTodoId: null, // '<报告类型>|<待办ID>' a blocker link jumped to (Issue #306, #396)
     highlightTodoNode: null
   };
 
@@ -155,18 +156,15 @@
     renderTabContent();
   }
 
+  function isReportTab_(tab) {
+    return tab === 'daily' || tab === 'weekly';
+  }
+
+  function reportLabel_(type) {
+    return type === 'weekly' ? '周报' : '日报';
+  }
+
   function updateNavActive() {
-    ['daily', 'weekly'].forEach(function (view) {
-      var btn = document.getElementById('ios-nav-' + view);
-      if (!btn) return;
-      var isActive = view === STATE.activeView;
-      btn.classList.toggle('active', isActive);
-      if (isActive) {
-        btn.setAttribute('aria-current', 'page');
-      } else {
-        btn.removeAttribute('aria-current');
-      }
-    });
     var refreshBtn = document.getElementById('ios-refresh-btn');
     if (refreshBtn) refreshBtn.disabled = STATE.loading;
     var historySelect = document.getElementById('ios-history-select');
@@ -187,7 +185,7 @@
         btn.removeAttribute('aria-current');
       }
     });
-    var onReport = STATE.activeTab === 'report';
+    var onReport = isReportTab_(STATE.activeTab);
     document.getElementById('ios-summary-content').hidden = !onReport;
     document.getElementById('ios-tab-content').hidden = onReport;
     var viewBanner = document.getElementById('ios-view-banner');
@@ -222,18 +220,19 @@
 
   function renderHistoryBanner() {
     var banner = document.getElementById('ios-history-banner');
-    if (!STATE.viewingReportId) {
+    if (!STATE.viewingReportId || STATE.activeTab === 'todos') {
       banner.hidden = true;
       clear(banner);
       return;
     }
     banner.hidden = false;
     clear(banner);
-    banner.appendChild(document.createTextNode('正在查看历史报告（' + STATE.viewingReportId + '）。'));
+    banner.appendChild(document.createTextNode('正在查看历史' + reportLabel_(STATE.activeView) + '（' + STATE.viewingReportId +
+      '）。只显示这一期自己的内容；待办 tab 仍是最新日报 + 最新周报的合并结果。'));
     banner.appendChild(el('button', {
       className: 'ios-back-to-latest-btn',
       text: '返回最新报告',
-      onclick: function () { switchView(STATE.activeView); }
+      onclick: function () { backToLatest_(); }
     }));
   }
 
@@ -243,6 +242,8 @@
   function renderHistorySelect() {
     var select = document.getElementById('ios-history-select');
     if (!select) return;
+    // The history selector belongs to 日报 / 周报 only (Issue #396).
+    select.hidden = !isReportTab_(STATE.activeTab);
     clear(select);
     select.appendChild(el('option', { text: '最新', attrs: { value: '' } }));
     activeViewHistory().forEach(function (entry) {
@@ -283,6 +284,40 @@
     container.appendChild(buildPrioritySection_(vm, priority));
     var layering = buildLayeringSection(vm);
     if (layering) { container.appendChild(layering); }
+    buildReportAssetSections_(vm).forEach(function (node) { container.appendChild(node); });
+    if (STATE.viewingReportId) { container.appendChild(buildPeriodTodos_(vm)); }
+  }
+
+  /**
+   * Issue #396 PR A: the former 组合 view's report content now closes the
+   * report itself -- the 4-metric summary grid, and (unless a Daily change
+   * layering already shows every asset) the holding / candidate cards.
+   */
+  function buildReportAssetSections_(vm) {
+    var nodes = [el('section', { className: 'ios-card ios-report-overview' }, [text('h2', null, '报告概况'), buildSummaryGrid(vm)])];
+    if (vm.layering && vm.layering.daily) { return nodes; }
+    nodes.push(buildAssetSection('当前持仓', vm.holdings, false, vm.todos));
+    nodes.push(buildAssetSection('本期观察候选', vm.watchlistCandidates, true, vm.todos));
+    return nodes;
+  }
+
+  /** A history report's own 报告待办, on its own page (the 待办 tab only ever shows the latest reports). */
+  function buildPeriodTodos_(vm) {
+    var type = vm.reportType;
+    var todos = vm.todos || [];
+    var highlighted = STATE.highlightTodoId !== null && todos.some(function (todo) { return todoKey_(type, todo) === STATE.highlightTodoId; });
+    var children = [text('summary', 'ios-layer-fold-title', '本期待办 (' + todos.length + ')（该期快照）'),
+      text('p', 'ios-hint', '只显示这一期自己的待办，不与另一类报告合并。待办 tab 仍是最新日报 + 最新周报的合并结果。')];
+    if (todos.length === 0) {
+      children.push(text('p', 'ios-empty-note', '这一期报告没有待办事项。'));
+    } else {
+      var list = el('ul', { className: 'ios-checklist' });
+      todos.forEach(function (todo) { list.appendChild(buildTodoItem(todo, type, vm)); });
+      children.push(list);
+    }
+    return el('section', { className: 'ios-card ios-period-todos' }, [
+      el('details', { className: 'ios-layer-fold', attrs: highlighted ? { open: 'open', id: 'ios-period-todos' } : { id: 'ios-period-todos' } }, children)
+    ]);
   }
 
   /**
@@ -925,7 +960,7 @@
     return el('div', { className: 'ios-tiers' }, children);
   }
 
-  // -- Tab content (组合 portfolio / 持仓明细 holding detail / 风险 risks / 待办 todos) --
+  // -- Tab content (待办 todos / 持仓明细 holding detail / 风险 risks) --
 
   function renderTabContent() {
     var container = document.getElementById('ios-tab-content');
@@ -935,6 +970,10 @@
     if (STATE.bootstrap.error) return;
 
     var tab = STATE.detailTab;
+    if (tab === 'todos') {
+      buildMergedTodosView_().forEach(function (node) { container.appendChild(node); });
+      return;
+    }
     var vm = currentViewModel();
     if (!vm || !vm.found) {
       // Each view now replaces the report on the whole page (Issue #388 PR D),
@@ -949,16 +988,21 @@
       return;
     }
 
-    if (tab === 'portfolio') {
-      buildPortfolioView_(vm).forEach(function (node) { container.appendChild(node); });
-    } else if (tab === 'holdingDetail') {
+    container.appendChild(reportSourceLine_(vm));
+    if (tab === 'holdingDetail') {
       container.appendChild(buildAllocationOverview_());
       container.appendChild(buildHoldingDetailSection(vm.holdingDetail));
     } else if (tab === 'risks') {
       container.appendChild(buildRisksSection(vm.risks, vm.riskGroups));
-    } else if (tab === 'todos') {
-      container.appendChild(buildTodosSection(vm.todos));
     }
+  }
+
+  /** 持仓明细 / 风险 read the report last chosen under 日报 / 周报; say which one. */
+  function reportSourceLine_(vm) {
+    var summary = vm.summary || {};
+    return text('p', 'ios-report-caption ios-view-source', '来源：' + reportLabel_(vm.reportType) + ' ' +
+      (isBlank(summary['报告日期']) ? '日期未知' : summary['报告日期']) + (STATE.viewingReportId ? '（历史报告）' : '（最新）') +
+      ' · 在「日报」「周报」中切换来源');
   }
 
   /**
@@ -969,88 +1013,16 @@
   function renderViewBanner_() {
     var slot = document.getElementById('ios-view-banner');
     clear(slot);
-    var vm = currentViewModel();
-    var banner = STATE.bootstrap.error || !vm || !vm.found ? null : buildReaderBanner_(vm);
-    if (banner) { slot.appendChild(banner); }
-    slot.hidden = !banner || STATE.activeTab === 'report';
-  }
-
-  // -- Issue #388 PR D: 组合 keeps the slow-moving overall state; what changed
-  // this period stays in the report only. A Daily with a change layering
-  // already shows every holding and candidate there (本期有变化, 其余 N 只无变化,
-  // 无可比基线), so 组合 shows the counts and a way back instead of the same
-  // cards again. A Weekly's report carries only the verdict lines, so its full
-  // cards stay here, as does every report without a change layering. --
-
-  function viewLink_(label, tab) {
-    return el('button', {
-      className: 'ios-view-link',
-      text: label,
-      attrs: { type: 'button' },
-      onclick: function () { selectTab(tab); }
-    });
-  }
-
-  function changeCountLine_(vm) {
-    var layering = vm.layering;
-    if (layering && layering.daily) { return '本期 ' + layering.daily.changed.length + ' 项变化'; }
-    if (layering && layering.weekly) { return '本周 ' + layering.weekly.judgments.changed.length + ' 项判断已变化'; }
-    return null;
-  }
-
-  function accountStatusLines_() {
-    var status = STATE.bootstrap.accountStatus;
-    var lines = [text('p', 'ios-muted', '账户状态（当前台账，非本报告快照）')];
-    if (!status || status.state === 'absent') {
-      lines.push(text('p', 'ios-empty-note', '未提供（Sheet 没有「账户状态」表）'));
-    } else if (status.state === 'unreadable') {
-      lines.push(text('p', 'ios-entry-plan-incomplete', '「账户状态」表无法读取或缺少必需列，未显示'));
-    } else if (status.rows.length === 0) {
-      lines.push(text('p', 'ios-empty-note', '「账户状态」表没有记录'));
-    } else {
-      var list = el('ul', { className: 'ios-list ios-account-list' });
-      status.rows.forEach(function (row) {
-        var parts = ['可用现金 ' + (row.availableCash === null ? '未提供' : row.availableCash + ' ' + row.currency)];
-        if (row.nisaGrowthRemaining !== null) { parts.push('NISA成长投资额度剩余 ' + row.nisaGrowthRemaining); }
-        if (row.nisaTsumitateRemaining !== null) { parts.push('NISA积立额度剩余 ' + row.nisaTsumitateRemaining); }
-        list.appendChild(el('li', null, [
-          text('strong', null, row.account + ' · ' + row.currency),
-          text('p', 'ios-asset-line', parts.join(' · ')),
-          text('p', 'ios-asset-line ios-muted', '数据时间 ' + (isBlank(row.asOf) ? '未提供' : row.asOf))
-        ]));
+    var vms = STATE.detailTab === 'todos' ? latestReports_().map(function (entry) { return entry.vm; }) : [currentViewModel()];
+    if (!STATE.bootstrap.error) {
+      vms.forEach(function (vm) {
+        var banner = vm && vm.found ? buildReaderBanner_(vm) : null;
+        if (!banner) { return; }
+        if (STATE.detailTab === 'todos') { slot.appendChild(text('p', 'ios-muted', '最新' + reportLabel_(vm.reportType) + '：')); }
+        slot.appendChild(banner);
       });
-      lines.push(list);
     }
-    return lines;
-  }
-
-  function buildPortfolioOverview_(vm) {
-    var children = [text('h2', null, '组合概况'), buildSummaryGrid(vm)];
-    children.push(labelledLine_('配置比例', null, '未提供（Sheet 没有组合市值字段，Dashboard 不自行计算比例）'));
-    accountStatusLines_().forEach(function (line) { children.push(line); });
-    var links = [];
-    var changes = changeCountLine_(vm);
-    if (changes) {
-      links.push(text('span', 'ios-badge', changes));
-      links.push(viewLink_('查看本期变化', 'report'));
-    }
-    links.push(viewLink_('持仓明细', 'holdingDetail'));
-    children.push(el('div', { className: 'ios-view-links' }, links));
-    return el('section', { className: 'ios-card ios-portfolio-overview' }, children);
-  }
-
-  function buildPortfolioView_(vm) {
-    var nodes = [buildPortfolioOverview_(vm)];
-    if (vm.layering && vm.layering.daily) {
-      nodes.push(el('section', { className: 'ios-card' }, [
-        text('h2', null, '当前持仓 (' + vm.holdings.length + ') · 本期观察候选 (' + vm.watchlistCandidates.length + ')'),
-        text('p', 'ios-hint', '每只标的的本期内容只在「报告」中显示一次（本期有变化 / 其余无变化 / 无可比基线）；估值约束与本周区间见「持仓明细」。')
-      ]));
-      return nodes;
-    }
-    nodes.push(buildAssetSection('当前持仓', vm.holdings, false, vm.todos));
-    nodes.push(buildAssetSection('本期观察候选', vm.watchlistCandidates, true, vm.todos));
-    return nodes;
+    slot.hidden = !slot.firstChild || isReportTab_(STATE.activeTab);
   }
 
   /**
@@ -1533,9 +1505,20 @@
       '无法判断原因: ' + (isBlank(cause) ? '报告未说明' : cause));
   }
 
+  /**
+   * A blocker link resolves inside the generation on screen. The latest
+   * report's links open the 待办 tab (latest Daily + Weekly); a history
+   * report's open that report's own 本期待办 on its own page (Issue #396).
+   */
   function jumpToTodo_(id) {
-    STATE.highlightTodoId = id;
-    selectTab('todos');
+    var vm = currentViewModel();
+    STATE.highlightTodoId = (vm && vm.reportType) + '|' + id;
+    STATE.highlightTodoNode = null;
+    if (STATE.viewingReportId) {
+      renderSummarySection();
+    } else {
+      selectTab('todos');
+    }
     var node = STATE.highlightTodoNode;
     if (node && typeof node.scrollIntoView === 'function') { node.scrollIntoView({ block: 'center' }); }
   }
@@ -2149,11 +2132,6 @@
     return classifyTodoStatus_(status) === 'completed';
   }
 
-  /** Badge tier for a todo's raw 状态 text -- 'ios-badge-done' when the classifier says completed, '' (plain neutral badge) otherwise. */
-  function todoStatusBadgeClass(status) {
-    return classifyTodoStatus_(status) === 'completed' ? 'ios-badge-done' : '';
-  }
-
   /**
    * Canonical 跟进类型 values (Issue #267). sheet-schema.json declares this
    * as an enum of these exact Chinese literals -- the writer (Daily/Weekly
@@ -2180,9 +2158,10 @@
     return 'actionable';
   }
 
-  var TODO_KIND_BADGE_ = {
-    monitoring: { className: 'ios-badge ios-badge-monitoring', label: TODO_KIND_MONITORING_ },
-    waiting_evidence: { className: 'ios-badge ios-badge-waiting', label: TODO_KIND_WAITING_ }
+  var TODO_KIND_BADGE_CLASS_ = {
+    actionable: 'ios-badge',
+    monitoring: 'ios-badge ios-badge-monitoring',
+    waiting_evidence: 'ios-badge ios-badge-waiting'
   };
 
   var TODO_KIND_ITEM_CLASS_ = {
@@ -2190,99 +2169,216 @@
     waiting_evidence: ' ios-todo-waiting'
   };
 
-  function buildTodoItem(todo) {
-    var status = todo['状态'] || '待处理';
-    var completed = isTodoCompleted(status);
+  /** '<报告类型>|<待办ID>' -- 待办ID is unique only inside one generation, so the report type is part of the key. */
+  function todoKey_(type, todo) {
+    var id = String(todo['待办ID'] == null ? '' : todo['待办ID']).trim();
+    return id === '' ? null : type + '|' + id;
+  }
+
+  /** MM/DD of a report date, or the raw text when it is not YYYY-MM-DD. */
+  function shortDate_(value) {
+    var match = /^\d{4}-(\d{2})-(\d{2})/.exec(String(value == null ? '' : value));
+    return match ? match[1] + '/' + match[2] : (isBlank(value) ? '日期未知' : String(value));
+  }
+
+  function todoReportDate_(todo, vm) {
+    return isBlank(todo['报告日期']) ? (vm && vm.summary ? vm.summary['报告日期'] : '') : todo['报告日期'];
+  }
+
+  /**
+   * One 报告待办 row, labelled with the report it came from. 状态 is shown as
+   * written (blank: 状态未填写); only 已完成 / done count as completed
+   * (classifyTodoStatus_), and 未完成 carries a visible mark. 跟进类型 is a
+   * display tag only -- it never decides grouping, urgency or a trade.
+   */
+  function buildTodoItem(todo, type, vm) {
+    var rawStatus = String(todo['状态'] == null ? '' : todo['状态']).trim();
+    var completed = isTodoCompleted(rawStatus);
     var kind = classifyTodoKind_(todo['跟进类型']);
     var head = el('div', { className: 'ios-todo-head' }, [
       text('span', 'ios-todo-indicator', completed ? '✓' : '○'),
       text('span', 'ios-todo-text', todo['待办'])
     ]);
-    // Completed always shows the plain 状态 badge regardless of 跟进类型
-    // (Issue #267 AC: completed items stay distinguishable from every
-    // unresolved category). Otherwise a monitoring/waiting-for-evidence
-    // item shows its kind badge instead of the usual 待处理 badge, so it
-    // reads as "still open, but not backlog" rather than as ordinary
-    // unfinished work -- an actionable open item is unchanged from before.
-    var metaChildren;
-    if (!completed && TODO_KIND_BADGE_[kind]) {
-      var kindBadge = TODO_KIND_BADGE_[kind];
-      metaChildren = [text('span', kindBadge.className, kindBadge.label)];
-    } else {
-      metaChildren = [text('span', badgeClass('ios-badge', todoStatusBadgeClass(status)), status)];
-    }
-    if (todo['分类']) {
-      metaChildren.push(text('span', 'ios-badge', todo['分类']));
-    }
-    var children = [head, el('div', { className: 'ios-todo-meta' }, metaChildren)];
+    var statusClass = completed ? 'ios-badge ios-badge-done' : (rawStatus === '未完成' ? 'ios-badge ios-badge-incomplete' : 'ios-badge');
+    var meta = [text('span', statusClass, rawStatus === '' ? '状态未填写' : rawStatus)];
+    var rawKind = String(todo['跟进类型'] == null ? '' : todo['跟进类型']).trim();
+    if (rawKind !== '') { meta.push(text('span', TODO_KIND_BADGE_CLASS_[kind] + ' ios-todo-kind', rawKind)); }
+    if (todo['分类']) { meta.push(text('span', 'ios-badge', todo['分类'])); }
+    meta.push(text('span', 'ios-todo-source', reportLabel_(type) + ' ' + shortDate_(todoReportDate_(todo, vm))));
+    var children = [head, el('div', { className: 'ios-todo-meta' }, meta)];
     if (todo['备注']) {
       children.push(text('p', 'ios-todo-note', todo['备注']));
     }
-    var kindItemClass = !completed && TODO_KIND_ITEM_CLASS_[kind] ? TODO_KIND_ITEM_CLASS_[kind] : '';
-    var todoId = String(todo['待办ID'] || '').trim();
-    var highlighted = todoId !== '' && todoId === STATE.highlightTodoId;
+    var key = todoKey_(type, todo);
+    var highlighted = key !== null && key === STATE.highlightTodoId;
     var item = el('li', {
-      className: 'ios-todo-item' + (completed ? ' ios-todo-done' : ' ios-todo-open') + kindItemClass + (highlighted ? ' ios-todo-highlight' : ''),
-      attrs: todoId === '' ? null : { 'data-todo-id': todoId }
+      className: 'ios-todo-item' + (completed ? ' ios-todo-done' : ' ios-todo-open') +
+        (!completed && TODO_KIND_ITEM_CLASS_[kind] ? TODO_KIND_ITEM_CLASS_[kind] : '') + (highlighted ? ' ios-todo-highlight' : ''),
+      attrs: key === null ? null : { 'data-todo-id': String(todo['待办ID']).trim(), 'data-todo-key': key }
     }, children);
     if (highlighted) { STATE.highlightTodoNode = item; }
     return item;
   }
 
+  // -- 待办 tab (Issue #396): the latest Daily and the latest Weekly, each
+  // read from its own current generation (filterLiveDetailRows_ in Code.gs),
+  // merged on one page whatever report a history selection shows. --
+
+  /** The latest Weekly then the latest Daily that exist. */
+  function latestReports_() {
+    var out = [];
+    [['weekly', STATE.bootstrap.weekly], ['daily', STATE.bootstrap.daily]].forEach(function (pair) {
+      if (pair[1] && pair[1].found) { out.push({ type: pair[0], vm: pair[1] }); }
+    });
+    return out;
+  }
+
+  /** Rows of the buy-judgment block: holdings and watchlist entries, never the fund aggregate. */
+  function buyJudgmentRows_(vm) {
+    return (vm.holdings || []).concat(vm.watchlistCandidates || []).filter(function (row) { return row['代码'] !== 'FUND-SLEEVE'; });
+  }
+
   /**
-   * At-a-glance count summary, then actionable-open items, then ongoing
-   * monitoring / waiting-for-evidence items, then completed ones last --
-   * completed history stays visible, just not first (Issue #255). Ongoing
-   * monitoring and waiting-for-evidence items are deliberately grouped
-   * after actionable-open but before completed: they remain visible and
-   * scannable, but never inflate the "待处理" backlog count or bury
-   * genuinely actionable work behind them (Issue #267). `todos` arrives
-   * already sorted by 排序 (buildReportViewModel_ -> sortByOrder_);
-   * Array#filter preserves relative order, so splitting it into groups and
-   * concatenating keeps deterministic 排序 order within each group without
-   * re-sorting anything client-side. The 持续观察/等待证据 summary badges
-   * only render when that group is non-empty, so a Sheet that has never
-   * used 跟进类型 (every row classifies as actionable) renders identically
-   * to the pre-#267 two-badge summary.
+   * Owner decision on #396: 「卡住买入」 is decided only by 阻塞待办ID. A todo
+   * a buy-judgment row of the same generation names there (exact 待办ID
+   * match) is grouped under that row's asset; Daily and Weekly entries of
+   * one asset sit side by side. A named ID with no such todo is shown as
+   * 未找到. Every other todo stands alone -- no asset is inferred from
+   * 复核键, an ID prefix or free text.
    */
-  function buildTodosSection(todos) {
-    var children = [text('h2', null, '待办事项 (' + todos.length + ')')];
-    if (todos.length === 0) {
-      children.push(text('p', 'ios-empty-note', '本期报告没有待办事项——这是合法的空结果，不是错误。'));
-      return el('section', { className: 'ios-card' }, children);
-    }
-    var actionableOpen = [];
-    var monitoringOpen = [];
-    var waitingOpen = [];
-    var doneTodos = [];
-    todos.forEach(function (todo) {
-      var status = todo['状态'] || '待处理';
-      if (isTodoCompleted(status)) {
-        doneTodos.push(todo);
-        return;
-      }
-      var kind = classifyTodoKind_(todo['跟进类型']);
-      if (kind === 'monitoring') {
-        monitoringOpen.push(todo);
-      } else if (kind === 'waiting_evidence') {
-        waitingOpen.push(todo);
+  function buildTodoGroups_(reports) {
+    var assets = [];
+    var byCode = {};
+    var claimed = {};
+    reports.forEach(function (report) {
+      var todos = report.vm.todos || [];
+      buyJudgmentRows_(report.vm).forEach(function (row) {
+        var ids = blockerIds_(row);
+        if (ids.length === 0) { return; }
+        var code = row['代码'];
+        var asset = byCode[code];
+        if (!asset) {
+          asset = { code: code, name: row['名称'], entries: [] };
+          byCode[code] = asset;
+          assets.push(asset);
+        }
+        ids.forEach(function (id) {
+          var todo = todos.filter(function (t) { return String(t['待办ID'] == null ? '' : t['待办ID']).trim() === id; })[0];
+          if (!todo) {
+            asset.entries.push({ type: report.type, vm: report.vm, missingId: id });
+            return;
+          }
+          var key = todoKey_(report.type, todo);
+          if (claimed[key]) {
+            if (claimed[key] !== asset) { asset.entries.push({ type: report.type, vm: report.vm, sharedWith: claimed[key].code, todo: todo }); }
+            return;
+          }
+          claimed[key] = asset;
+          asset.entries.push({ type: report.type, vm: report.vm, todo: todo });
+        });
+      });
+    });
+    var others = [];
+    var done = [];
+    reports.forEach(function (report) {
+      (report.vm.todos || []).forEach(function (todo, index) {
+        var key = todoKey_(report.type, todo);
+        if (key !== null && claimed[key]) { return; }
+        var entry = { type: report.type, vm: report.vm, todo: todo, order: others.length + done.length + index };
+        (isTodoCompleted(todo['状态']) ? done : others).push(entry);
+      });
+    });
+    var byDateDesc = function (a, b) {
+      var da = String(todoReportDate_(a.todo, a.vm) || '');
+      var db = String(todoReportDate_(b.todo, b.vm) || '');
+      return da === db ? a.order - b.order : (da < db ? 1 : -1);
+    };
+    others.sort(byDateDesc);
+    done.sort(byDateDesc);
+    var blockedOpen = 0;
+    assets.forEach(function (asset) {
+      asset.entries.forEach(function (entry) {
+        if (entry.todo && !entry.sharedWith && !isTodoCompleted(entry.todo['状态'])) { blockedOpen += 1; }
+      });
+    });
+    return { assets: assets, others: others, done: done, blockedOpen: blockedOpen };
+  }
+
+  function buildBlockedAssetCard_(asset) {
+    var list = el('ul', { className: 'ios-checklist' });
+    asset.entries.forEach(function (entry) {
+      if (entry.missingId) {
+        list.appendChild(el('li', { className: 'ios-todo-item ios-todo-missing' }, [
+          text('p', 'ios-entry-plan-incomplete', '阻塞待办未找到：' + reportLabel_(entry.type) + ' ' +
+            shortDate_(entry.vm.summary && entry.vm.summary['报告日期']) + ' 的买入判断引用了待办ID ' + entry.missingId + '，本期报告中没有这条待办')
+        ]));
+      } else if (entry.sharedWith) {
+        list.appendChild(el('li', { className: 'ios-todo-item ios-todo-shared' }, [
+          text('p', 'ios-muted', reportLabel_(entry.type) + '：与 ' + displayCode_(entry.sharedWith) + ' 共用同一条阻塞待办（见上）')
+        ]));
       } else {
-        actionableOpen.push(todo);
+        list.appendChild(buildTodoItem(entry.todo, entry.type, entry.vm));
       }
     });
-    var summaryBadges = [text('span', 'ios-badge', actionableOpen.length + ' 待处理')];
-    if (monitoringOpen.length > 0) {
-      summaryBadges.push(text('span', 'ios-badge ios-badge-monitoring', monitoringOpen.length + ' 持续观察'));
-    }
-    if (waitingOpen.length > 0) {
-      summaryBadges.push(text('span', 'ios-badge ios-badge-waiting', waitingOpen.length + ' 等待证据'));
-    }
-    summaryBadges.push(text('span', 'ios-badge ios-badge-done', doneTodos.length + ' 已完成'));
-    children.push(el('div', { className: 'ios-todo-summary' }, summaryBadges));
+    return el('div', { className: 'ios-todo-asset' }, [
+      el('div', { className: 'ios-todo-asset-head' }, [text('strong', null, displayCode_(asset.code)),
+        isBlank(asset.name) ? null : text('span', 'ios-muted', asset.name)]),
+      list
+    ]);
+  }
+
+  function todoList_(entries) {
     var list = el('ul', { className: 'ios-checklist' });
-    actionableOpen.concat(monitoringOpen, waitingOpen, doneTodos).forEach(function (todo) { list.appendChild(buildTodoItem(todo)); });
-    children.push(list);
-    return el('section', { className: 'ios-card' }, children);
+    entries.forEach(function (entry) { list.appendChild(buildTodoItem(entry.todo, entry.type, entry.vm)); });
+    return list;
+  }
+
+  function buildMergedTodosView_() {
+    var reports = latestReports_();
+    if (reports.length === 0) {
+      return [el('section', { className: 'ios-card ios-empty-state' }, [
+        text('h2', null, '暂无报告'),
+        text('p', null, '日报和周报都还没有生成，待办来自报告，暂时没有内容。这是全新安装的正常状态，不是错误。')
+      ])];
+    }
+    var groups = buildTodoGroups_(reports);
+    var open = groups.blockedOpen + groups.others.length;
+    var sources = reports.map(function (r) { return '最新' + reportLabel_(r.type) + ' ' + shortDate_(r.vm.summary && r.vm.summary['报告日期']); });
+    var overview = [text('h2', null, '待办')];
+    overview.push(text('p', open === 0 ? 'ios-status-line ios-todo-none' : 'ios-status-line', open === 0 ? '本期无需操作' :
+      '卡住买入 ' + groups.blockedOpen + ' 项 · 其他待办 ' + groups.others.length + ' 项'));
+    overview.push(text('p', 'ios-hint', '合并' + sources.join(' 与 ') + '。「卡住买入」只收报告买入判断中「阻塞待办ID」引用的待办，同一标的的日报与周报条目并列显示；页面不推断标的归属。状态只有「已完成」或 done 算完成。页面只读报告快照，不能在这里勾选完成。'));
+    overview.push(el('div', { className: 'ios-todo-summary' }, [
+      text('span', 'ios-badge ios-severity-high', '卡住买入 ' + groups.blockedOpen),
+      text('span', 'ios-badge', '其他待办 ' + groups.others.length),
+      text('span', 'ios-badge ios-badge-done', '已完成 ' + groups.done.length)
+    ]));
+    var nodes = [el('section', { className: 'ios-card ios-todo-overview' }, overview)];
+
+    var blocked = [text('h2', null, '卡住买入 (' + groups.assets.length + ' 个标的)'),
+      text('p', 'ios-hint', '报告买入判断中被「阻塞待办ID」引用的待办，按标的合并。')];
+    if (groups.assets.length === 0) {
+      blocked.push(text('p', 'ios-empty-note', '最新报告的买入判断没有引用任何阻塞待办。'));
+    } else {
+      groups.assets.forEach(function (asset) { blocked.push(buildBlockedAssetCard_(asset)); });
+    }
+    nodes.push(el('section', { className: 'ios-card ios-todo-blocked' }, blocked));
+
+    var others = [text('h2', null, '其他待办 (' + groups.others.length + ')'),
+      text('p', 'ios-hint', '未被买入判断引用的待办，按报告日期从新到旧，一条一条列出。')];
+    others.push(groups.others.length === 0 ? text('p', 'ios-empty-note', '没有其他未完成的待办。') : todoList_(groups.others));
+    nodes.push(el('section', { className: 'ios-card ios-todo-others' }, others));
+
+    if (groups.done.length > 0) {
+      var doneOpen = STATE.highlightTodoId !== null && groups.done.some(function (entry) { return todoKey_(entry.type, entry.todo) === STATE.highlightTodoId; });
+      nodes.push(el('section', { className: 'ios-card ios-todo-completed' }, [
+        el('details', { className: 'ios-layer-fold', attrs: doneOpen ? { open: 'open' } : null }, [
+          text('summary', 'ios-layer-fold-title', '已完成 ' + groups.done.length + ' 项（展开查看）'),
+          todoList_(groups.done)
+        ])
+      ]));
+    }
+    return nodes;
   }
 
   // -- 持仓明细 (Issue #388 PR A): one row per holding/watchlist entry of the
@@ -2367,6 +2463,23 @@
       excluded.map(function (entry) { return displayCode_(entry.code); }).join('、'));
   }
 
+  function accountStatusLines_() {
+    var status = STATE.bootstrap.accountStatus;
+    if (!status || status.state !== 'ok' || status.rows.length === 0) { return null; }
+    var list = el('ul', { className: 'ios-list ios-account-list' });
+    status.rows.forEach(function (row) {
+      var parts = ['可用现金 ' + (row.availableCash == null ? '未提供' : row.availableCash + ' ' + row.currency)];
+      if (row.nisaGrowthRemaining != null) { parts.push('NISA成长投资额度剩余 ' + row.nisaGrowthRemaining); }
+      if (row.nisaTsumitateRemaining != null) { parts.push('NISA积立额度剩余 ' + row.nisaTsumitateRemaining); }
+      list.appendChild(el('li', null, [
+        text('strong', null, row.account + ' · ' + row.currency),
+        text('p', 'ios-asset-line', parts.join(' · ')),
+        text('p', 'ios-asset-line ios-muted', '数据时间 ' + (isBlank(row.asOf) ? '未提供' : row.asOf))
+      ]));
+    });
+    return el('details', { className: 'ios-layer-fold ios-account-detail' }, [text('summary', 'ios-layer-fold-title', '账户明细（NISA额度、数据时间）'), list]);
+  }
+
   /** 配置概况 (Issue #388 PR F): only facts the Sheet already has; nothing here is computed. */
   function buildAllocationOverview_() {
     var status = STATE.bootstrap.accountStatus;
@@ -2385,6 +2498,7 @@
       ledgerHistoryNote_(),
       labelledLine_('配置比例', null, '未提供（Sheet 没有市值和汇率字段，Dashboard 不自行计算当前占比或目标占比）'),
       labelledLine_('可用现金', cash, '未提供'),
+      accountStatusLines_(),
       labelledLine_('当前台账持仓', (STATE.bootstrap.allocation || []).length + ' 只', '未提供'),
       excludedLedgerLine_()
     ]);
@@ -2598,9 +2712,20 @@
     updateNavActive();
   }
 
+  /** Opens the latest 日报 or 周报. */
   function switchView(view) {
     if (STATE.loading) return;
     STATE.activeView = view === 'weekly' ? 'weekly' : 'daily';
+    STATE.activeTab = STATE.activeView;
+    STATE.viewingReportId = null;
+    STATE.displayedViewModel = null;
+    STATE.highlightTodoId = null;
+    render();
+  }
+
+  /** Leaves a history report for the latest one of the same type, staying on the current view. */
+  function backToLatest_() {
+    if (STATE.loading) return;
     STATE.viewingReportId = null;
     STATE.displayedViewModel = null;
     STATE.highlightTodoId = null;
@@ -2610,10 +2735,15 @@
   function selectTab(tab) {
     if (STATE.loading) return;
     if (TABS.indexOf(tab) === -1) return;
+    if (isReportTab_(tab) && tab !== STATE.activeView) {
+      // The other report type opens at its latest report.
+      STATE.activeView = tab;
+      STATE.viewingReportId = null;
+      STATE.displayedViewModel = null;
+    }
     STATE.activeTab = tab;
-    if (tab !== 'report') { STATE.detailTab = tab; }
-    updateTabActive();
-    renderTabContent();
+    if (!isReportTab_(tab)) { STATE.detailTab = tab; }
+    render();
     // The whole page switched: start the new view at its top.
     if (typeof window.scrollTo === 'function') { window.scrollTo(0, 0); }
   }
@@ -2635,6 +2765,8 @@
         }
         if (result && result.reportType) {
           STATE.activeView = result.reportType;
+          // A history report is read on its own 日报 / 周报 page.
+          STATE.activeTab = result.reportType;
         }
         STATE.viewingReportId = reportId;
         STATE.displayedViewModel = result;
@@ -2650,7 +2782,7 @@
   /** The topbar history <select>'s onchange -- '' means "back to latest". */
   function onHistorySelectChange(reportId) {
     if (!reportId) {
-      switchView(STATE.activeView);
+      backToLatest_();
       return;
     }
     selectHistoryReport(reportId);
