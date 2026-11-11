@@ -233,6 +233,11 @@ Display only, from the same rows; nothing is hidden that cannot be opened.
   A Daily card always keeps its own full 本周购买计划 and 价格参考: no snapshot field records which
   Weekly a Daily used (`报告摘要` has no referenced-Weekly id), so the Dashboard does not pair a Daily
   with any Weekly to hide a copy, not even an identical one (field gap, left to the maintainer on #388).
+- **Readable names (PR E)**: report prose can still quote an entry plan ID (`ep-YYYYMMDD-…-vN`) or the fund
+  aggregate's code — in todo text, explanations, or a history entry's headline. Every reading text shows
+  `入场计划 vN` and `基金定投（合计）` instead (a display substitution, nothing is inferred from it); the raw
+  values stay in 技术信息 and attributes. A third-party source name drops its export-format suffix
+  (`InvestingPro Premium Export` → `InvestingPro`, `efvSourceDisplayName_`) on the 组合 line and in 持仓明细.
 - **技术信息**: plan IDs (`周计划ID vN`, `入场计划ID vN`), `来源记录`/`解除记录` and the price reference's
   `出处` (data-source names) move into a collapsed 技术信息 block in the same card. The fund aggregate
   reads as 基金定投（合计）, its code `FUND-SLEEVE` kept in 技术信息 (the 持仓明细 `data-code` stays the raw
@@ -249,10 +254,10 @@ of that tier; the full cards stay where they were.
 
 | Tier | Rule (first tier that matches wins) |
 | --- | --- |
-| 必须执行 | the fixed 今日建议 mapping gives 适合买入 (so the reader gate, hold mode, funding and blockers still apply); `今日行动=暂停新增待复核`; a holding with `变化标记=有变化`; `FUND-SLEEVE` with `今日行动=先核对缺项` (基金聚合数据缺口); `周计划状态=已过期` or `引用失效` |
-| 需要复核 | `周计划状态=事件暂停` on its own (a pause in force; the snapshot cannot prove it started or became releasable this period, so it is not 必须执行 unless another trigger above applies); a `可人工准备限价单`/`沿用定投` row whose verdict fails closed to 无法判断; `需要复核=TRUE`; `周计划结论=长期估值缺失或失效`; `周计划状态=暂停记录不可核验` or `周计划异常`; `今日行动=先核对缺项`; an open todo whose `复核键` is an official event `事件|代码|事件类别|来源标识|事件日期` (lifts that 代码 once, never below a higher tier); a risk with `风险趋势=新增`/`升级` |
+| 必须执行 | the fixed 今日建议 mapping gives 适合买入 (so the reader gate, hold mode, funding and blockers still apply); `今日行动=暂停新增待复核` with `变化标记=有变化` (PR E: the generation's own comparison says the pause changed this period); a holding with `变化标记=有变化`; `FUND-SLEEVE` with `今日行动=先核对缺项` (基金聚合数据缺口); `周计划状态=已过期` or `引用失效` |
+| 需要复核 | `周计划状态=事件暂停` on its own (a pause in force; the snapshot cannot prove it started or became releasable this period, so it is not 必须执行 unless another trigger above applies); a `可人工准备限价单`/`沿用定投` row whose verdict fails closed to 无法判断; `需要复核=TRUE`; `周计划结论=长期估值缺失或失效`; `周计划状态=暂停记录不可核验` or `周计划异常`; `今日行动=先核对缺项`; `今日行动=暂停新增待复核` with `变化标记=无变化` (PR E: a pause carried over, 暂停新增延续中); an open todo whose `复核键` is an official event `事件|代码|事件类别|来源标识|事件日期` (lifts that 代码 once, never below a higher tier); a risk with `风险趋势=新增`/`升级` |
 | 仅供了解 | a holding with `变化标记=无变化`; a watchlist row with `变化标记=无变化`/`有变化`; a risk with `风险趋势=降级`/`数值变化`/`无变化`/`解除` |
-| 未比较 | a holding or watchlist row whose `变化标记` is blank, `无可比基线` or unknown; a risk with any other or blank `风险趋势` (pre-#375, `首次记录`, `迁移缺口`, ...) |
+| 未比较 | a holding or watchlist row whose `变化标记` is blank, `无可比基线` or unknown (a `暂停新增待复核` row there says so in its reason, PR E); a risk with any other or blank `风险趋势` (pre-#375, `首次记录`, `迁移缺口`, ...) |
 
 - 要不要动手: `需要执行 N 项`, otherwise `今日无需操作`/`本周无需操作`, plus `另有 N 项未比较` and, when the
   generation is not the current action, `本报告不作为当前买入依据`.

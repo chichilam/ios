@@ -1992,3 +1992,42 @@ test('PR #338 review round 2: 周计划状态 must prove no active weekly plan -
     assert.doesNotMatch(first, /不适用（沿用既有定投/, JSON.stringify(fields));
   });
 });
+
+test('Issue #388 PR E: entry plan IDs and FUND-SLEEVE read as names in todos, explanations and the history list; 技术信息 keeps the raw value', () => {
+  const bootstrap = buildBootstrapWithTodos([
+    { 排序: 1, 分类: '估值', 待办: '补齐 ep-20261101-NVDA-v3 与 ep-20261020-BRK-B-v12 的估值；核对 FUND-SLEEVE', 状态: '待处理', 备注: '见 ep-20261101-NVDA-v3' }
+  ]);
+  bootstrap.dailyHistory = [{ reportId: 'daily-2026-11-09', reportDate: '2026-11-09', headline: 'FUND-SLEEVE 先核对缺项' }];
+  bootstrap.daily.holdings = [{
+    报告ID: 'daily-2026-08-20', 报告类型: 'daily', 资产类型: 'holding', 代码: 'FUND-SLEEVE', 名称: '', IOS状态: '',
+    今日行动: '先核对缺项', 当前阻碍: '估值缺失：ep-20261101-NVDA-v3 未写长期买入上限', 入场计划ID: 'ep-20261101-NVDA-v3', 入场计划版本: 3
+  }];
+  const { document, window } = loadDashboard(bootstrap, 'daily', {});
+  const options = document.getElementById('ios-history-select').children.map((o) => o.textContent);
+  assert.ok(options.some((t) => t.includes('基金定投（合计） 先核对缺项')), options.join('|'));
+  assert.ok(!options.some((t) => t.includes('FUND-SLEEVE')));
+  window.selectTab('todos');
+  const todos = tabText(document);
+  assert.match(todos, /补齐 入场计划 v3 与 入场计划 v12 的估值；核对 基金定投（合计）/);
+  assert.match(todos, /见 入场计划 v3/);
+  assert.doesNotMatch(todos, /ep-2026/);
+  window.selectTab('portfolio');
+  const card = document.getElementById('ios-tab-content').children.find((c) => c.children[0] && c.children[0].textContent.indexOf('当前持仓 (') === 0);
+  const tech = findAllNodes(card, (n) => n.tagName === 'DETAILS' && n.children[0].textContent === '技术信息');
+  const techText = tech.map((n) => n.textContent).join('');
+  const visible = card.textContent.replace(techText, '');
+  assert.match(visible, /估值缺失：入场计划 v3 未写长期买入上限/);
+  assert.doesNotMatch(visible, /ep-20261101|FUND-SLEEVE/);
+  assert.match(techText, /FUND-SLEEVE/, '技术信息 keeps the raw code');
+  assert.match(techText, /ep-20261101-NVDA-v3/, '技术信息 keeps the raw plan ID');
+});
+
+function findAllNodes(node, pred, out = []) {
+  if (node.children) {
+    node.children.forEach((child) => {
+      if (child.tagName && pred(child)) out.push(child);
+      findAllNodes(child, pred, out);
+    });
+  }
+  return out;
+}

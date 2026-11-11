@@ -521,3 +521,10 @@ test('styles wrap the compact line on narrow screens', () => {
   assert.ok(!css.includes('.ios-external-reference'));
 });
 
+
+test('PR E: the compact line names the source without its export-format suffix', () => {
+  const row = Object.assign({}, SYNA, { 来源名称: 'InvestingPro Premium Export' });
+  const line = fairLine(render({ holdings: [threeLayer(row)], externalFairValue: WRITTEN_MODULE }));
+  assert.match(line, / · InvestingPro · /);
+  assert.doesNotMatch(line, /Premium Export/);
+});

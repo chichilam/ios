@@ -50,7 +50,7 @@
     var node = document.createElement(tag);
     opts = opts || {};
     if (opts.className) node.className = opts.className;
-    if (opts.text != null) node.textContent = opts.text;
+    if (opts.text != null) node.textContent = opts.raw ? opts.text : readable_(opts.text);
     if (opts.attrs) {
       Object.keys(opts.attrs).forEach(function (key) { node.setAttribute(key, opts.attrs[key]); });
     }
@@ -61,6 +61,11 @@
 
   function text(tag, className, value) {
     return el(tag, { className: className, text: value });
+  }
+
+  /** A text node for reading text: internal identifiers become their readable names (see readable_). */
+  function textNode_(value) {
+    return document.createTextNode(readable_(value));
   }
 
   function clear(node) {
@@ -82,6 +87,22 @@
     return code === 'FUND-SLEEVE' ? FUND_SLEEVE_LABEL_ : code;
   }
 
+  // Issue #388 PR E: report prose (todo text, explanations, the history list's headlines) can quote an
+  // entry plan ID or the fund aggregate's code. Reading text shows the readable name instead; the raw
+  // value stays only in 技术信息 (written with raw: true) and in attributes. Nothing is inferred from it.
+  var ENTRY_PLAN_ID_PATTERN_ = /\bep-\d{8}-[^\s,，;；、:：()（）「」]+?-v(\d+)\b/g;
+
+  function readable_(value) {
+    return String(value).replace(ENTRY_PLAN_ID_PATTERN_, '入场计划 v$1').replace(/\bFUND-SLEEVE\b/g, FUND_SLEEVE_LABEL_);
+  }
+
+  /** A third-party source's display name without the export-format suffix (e.g. "InvestingPro Premium Export" → "InvestingPro"). */
+  function efvSourceName_(value) {
+    var name = String(value).trim();
+    var short = name.replace(/\s+(?:Premium\s+)?Export$/i, '');
+    return short || name;
+  }
+
   function idVersion_(id, version) {
     var parts = [];
     if (!isBlank(id)) { parts.push(id); }
@@ -93,7 +114,7 @@
   function technicalInfo_(pairs) {
     var lines = [];
     pairs.forEach(function (pair) {
-      if (!isBlank(pair[1])) { lines.push(text('p', 'ios-asset-line ios-muted', pair[0] + ': ' + pair[1])); }
+      if (!isBlank(pair[1])) { lines.push(el('p', { className: 'ios-asset-line ios-muted', text: pair[0] + ': ' + pair[1], raw: true })); }
     });
     if (lines.length === 0) { return null; }
     return el('details', { className: 'ios-tech-info' }, [text('summary', 'ios-tech-info-title', '技术信息')].concat(lines));
@@ -356,7 +377,7 @@
 
   function layerLine_(label, value) {
     if (isBlank(value)) { return null; }
-    return el('p', { className: 'ios-asset-line' }, [text('span', 'ios-muted', label + '：'), document.createTextNode(String(value))]);
+    return el('p', { className: 'ios-asset-line' }, [text('span', 'ios-muted', label + '：'), textNode_(String(value))]);
   }
 
   function layerFoldable_(title, children, open) {
@@ -662,7 +683,9 @@
     var verdict = todayVerdict_(asset);
     var must = [];
     if (verdict === '适合买入') { must.push('价格进入本期购买区间，可人工准备限价单'); }
-    if (action === '暂停新增待复核') { must.push('暂停新增待复核'); }
+    // Issue #388 PR E: a pause is 必须执行 only when this generation's own comparison says it changed;
+    // an ongoing one (无变化) is 需要复核, and one with nothing compared falls to 未比较.
+    if (action === '暂停新增待复核' && flag === '有变化') { must.push('暂停新增待复核（本期有变化）'); }
     if (holding && flag === '有变化') { must.push('持仓判断或动作有变化'); }
     if (asset['代码'] === 'FUND-SLEEVE' && action === '先核对缺项') { must.push('基金定投数据有缺口，需对账补录'); }
     if (weekly === '已过期') { must.push('购买计划已过期，需确认新一期'); }
@@ -678,9 +701,13 @@
     if (cellText_(asset['周计划结论']) === '长期估值缺失或失效') { review.push('长期估值缺失或失效'); }
     if (weekly === '暂停记录不可核验' || weekly === '周计划异常') { review.push(weekly); }
     if (action === '先核对缺项') { review.push('先核对缺项'); }
+    if (action === '暂停新增待复核' && flag === '无变化') { review.push('暂停新增延续中（本期无变化）'); }
+    if (action === '暂停新增待复核' && review.length && flag !== '无变化') { review.push('暂停新增待复核（' + changeFlagGap_(flag) + '）'); }
     if (review.length) { return { tier: 'review', reasons: review }; }
     // A holding's 有变化 is already 必须执行; any flag that compares nothing is 未比较 for holdings and watchlist alike.
-    if (flag !== '无变化' && flag !== '有变化') { return { tier: 'uncompared', reasons: [changeFlagGap_(flag)] }; }
+    if (flag !== '无变化' && flag !== '有变化') {
+      return { tier: 'uncompared', reasons: action === '暂停新增待复核' ? ['暂停新增待复核（' + changeFlagGap_(flag) + '）'] : [changeFlagGap_(flag)] };
+    }
     var info = [];
     if (action === '沿用定投') { info.push('沿用定投（不是额外申购）'); }
     else if (action) { info.push(action); }
@@ -1028,7 +1055,7 @@
   function buildReferenceLine(asset) {
     if (!isBlank(asset['入场计划ID'])) {
       var children = [
-        document.createTextNode('锚点: ' + (isBlank(asset['入场计划估值锚点']) ? '未知' : asset['入场计划估值锚点']))
+        textNode_('锚点: ' + (isBlank(asset['入场计划估值锚点']) ? '未知' : asset['入场计划估值锚点']))
       ];
       if (!isBlank(asset['执行状态'])) {
         children.push(text('span', badgeClass('ios-badge ios-badge-entry-plan', entryPlanBadgeClass(asset['执行状态'])), asset['执行状态']));
@@ -1041,7 +1068,7 @@
       return el('p', { className: 'ios-asset-line ios-price-info' }, children);
     }
     var legacyChildren = [
-      document.createTextNode('参考: ' + (isBlank(asset['参考买入价/区间']) ? '未设定' : asset['参考买入价/区间']))
+      textNode_('参考: ' + (isBlank(asset['参考买入价/区间']) ? '未设定' : asset['参考买入价/区间']))
     ];
     if (asset['价格位置']) {
       legacyChildren.push(text('span', badgeClass('ios-badge ios-badge-price-position', pricePositionBadgeClass(asset['价格位置'])), asset['价格位置']));
@@ -1931,7 +1958,7 @@
     var label = '公允值' + (states.length ? '（' + states.join('，') + '）' : '');
     if (!value) return text('p', 'ios-asset-line ios-muted ios-inline-fair-value', label + ': 未采用');
     var parts = [value + ' ' + row['报价币种']];
-    if (row['来源名称'] || row['来源标识']) parts.push(row['来源名称'] || row['来源标识']);
+    if (row['来源名称'] || row['来源标识']) parts.push(efvSourceName_(row['来源名称'] || row['来源标识']));
     if (row['值记录获取时间']) parts.push('获取 ' + row['值记录获取时间'].slice(0, 10));
     return text('p', 'ios-asset-line ios-inline-fair-value', label + ': ' + parts.join(' · '));
   }

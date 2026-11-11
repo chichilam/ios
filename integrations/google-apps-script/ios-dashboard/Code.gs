@@ -240,10 +240,16 @@ function holdingDetailEfv_(row, module) {
   return {
     shown: true,
     value: value + ' ' + layerText_(bound['报价币种']),
-    source: layerText_(bound['来源名称']) || layerText_(bound['来源标识']) || HOLDING_DETAIL_TEXT_.missing,
+    source: efvSourceDisplayName_(layerText_(bound['来源名称']) || layerText_(bound['来源标识'])) || HOLDING_DETAIL_TEXT_.missing,
     fetched: layerText_(bound['值记录获取时间']).slice(0, 10) || HOLDING_DETAIL_TEXT_.missing,
     states: states
   };
+}
+
+/** Issue #388 PR E: a third-party source's display name without its export-format suffix ("InvestingPro Premium Export" → "InvestingPro"). */
+function efvSourceDisplayName_(name) {
+  var short = name.replace(/\s+(?:Premium\s+)?Export$/i, '');
+  return short || name;
 }
 
 /**

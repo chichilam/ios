@@ -345,3 +345,26 @@ test('research date: the tab marks a stale row on table and phone card', () => {
   assert.match(cards[0].children[0].textContent, /估值需更新/);
   assert.doesNotMatch(cards[1].children[0].textContent, /估值需更新/);
 });
+
+test('PR E: the third-party source shows its readable name, without the export-format suffix', () => {
+  const name = (source) => detail({ _iosExternalFairValue: Object.assign({}, EFV_ROW, { 来源名称: source }) }, { state: '已写入' }).efv.source;
+  assert.equal(name('InvestingPro Premium Export'), 'InvestingPro');
+  assert.equal(name('Some Vendor export'), 'Some Vendor');
+  assert.equal(name('external-source'), 'external-source');
+  assert.equal(name('Export'), 'Export', 'a name that is only the suffix stays as written');
+});
+
+test('PR E (#388 acceptance item 3): a history report builds 持仓明细 and its filter counts from its own generation only', () => {
+  const tabs = JSON.parse(fs.readFileSync(path.join(__dirname, 'report-layering-fixture.json'), 'utf8'));
+  Object.keys(tabs).forEach((key) => { if (key.startsWith('_') && key !== '_安装状态') delete tabs[key]; });
+  tabs['报告持仓'].push({ 报告ID: 'weekly-2026-10-31', 生成ID: 'gen-w1', 报告类型: 'weekly', 报告日期: '2026-10-31', 资产类型: 'holding',
+    代码: 'OLD', 名称: 'Old Co.', 排序: 1, 今日行动: '本周无购买区间', 周计划状态: '事件暂停', 长期买入上限快照: 90, 报价币种: 'USD' });
+  const latest = logic.buildDashboardBootstrap_(tabs).weekly;
+  const old = logic.getReport_(tabs, 'weekly-2026-10-31');
+  assert.equal(old.summary['报告ID'], 'weekly-2026-10-31');
+  assert.deepEqual(old.holdingDetail.map((r) => r.code), ['OLD']);
+  assert.deepEqual(latest.holdingDetail.map((r) => r.code).sort(), ['AAA', 'BBB', 'CCC']);
+  const count = (rows, key) => rows.filter((r) => r.filters[key]).length;
+  assert.equal(count(old.holdingDetail, 'suspended'), 1);
+  assert.equal(count(latest.holdingDetail, 'suspended'), 0, 'the latest generation is not counted into the old one, nor the reverse');
+});

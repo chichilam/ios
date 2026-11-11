@@ -755,20 +755,20 @@ test('PR C: Weekly fixture uses ① judgments, keeps 记录 keys out and lists �
   assert.deepEqual(findAll(focus, (n) => n.tagName === 'LI').length, 2);
 });
 
-test('PR C: 必须执行 rules -- in-range buy, event pause, plan pause, expired or invalid plan, fund data gap', () => {
+test('PR C: 必须执行 rules -- in-range buy, a pause this generation marks changed (PR E), expired or invalid plan, fund data gap', () => {
   const document = tiered([
     weeklyAsset({ 代码: 'BUY', 名称: '' }),
-    weeklyAsset({ 代码: 'PAU', 今日行动: '暂停新增待复核', 执行状态: '暂停复核', 准备状态: '无需准备', 周计划状态: '事件暂停', 变化标记: '无变化' }),
+    weeklyAsset({ 代码: 'PAU', 资产类型: 'watchlist', 今日行动: '暂停新增待复核', 执行状态: '暂停复核', 准备状态: '无需准备', 周计划状态: '事件暂停', 变化标记: '有变化' }),
     weeklyAsset({ 代码: 'EXP', 今日行动: '本周无购买区间', 周计划状态: '已过期', 变化标记: '无变化' }),
     weeklyAsset({ 代码: 'REF', 今日行动: '本周无购买区间', 周计划状态: '引用失效', 变化标记: '无变化' }),
     weeklyAsset({ 代码: 'FUND-SLEEVE', 名称: '', 今日行动: '先核对缺项', 变化标记: '无变化' })
   ]);
   assert.deepEqual(tierItems(document, 'ios-tier-must'), [
     { title: 'BUY', reasons: '价格进入本期购买区间，可人工准备限价单' },
-    { title: 'PAU AAA Co.', reasons: '暂停新增待复核' },
     { title: 'EXP AAA Co.', reasons: '购买计划已过期，需确认新一期' },
     { title: 'REF AAA Co.', reasons: '购买计划引用失效，需确认新一期' },
-    { title: '基金定投（合计）', reasons: '基金定投数据有缺口，需对账补录' }
+    { title: '基金定投（合计）', reasons: '基金定投数据有缺口，需对账补录' },
+    { title: 'PAU AAA Co.', reasons: '暂停新增待复核（本期有变化）' }
   ]);
 });
 
@@ -898,14 +898,14 @@ test('PR C review 2: an ongoing 事件暂停 alone is 需要复核, never 必须
   ];
   const daily = tiered(rows);
   assert.deepEqual(tierItems(daily, 'ios-tier-must'), [
-    { title: 'CHG', reasons: '持仓判断或动作有变化' },
-    { title: 'ACT', reasons: '暂停新增待复核' }
+    { title: 'CHG', reasons: '持仓判断或动作有变化' }
   ]);
   assert.deepEqual(tierItems(daily, 'ios-tier-review'), [
     { title: 'STAY', reasons: '事件暂停中（快照无法确认是否本期新触发）' },
+    { title: 'ACT', reasons: '事件暂停中（快照无法确认是否本期新触发）；暂停新增延续中（本期无变化）' },
     { title: 'WAT', reasons: '事件暂停中（快照无法确认是否本期新触发）' }
   ]);
-  assert.equal(conclusion(daily)['要不要动手'], '需要执行 2 项（见「必须执行」）');
+  assert.equal(conclusion(daily)['要不要动手'], '需要执行 1 项（见「必须执行」）');
   const quiet = tiered([pause('STAY')]);
   assert.equal(conclusion(quiet)['要不要动手'], '今日无需操作', 'an unchanged pause never counts as an action');
   const weekly = current(view('weekly'));
@@ -917,4 +917,26 @@ test('PR C review 2: an ongoing 事件暂停 alone is 需要复核, never 必须
   assert.deepEqual(tierItems(w, 'ios-tier-must'), []);
   assert.deepEqual(tierItems(w, 'ios-tier-review').map((i) => i.title), ['STAY']);
   assert.equal(conclusion(w)['要不要动手'], '本周无需操作');
+});
+
+test('PR E: 暂停新增待复核 is 必须执行 only when the generation marks the row changed; ongoing is 需要复核, uncompared is 未比较', () => {
+  const pause = (code, flag, extra) => weeklyAsset(Object.assign({ 代码: code, 名称: '', 资产类型: 'watchlist', 今日行动: '暂停新增待复核',
+    执行状态: '暂停复核', 准备状态: '无需准备', 周计划状态: '有效', 变化标记: flag }, extra || {}));
+  const document = tiered([
+    pause('NEW', '有变化'),
+    pause('OLD', '无变化'),
+    pause('BLK', ''),
+    pause('NOB', '无可比基线'),
+    pause('FLG', '', { 需要复核: true }),
+    pause('HLD', '无变化', { 资产类型: 'holding' })
+  ]);
+  assert.deepEqual(tierItems(document, 'ios-tier-must'), [{ title: 'NEW', reasons: '暂停新增待复核（本期有变化）' }]);
+  assert.deepEqual(tierItems(document, 'ios-tier-review'), [
+    { title: 'HLD', reasons: '暂停新增延续中（本期无变化）' },
+    { title: 'OLD', reasons: '暂停新增延续中（本期无变化）' },
+    { title: 'FLG', reasons: '入场计划触发复核；暂停新增待复核（变化标记未提供）' }
+  ]);
+  assert.deepEqual(lowerFold(document, '未比较'), ['BLK：暂停新增待复核（变化标记未提供）', 'NOB：暂停新增待复核（无可比基线）']);
+  const ongoing = tiered([pause('OLD', '无变化'), pause('HLD', '无变化', { 资产类型: 'holding' })]);
+  assert.equal(conclusion(ongoing)['要不要动手'], '今日无需操作', 'ongoing pauses alone never ask for action');
 });
