@@ -46,7 +46,8 @@
     displayedViewModel: null, // the viewModel for viewingReportId, once fetched
     loading: false,
     highlightTodoId: null, // '<报告类型>|<待办ID>' a blocker link jumped to (Issue #306, #396)
-    highlightTodoNode: null
+    highlightTodoNode: null,
+    periodPanel: null // 'todos' / 'risks': a history report's own list opened on its page (Issue #396 PR B)
   };
 
   // -- Small DOM-construction helpers (no innerHTML with Sheet-derived
@@ -280,17 +281,242 @@
       return;
     }
 
+    // Issue #396 PR B: 结论 → 买入判断 → 计数卡 → 本期变化, all from this
+    // report's own snapshot; the report's detail (layering, cards) follows.
     var readerBanner = buildReaderBanner_(vm);
     if (readerBanner) { container.appendChild(readerBanner); }
-    var priority = buildPriorityView_(vm);
-    container.appendChild(buildConclusionCard_(vm, priority));
     container.appendChild(buildHeadlineCard(vm));
     container.appendChild(buildReportCaption(vm));
-    container.appendChild(buildPrioritySection_(vm, priority));
+    container.appendChild(buildBuyJudgment_(vm));
+    container.appendChild(buildCountCards_(vm));
+    if (STATE.viewingReportId && STATE.periodPanel) {
+      var period = [{ type: vm.reportType, vm: vm }];
+      var nodes = STATE.periodPanel === 'todos' ? buildMergedTodosView_(period) : buildMergedRisksView_(period);
+      container.appendChild(el('div', { className: 'ios-period-panel', attrs: { 'data-panel': STATE.periodPanel } }, nodes));
+    }
+    container.appendChild(buildPeriodChanges_(vm));
+    container.appendChild(el('section', { className: 'ios-report-detail-head' }, [text('h2', null, '报告明细'),
+      text('p', 'ios-hint', '以下为本报告的分层、概况与完整卡片，内容与上面相同来源。')]));
     var layering = buildLayeringSection(vm);
     if (layering) { container.appendChild(layering); }
     buildReportAssetSections_(vm).forEach(function (node) { container.appendChild(node); });
-    if (STATE.viewingReportId) { container.appendChild(buildPeriodTodos_(vm)); }
+  }
+
+  // -- Issue #396 PR B: 买入判断. Every group comes from the writer's own
+  // 今日行动 through the fixed 今日建议 mapping (todayVerdict_, which includes
+  // the consistency checks and the server's applyReaderGate_ result); the page
+  // never judges a price against a range. The fund aggregate is not shown. --
+
+  var BUY_GROUPS_ = [['适合买入', '本期没有适合买入的标的。'], ['等待', '没有等待中的标的。'], ['无法判断', '没有无法判断的标的。']];
+
+  /** A field as written; blank reads 未提供. An array value shows one line per entry (the first is the summary). */
+  function judgmentField_(label, value, className) {
+    var valueNode = Array.isArray(value)
+      ? el('span', { className: 'ios-buy-field-value' }, value.map(function (line) {
+        return text('span', 'ios-buy-field-line', line);
+      }))
+      : text('span', 'ios-buy-field-value', isBlank(value) || value === '' ? '未提供' : value);
+    return el('div', { className: 'ios-buy-field' + (className ? ' ' + className : '') }, [
+      text('span', 'ios-buy-field-label', label), valueNode]);
+  }
+
+  /**
+   * 价格 币种 · 行情属性 · 截至 时间, always in that order. Each missing part says
+   * so on its own (价格未提供 / 币种未提供 / 行情属性未提供 / 截至 未提供); only a
+   * row with none of the four reads plain 未提供. Nothing is dropped.
+   */
+  function quoteText_(row) {
+    var part = function (field) { return isBlank(row[field]) || cellText_(row[field]) === '' ? '' : cellText_(row[field]); };
+    var price = part('当前价格');
+    var currency = part('报价币种');
+    var session = part('行情属性');
+    var asOf = part('行情截至时间');
+    if (price === '' && currency === '' && session === '' && asOf === '') { return '未提供'; }
+    return [
+      (price === '' ? '价格未提供' : price) + ' ' + (currency === '' ? '币种未提供' : currency),
+      session === '' ? '行情属性未提供' : session,
+      '截至 ' + (asOf === '' ? '未提供' : asOf)
+    ].join(' · ');
+  }
+
+  function planRangeText_(row) {
+    if (isBlank(row['计划买入下限']) && isBlank(row['计划买入上限'])) { return '未提供'; }
+    return (isBlank(row['计划买入下限']) ? '未提供' : row['计划买入下限']) + ' – ' + (isBlank(row['计划买入上限']) ? '未提供' : row['计划买入上限']);
+  }
+
+  /**
+   * The pause as this report's own snapshot states it -- 周计划状态, 今日行动
+   * and every record of 暂停事件载荷 -- never compared with another report.
+   * Returns lines: a summary, then one line per payload record
+   * (事件类别 · 事件时间：事件说明, each missing part 未提供). No source wins
+   * over another: a pause status with an empty or unreadable payload says so,
+   * and a payload that is not a JSON array, or a record that is not an
+   * object, is a stated failure, never a summary.
+   */
+  function pauseLines_(row) {
+    var status = cellText_(row['周计划状态']);
+    var raw = row['暂停事件载荷'];
+    var hasPayload = !isBlank(raw) && cellText_(raw) !== '';
+    var events = hasPayload ? parseJsonArray_(typeof raw === 'string' ? raw : JSON.stringify(raw)) : null;
+    var pausedBy = status === '事件暂停' ? '事件暂停'
+      : cellText_(row['今日行动']) === '暂停新增待复核' ? '暂停新增待复核' : '';
+    var lines = [];
+    if (hasPayload && events === null) {
+      lines.push((pausedBy ? '暂停中（' + pausedBy + '） · ' : '') + '暂停载荷不可读（不是 JSON 数组），无法列出暂停原因');
+      return lines;
+    }
+    if (events && events.length) {
+      lines.push('暂停中' + (pausedBy ? '（' + pausedBy + '）' : '') + ' · ' + events.length + ' 个暂停事件');
+      events.forEach(function (rec, i) {
+        var prefix = (events.length > 1 ? (i + 1) + '. ' : '');
+        if (!rec || typeof rec !== 'object' || Array.isArray(rec)) {
+          lines.push(prefix + '暂停事件记录不可读');
+          return;
+        }
+        var field = function (name) {
+          var v = rec[name];
+          return v == null || String(v).trim() === '' ? '' : String(v).trim();
+        };
+        lines.push(prefix + [field('事件类别') || '事件类别未提供', field('事件时间') || '事件时间未提供'].join(' · ') +
+          '：' + (field('事件说明') || '事件说明未提供'));
+      });
+      return lines;
+    }
+    if (pausedBy) {
+      lines.push('暂停中（' + pausedBy + '）' + (events ? ' · 暂停载荷为空，报告未列出暂停事件' : ' · 报告未提供暂停事件载荷'));
+      return lines;
+    }
+    if (events) { return ['无暂停']; }
+    return [status === '' ? '未提供' : '无暂停记录（周计划状态：' + status + '）'];
+  }
+
+  function conclusionText_(row) {
+    var action = cellText_(row['今日行动']);
+    var said = cellText_(row['今日行动说明']);
+    if (action === '') { return said === '' ? '未提供' : said; }
+    return said === '' ? action : action + '。' + said;
+  }
+
+  function buildBuyRow_(row, verdict, todos) {
+    var watch = row['资产类型'] === 'watchlist';
+    var head = el('div', { className: 'ios-buy-head' }, [
+      text('strong', null, displayCode_(row['代码'])),
+      isBlank(row['名称']) ? null : text('span', 'ios-muted', row['名称']),
+      watch ? text('span', 'ios-badge ios-badge-muted ios-watch-tag', '观察') : null,
+      text('span', badgeClass('ios-badge ios-badge-today-verdict', TODAY_VERDICT_BADGE_CLASS_[verdict] || ''), verdict || '报告未判断')
+    ]);
+    var fields = el('div', { className: 'ios-buy-fields' }, [
+      judgmentField_('报告时价格', quoteText_(row)),
+      judgmentField_('计划买入区间', planRangeText_(row)),
+      judgmentField_('长期买入上限', row['长期买入上限快照']),
+      judgmentField_('暂停状态', pauseLines_(row)),
+      judgmentField_('资金结论', row['资金结论']),
+      judgmentField_('报告结论', conclusionText_(row), 'ios-buy-field-wide')
+    ]);
+    var children = [head, fields];
+    if (verdict !== '适合买入') {
+      // Every row that is not 适合买入 -- including a watchlist row the report
+      // did not judge -- shows its 当前阻碍 and 阻塞待办ID as written.
+      children.push(judgmentField_('当前阻碍', row['当前阻碍'], 'ios-buy-field-wide'));
+      if (verdict === '无法判断') {
+        var reason = buildReasonLine_(row, verdict);
+        if (reason) { children.push(reason); }
+      }
+      buildBlockerLines_(row, verdict, todos).forEach(function (line) { children.push(line); });
+    }
+    return el('div', { className: 'ios-buy-row' + (watch ? ' ios-buy-row-watch' : ''), attrs: { 'data-code': cellText_(row['代码']) } }, children);
+  }
+
+  function buildBuyJudgment_(vm) {
+    var label = vm.reportType === 'weekly' ? '本周买入判断' : '今日买入判断';
+    var groups = { '适合买入': [], '等待': [], '无法判断': [] };
+    var unjudged = [];
+    buyJudgmentRows_(vm).forEach(function (row) {
+      if (row['资产类型'] === 'watchlist' && cellText_(row['今日行动']) === '') { unjudged.push(row); return; }
+      var verdict = todayVerdict_(row);
+      (groups[verdict] || groups['无法判断']).push({ row: row, verdict: groups[verdict] ? verdict : '无法判断' });
+    });
+    var children = [text('h2', null, label),
+      text('p', 'ios-hint', '结论取自报告的今日行动，页面不自行判断；价格为报告时价格；要不要买由你决定。')];
+    BUY_GROUPS_.forEach(function (pair) {
+      var items = groups[pair[0]];
+      children.push(text('h3', 'ios-buy-group-title', pair[0] + ' (' + items.length + ')'));
+      if (items.length === 0) {
+        children.push(text('p', 'ios-empty-note', pair[1]));
+      } else {
+        items.forEach(function (item) { children.push(buildBuyRow_(item.row, item.verdict, vm.todos)); });
+      }
+    });
+    if (unjudged.length) {
+      children.push(text('h3', 'ios-buy-group-title', '观察（报告未判断） (' + unjudged.length + ')'));
+      unjudged.forEach(function (row) { children.push(buildBuyRow_(row, '', vm.todos)); });
+    }
+    return el('section', { className: 'ios-card ios-buy-judgment' }, children);
+  }
+
+  // -- Issue #396 PR B: count cards. The latest report counts the latest Daily
+  // + Weekly together (the 待办 / 风险 tabs' own numbers) and jumps there; a
+  // history report counts only itself and opens its own list on its page. --
+
+  function buildCountCards_(vm) {
+    var historical = !!STATE.viewingReportId;
+    var reports = historical ? [{ type: vm.reportType, vm: vm }] : latestReports_();
+    var todos = buildTodoGroups_(reports);
+    var risks = riskCounts_(reports);
+    var scope = historical ? '仅这一期' : '含日报+周报';
+    var card = function (panel, main, sub) {
+      return el('button', {
+        className: 'ios-count-card' + (historical && STATE.periodPanel === panel ? ' active' : ''),
+        attrs: { type: 'button', 'data-panel': panel },
+        onclick: function () { historical ? togglePeriodPanel_(panel) : selectTab(panel); }
+      }, [text('span', 'ios-count-main', main + ' →'), text('span', 'ios-count-sub', sub)]);
+    };
+    return el('section', { className: 'ios-count-cards' }, [
+      card('todos', '卡住买入 ' + todos.blockedOpen + ' / 其他待办 ' + todos.others.length, scope),
+      card('risks', '风险 ' + risks.invest + ' 项', '数据维护 ' + risks.maintenance + ' 项 · ' + scope)
+    ]);
+  }
+
+  function togglePeriodPanel_(panel) {
+    STATE.periodPanel = STATE.periodPanel === panel ? null : panel;
+    renderSummarySection();
+  }
+
+  // -- Issue #396 PR B: 本期变化, grouped by each row's own 变化标记 (无可比基线,
+  // blank or unknown read 未比较). No cross-report comparison. --
+
+  function buildPeriodChanges_(vm) {
+    var groups = { changed: [], same: [], uncompared: [] };
+    (vm.holdings || []).concat(vm.watchlistCandidates || []).forEach(function (row) {
+      var flag = cellText_(row['变化标记']);
+      (flag === '有变化' ? groups.changed : flag === '无变化' ? groups.same : groups.uncompared).push(row);
+    });
+    var item = function (row, label) {
+      var said = cellText_(row['较上次变化说明']) || cellText_(row['今日行动说明']);
+      return el('li', null, [
+        el('div', { className: 'ios-buy-head' }, [text('strong', null, assetTitle_(row)),
+          row['资产类型'] === 'watchlist' ? text('span', 'ios-badge ios-badge-muted ios-watch-tag', '观察') : null,
+          text('span', 'ios-badge', label)]),
+        text('p', 'ios-asset-line', said === '' ? '未提供' : said)
+      ]);
+    };
+    var list = function (rows, label) {
+      var ul = el('ul', { className: 'ios-list' });
+      rows.forEach(function (row) { ul.appendChild(item(row, label)); });
+      return ul;
+    };
+    var children = [text('h2', null, '本期变化'),
+      text('p', 'ios-hint', '按本报告每一行自己的变化标记分组；无可比基线显示为未比较。待办和风险见对应计数卡。')];
+    children.push(text('h3', null, '有变化 (' + groups.changed.length + ')'));
+    children.push(groups.changed.length ? list(groups.changed, '有变化') : text('p', 'ios-empty-note', '本期没有标记为有变化的标的。'));
+    if (groups.same.length) {
+      children.push(el('details', { className: 'ios-layer-fold' }, [text('summary', 'ios-layer-fold-title', '无变化 ' + groups.same.length + ' 项（展开查看）'), list(groups.same, '无变化')]));
+    }
+    if (groups.uncompared.length) {
+      children.push(text('h3', null, '未比较 (' + groups.uncompared.length + ')'));
+      children.push(list(groups.uncompared, '未比较'));
+    }
+    return el('section', { className: 'ios-card ios-period-changes' }, children);
   }
 
   /**
@@ -304,25 +530,6 @@
     nodes.push(buildAssetSection('当前持仓', vm.holdings, false, vm.todos));
     nodes.push(buildAssetSection('本期观察候选', vm.watchlistCandidates, true, vm.todos));
     return nodes;
-  }
-
-  /** A history report's own 报告待办, on its own page (the 待办 tab only ever shows the latest reports). */
-  function buildPeriodTodos_(vm) {
-    var type = vm.reportType;
-    var todos = vm.todos || [];
-    var highlighted = STATE.highlightTodoId !== null && todos.some(function (todo) { return todoKey_(type, todo) === STATE.highlightTodoId; });
-    var children = [text('summary', 'ios-layer-fold-title', '本期待办 (' + todos.length + ')（该期快照）'),
-      text('p', 'ios-hint', '只显示这一期自己的待办，不与另一类报告合并。待办 tab 仍是最新日报 + 最新周报的合并结果。')];
-    if (todos.length === 0) {
-      children.push(text('p', 'ios-empty-note', '这一期报告没有待办事项。'));
-    } else {
-      var list = el('ul', { className: 'ios-checklist' });
-      todos.forEach(function (todo) { list.appendChild(buildTodoItem(todo, type, vm)); });
-      children.push(list);
-    }
-    return el('section', { className: 'ios-card ios-period-todos' }, [
-      el('details', { className: 'ios-layer-fold', attrs: highlighted ? { open: 'open', id: 'ios-period-todos' } : { id: 'ios-period-todos' } }, children)
-    ]);
   }
 
   /**
@@ -696,273 +903,16 @@
     return el('div', { className: 'ios-layering' }, children);
   }
 
-  // -- Issue #388 PR C: a conclusion card (要不要动手 / 判断变了没有 / 风险) and
-  // three tiers (必须执行 / 需要复核 / 仅供了解, plus 未比较). Every tier is a
-  // direct lookup on a structured field of this generation's own rows (the
-  // fixed 今日建议 mapping, 周计划状态, 周计划结论, 需要复核, 今日行动, 变化标记,
-  // 风险趋势, an open todo's 事件 复核键); nothing is parsed from prose. One
-  // asset appears once, in its highest tier, with every reason of that tier. --
-
-  var TIER_RISK_UP_ = ['新增', '升级'];
-  var TIER_RISK_INFO_ = ['降级', '数值变化', '无变化', '解除'];
+  // Small cell readers shared by the 买入判断, 本期变化 and 风险 views.
 
   function cellText_(value) {
     return value == null ? '' : String(value).trim();
-  }
-
-  function isTrueCell_(value) {
-    return value === true || cellText_(value).toUpperCase() === 'TRUE';
   }
 
   function assetTitle_(asset) {
     var code = displayCode_(asset['代码']);
     var name = cellText_(asset['名称']);
     return name && name !== code ? code + ' ' + name : code;
-  }
-
-  function changeFlagGap_(flag) {
-    if (flag === '') { return '变化标记未提供'; }
-    if (flag === '无可比基线') { return '无可比基线'; }
-    return '变化标记无法识别';
-  }
-
-  var CONTINUED_PAUSE_REASON_ = '暂停新增延续中（本期无变化）';
-
-  /** One holding/watchlist row: its tier and that tier's reasons. */
-  function assetTier_(asset) {
-    var action = cellText_(asset['今日行动']);
-    var weekly = cellText_(asset['周计划状态']);
-    var flag = cellText_(asset['变化标记']);
-    var holding = asset['资产类型'] === 'holding';
-    var verdict = todayVerdict_(asset);
-    var must = [];
-    if (verdict === '适合买入') { must.push('价格进入本期购买区间，可人工准备限价单'); }
-    // Issue #388 PR E: a pause is 必须执行 only when this generation's own comparison says it changed;
-    // an ongoing one (无变化) is 需要复核, and one with nothing compared falls to 未比较.
-    if (action === '暂停新增待复核' && flag === '有变化') { must.push('暂停新增待复核（本期有变化）'); }
-    if (holding && flag === '有变化') { must.push('持仓判断或动作有变化'); }
-    if (asset['代码'] === 'FUND-SLEEVE' && action === '先核对缺项') { must.push('基金定投数据有缺口，需对账补录'); }
-    if (weekly === '已过期') { must.push('购买计划已过期，需确认新一期'); }
-    if (weekly === '引用失效') { must.push('购买计划引用失效，需确认新一期'); }
-    if (must.length) { return { tier: 'must', reasons: must }; }
-    var review = [];
-    if ((action === '可人工准备限价单' || action === '沿用定投') && verdict === '无法判断') {
-      review.push('报告标注 ' + action + '，但未通过核验');
-    }
-    // A pause in force is shown, but the snapshot cannot prove it started (or became releasable) this period.
-    if (weekly === '事件暂停') { review.push('事件暂停中（快照无法确认是否本期新触发）'); }
-    if (isTrueCell_(asset['需要复核'])) { review.push('入场计划触发复核'); }
-    if (cellText_(asset['周计划结论']) === '长期估值缺失或失效') { review.push('长期估值缺失或失效'); }
-    if (weekly === '暂停记录不可核验' || weekly === '周计划异常') { review.push(weekly); }
-    if (action === '先核对缺项') { review.push('先核对缺项'); }
-    if (action === '暂停新增待复核' && flag === '无变化') { review.push(CONTINUED_PAUSE_REASON_); }
-    if (action === '暂停新增待复核' && review.length && flag !== '无变化') { review.push('暂停新增待复核（' + changeFlagGap_(flag) + '）'); }
-    if (review.length) { return { tier: 'review', reasons: review }; }
-    // A holding's 有变化 is already 必须执行; any flag that compares nothing is 未比较 for holdings and watchlist alike.
-    if (flag !== '无变化' && flag !== '有变化') {
-      return { tier: 'uncompared', reasons: action === '暂停新增待复核' ? ['暂停新增待复核（' + changeFlagGap_(flag) + '）'] : [changeFlagGap_(flag)] };
-    }
-    var info = [];
-    if (action === '沿用定投') { info.push('沿用定投（不是额外申购）'); }
-    else if (action) { info.push(action); }
-    if (flag === '有变化') { info.push('观察有变化'); }
-    else if (flag === '无变化') { info.push('无变化'); }
-    return { tier: 'info', reasons: info.length ? info : ['无执行信号'] };
-  }
-
-  /** One 报告风险 row: 新增/升级 needs review; a trend that compares nothing is 未比较 (#375). */
-  function riskTier_(risk) {
-    var trend = cellText_(risk['风险趋势']);
-    if (TIER_RISK_UP_.indexOf(trend) !== -1) { return { tier: 'review', reasons: ['风险' + trend] }; }
-    if (TIER_RISK_INFO_.indexOf(trend) !== -1) { return { tier: 'info', reasons: ['风险' + trend] }; }
-    return { tier: 'uncompared', reasons: [trend ? '风险趋势：' + trend : '风险趋势未提供'] };
-  }
-
-  /** An open todo's official-event review key 事件|代码|事件类别|来源标识|事件日期, or null. */
-  function eventTodoKey_(todo) {
-    if (isTodoCompleted(todo['状态'] || '待处理')) { return null; }
-    var parts = cellText_(todo['复核键']).split('|');
-    if (parts.length !== 5 || parts[0] !== '事件' || parts[1] === '') { return null; }
-    return { code: parts[1], category: parts[2] };
-  }
-
-  function buildPriorityView_(vm) {
-    var tiers = { must: [], review: [], info: [], uncompared: [] };
-    var byCode = {};
-    var order = 0;
-    (vm.holdings || []).concat(vm.watchlistCandidates || []).forEach(function (asset) {
-      var result = assetTier_(asset);
-      var item = { kind: asset['资产类型'] === 'holding' ? 'holding' : 'watchlist', title: assetTitle_(asset),
-        tier: result.tier, reasons: result.reasons, order: order++ };
-      tiers[result.tier].push(item);
-      byCode[cellText_(asset['代码'])] = item;
-    });
-    // An open official-event review lifts its asset to 需要复核, unless it already sits higher.
-    (vm.todos || []).forEach(function (todo) {
-      var key = eventTodoKey_(todo);
-      if (!key) { return; }
-      var reason = '官方事件待复核' + (key.category ? '（' + key.category + '）' : '');
-      var item = byCode[key.code];
-      if (item && item.tier === 'must') { return; }
-      if (item && item.tier === 'review') {
-        if (item.reasons.indexOf(reason) === -1) { item.reasons.push(reason); }
-        return;
-      }
-      if (item) {
-        tiers[item.tier].splice(tiers[item.tier].indexOf(item), 1);
-        item.tier = 'review';
-        item.reasons = [reason];
-        tiers.review.push(item);
-        tiers.review.sort(function (a, b) { return a.order - b.order; });
-        return;
-      }
-      item = { kind: 'event', title: displayCode_(key.code), tier: 'review', reasons: [reason], order: order++ };
-      byCode[key.code] = item;
-      tiers.review.push(item);
-    });
-    (vm.risks || []).forEach(function (risk) {
-      var result = riskTier_(risk);
-      tiers[result.tier].push({ kind: 'risk', title: cellText_(risk['风险']) || '（未命名风险）', tier: result.tier, reasons: result.reasons });
-    });
-    return tiers;
-  }
-
-  function actionAnswer_(vm, priority) {
-    var none = vm.reportType === 'weekly' ? '本周无需操作' : '今日无需操作';
-    var answer = priority.must.length ? '需要执行 ' + priority.must.length + ' 项（见「必须执行」）' : none;
-    var gaps = priority.uncompared.length ? '另有 ' + priority.uncompared.length + ' 项未比较' : '';
-    if (gaps) { answer += '；' + gaps; }
-    if (!(vm.readerGate && vm.readerGate.current === true)) { answer += '；本报告不作为当前买入依据'; }
-    return answer;
-  }
-
-  function judgmentAnswer_(vm) {
-    var layering = vm.layering;
-    if (vm.reportType === 'weekly') {
-      if (!layering || !layering.weekly) {
-        return '未比较（' + (layering && layering.unreadable ? '周度研究读取失败' : '本报告版本未提供周度研究') + '）';
-      }
-      var judgments = layering.weekly.judgments;
-      if (judgments.changed.length) { return '判断已变化 ' + judgments.changed.length + ' 条（见 ①）'; }
-      if (judgments.maintained.length) { return '判断未变化（维持 ' + judgments.maintained.length + ' 条）'; }
-      return '未比较（本周没有可与上周比较的判断）';
-    }
-    var assets = (vm.holdings || []).concat(vm.watchlistCandidates || []);
-    var changed = assets.filter(function (a) { return cellText_(a['变化标记']) === '有变化'; }).length;
-    var same = assets.filter(function (a) { return cellText_(a['变化标记']) === '无变化'; }).length;
-    var gaps = assets.length - changed - same;
-    if (changed === 0 && same === 0) { return assets.length ? '未比较（变化标记未提供或无可比基线）' : '本期无持仓或观察条目'; }
-    var answer = changed ? changed + ' 只有变化' : '无变化';
-    return gaps ? answer + '；' + gaps + ' 只未比较' : answer;
-  }
-
-  function riskAnswer_(vm) {
-    var risks = vm.risks || [];
-    if (risks.length === 0) { return '本期无风险条目'; }
-    var up = risks.filter(function (r) { return TIER_RISK_UP_.indexOf(cellText_(r['风险趋势'])) !== -1; }).length;
-    var compared = risks.filter(function (r) {
-      var trend = cellText_(r['风险趋势']);
-      return TIER_RISK_UP_.indexOf(trend) !== -1 || TIER_RISK_INFO_.indexOf(trend) !== -1;
-    }).length;
-    if (compared === 0) { return '未比较（风险趋势未提供或不可比较）'; }
-    var answer = up ? '新增或升级 ' + up + ' 条' : '无新增或升级';
-    return compared < risks.length ? answer + '；' + (risks.length - compared) + ' 条未比较' : answer;
-  }
-
-  function buildConclusionCard_(vm, priority) {
-    var rows = [
-      ['要不要动手', actionAnswer_(vm, priority), priority.must.length ? 'ios-conclusion-act' : ''],
-      ['判断变了没有', judgmentAnswer_(vm), ''],
-      ['风险', riskAnswer_(vm), '']
-    ];
-    return el('section', { className: 'ios-conclusion-card' }, [text('p', 'ios-eyebrow', '本期结论')].concat(rows.map(function (row) {
-      return el('div', { className: 'ios-conclusion-row' + (row[2] ? ' ' + row[2] : '') }, [
-        text('span', 'ios-conclusion-label', row[0]),
-        text('strong', 'ios-conclusion-answer', row[1])
-      ]);
-    })));
-  }
-
-  var TIER_KIND_LABEL_ = { holding: '持仓', watchlist: '观察', risk: '风险', event: '事件' };
-
-  function buildTierList_(items) {
-    var list = el('ul', { className: 'ios-list ios-tier-list' });
-    items.forEach(function (item) {
-      list.appendChild(el('li', { className: 'ios-tier-item' }, [
-        text('span', 'ios-badge ios-badge-muted', TIER_KIND_LABEL_[item.kind]),
-        text('strong', null, item.title),
-        text('span', 'ios-tier-reasons', item.reasons.join('；'))
-      ]));
-    });
-    return list;
-  }
-
-  function tierSection_(title, items, emptyNote, className) {
-    var children = [text('h2', null, title + ' (' + items.length + ')')];
-    children.push(items.length ? buildTierList_(items) : text('p', 'ios-empty-note', emptyNote));
-    return el('section', { className: 'ios-card ios-tier-section ' + className }, children);
-  }
-
-  function weeklyFocusSection_(vm) {
-    var weekly = vm.layering && vm.layering.weekly;
-    var children = [text('h2', null, '下周前三项')];
-    if (!weekly) {
-      children.push(text('p', 'ios-empty-note', '未提供（本报告版本未提供周度研究）'));
-    } else if (weekly.focus.length === 0) {
-      children.push(text('p', 'ios-empty-note', '本周未标出下周重点。'));
-    } else {
-      var list = el('ol', { className: 'ios-tier-focus' });
-      weekly.focus.slice(0, 3).forEach(function (row) {
-        list.appendChild(text('li', null, isBlank(row['标题']) ? row['结论'] : row['标题']));
-      });
-      children.push(list);
-      if (weekly.focus.length > 3) { children.push(text('p', 'ios-muted', '另 ' + (weekly.focus.length - 3) + ' 项见 ④。')); }
-    }
-    return el('section', { className: 'ios-card ios-tier-section ios-tier-focus-section' }, children);
-  }
-
-  function isContinuedPauseOnly_(item) {
-    return item.reasons.length > 0 && item.reasons.every(function (reason) { return reason === CONTINUED_PAUSE_REASON_; });
-  }
-
-  /**
-   * Issue #388 PR F: in a Weekly, the 需要复核 items whose only reason is an
-   * ongoing pause fold into one collapsed 「延续暂停 N 项」 row after the
-   * individually listed ones. Tiering, counts and the conclusion card are
-   * unchanged; a Daily pause with nothing compared is 未比较 and never here.
-   */
-  function reviewTierSection_(vm, items) {
-    if (vm.reportType !== 'weekly') { return tierSection_('需要复核', items, '没有需要复核的条目。', 'ios-tier-review'); }
-    var continued = items.filter(isContinuedPauseOnly_);
-    var listed = items.filter(function (item) { return !isContinuedPauseOnly_(item); });
-    var children = [text('h2', null, '需要复核 (' + items.length + ')')];
-    if (listed.length) { children.push(buildTierList_(listed)); }
-    if (continued.length) {
-      children.push(el('details', { className: 'ios-layer-fold ios-continued-pauses' }, [
-        text('summary', 'ios-layer-fold-title', '延续暂停 ' + continued.length + ' 项（展开查看）'),
-        buildTierList_(continued)
-      ]));
-    }
-    if (!items.length) { children.push(text('p', 'ios-empty-note', '没有需要复核的条目。')); }
-    return el('section', { className: 'ios-card ios-tier-section ios-tier-review' }, children);
-  }
-
-  function buildPrioritySection_(vm, priority) {
-    var children = [
-      tierSection_('必须执行', priority.must, vm.reportType === 'weekly' ? '本周无需操作。' : '今日无需操作。', 'ios-tier-must'),
-      reviewTierSection_(vm, priority.review)
-    ];
-    if (vm.reportType === 'weekly') { children.push(weeklyFocusSection_(vm)); }
-    var lower = [layerFoldable_('仅供了解 (' + priority.info.length + ')',
-      priority.info.length ? [buildTierList_(priority.info)] : [text('p', 'ios-empty-note', '没有条目。')], false)];
-    if (priority.uncompared.length) {
-      lower.push(layerFoldable_('未比较 (' + priority.uncompared.length + ')', [buildTierList_(priority.uncompared)], false));
-    }
-    lower.push(text('p', 'ios-muted', vm.layering && vm.layering.daily
-      ? '研究条目、市场环境与第三方数据见下方各节；每只标的的完整依据见下方本期变化与无变化折叠。'
-      : '研究条目、市场环境与第三方数据见下方各节；每只标的的完整依据见顶部「组合」视图。'));
-    children.push(el('section', { className: 'ios-card ios-tier-section ios-tier-lower' }, lower));
-    return el('div', { className: 'ios-tiers' }, children);
   }
 
   // -- Tab content (待办 todos / 持仓明细 holding detail / 风险 risks) --
@@ -1521,6 +1471,7 @@
     STATE.highlightTodoId = (vm && vm.reportType) + '|' + id;
     STATE.highlightTodoNode = null;
     if (STATE.viewingReportId) {
+      STATE.periodPanel = 'todos';
       renderSummarySection();
     } else {
       selectTab('todos');
@@ -2240,8 +2191,9 @@
       text('summary', 'ios-layer-fold-title', title + ' ' + entries.length + ' 项（展开查看）'), list]);
   }
 
-  function buildMergedRisksView_() {
-    var reports = latestReports_();
+  /** The 风险 view of the given reports: the latest two on the 风险 tab, one history report on its own page. */
+  function buildMergedRisksView_(periodReports) {
+    var reports = periodReports || latestReports_();
     if (reports.length === 0) {
       return [el('section', { className: 'ios-card ios-empty-state' }, [
         text('h2', null, '暂无报告'),
@@ -2250,7 +2202,8 @@
     }
     var model = buildRiskModel_(reports);
     var invest = [text('h2', null, '投资风险 (' + model.invest.length + ')'),
-      text('p', 'ios-hint', '合并' + reports.map(function (r) { return '最新' + reportShortLabel_(r); }).join(' 与 ') +
+      text('p', 'ios-hint', (periodReports ? '只显示' + reportShortLabel_(reports[0]) + '这一期自己的风险；风险 tab 仍是最新日报 + 最新周报的合并结果' :
+        '合并' + reports.map(function (r) { return '最新' + reportShortLabel_(r); }).join(' 与 ')) +
         '。同一风险（报告写出的风险键相同）合并为一行并注明来源；没有风险键的风险逐条并列。只列评估为触发的风险。')];
     invest.push(model.invest.length === 0
       ? text('p', 'ios-empty-note', '最新报告未标记任何投资风险——这是合法的空结果，不是错误。')
@@ -2535,8 +2488,9 @@
     return list;
   }
 
-  function buildMergedTodosView_() {
-    var reports = latestReports_();
+  /** The 待办 view of the given reports: the latest two on the 待办 tab, one history report on its own page. */
+  function buildMergedTodosView_(periodReports) {
+    var reports = periodReports || latestReports_();
     if (reports.length === 0) {
       return [el('section', { className: 'ios-card ios-empty-state' }, [
         text('h2', null, '暂无报告'),
@@ -2545,11 +2499,11 @@
     }
     var groups = buildTodoGroups_(reports);
     var open = groups.blockedOpen + groups.others.length;
-    var sources = reports.map(function (r) { return '最新' + reportLabel_(r.type) + ' ' + shortDate_(r.vm.summary && r.vm.summary['报告日期']); });
+    var sources = reports.map(function (r) { return (periodReports ? '' : '最新') + reportShortLabel_(r); });
     var overview = [text('h2', null, '待办')];
     overview.push(text('p', open === 0 ? 'ios-status-line ios-todo-none' : 'ios-status-line', open === 0 ? '本期无需操作' :
       '卡住买入 ' + groups.blockedOpen + ' 项 · 其他待办 ' + groups.others.length + ' 项'));
-    overview.push(text('p', 'ios-hint', '合并' + sources.join(' 与 ') + '。「卡住买入」只收报告买入判断中「阻塞待办ID」引用的待办，同一标的的日报与周报条目并列显示；页面不推断标的归属。状态只有「已完成」或 done 算完成。页面只读报告快照，不能在这里勾选完成。'));
+    overview.push(text('p', 'ios-hint', (periodReports ? '只显示' + sources[0] + '这一期自己的待办，不与另一类报告合并；待办 tab 仍是最新日报 + 最新周报的合并结果' : '合并' + sources.join(' 与 ')) + '。「卡住买入」只收报告买入判断中「阻塞待办ID」引用的待办，同一标的的日报与周报条目并列显示；页面不推断标的归属。状态只有「已完成」或 done 算完成。页面只读报告快照，不能在这里勾选完成。'));
     overview.push(el('div', { className: 'ios-todo-summary' }, [
       text('span', 'ios-badge ios-severity-high', '卡住买入 ' + groups.blockedOpen),
       text('span', 'ios-badge', '其他待办 ' + groups.others.length),
@@ -2920,6 +2874,7 @@
     STATE.activeView = view === 'weekly' ? 'weekly' : 'daily';
     STATE.activeTab = STATE.activeView;
     STATE.viewingReportId = null;
+    STATE.periodPanel = null;
     STATE.displayedViewModel = null;
     STATE.highlightTodoId = null;
     render();
@@ -2929,6 +2884,7 @@
   function backToLatest_() {
     if (STATE.loading) return;
     STATE.viewingReportId = null;
+    STATE.periodPanel = null;
     STATE.displayedViewModel = null;
     STATE.highlightTodoId = null;
     render();
@@ -2941,6 +2897,7 @@
       // The other report type opens at its latest report.
       STATE.activeView = tab;
       STATE.viewingReportId = null;
+      STATE.periodPanel = null;
       STATE.displayedViewModel = null;
     }
     STATE.activeTab = tab;
@@ -2971,6 +2928,7 @@
           STATE.activeTab = result.reportType;
         }
         STATE.viewingReportId = reportId;
+        STATE.periodPanel = null;
         STATE.displayedViewModel = result;
         render();
       })
@@ -2998,6 +2956,7 @@
         setLoading(false);
         STATE.bootstrap = bootstrap;
         STATE.viewingReportId = null;
+        STATE.periodPanel = null;
         STATE.displayedViewModel = null;
         render();
       })

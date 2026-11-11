@@ -466,25 +466,27 @@ body {
 .ios-layering, .ios-layer-group, .ios-layer-unmarked, .ios-layer-verdict { grid-template-columns: minmax(0, 1fr); }
 .ios-layering > *, .ios-layer-group > *, .ios-layer-unmarked > *, .ios-layer-verdict > *, .ios-layer-fact > * { min-width: 0; }
 
-/* Issue #388 PR C: the conclusion card sits first so the three answers are on
-   the first screen; tiers are compact one-line items that wrap on a phone. */
-.ios-conclusion-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; margin-bottom: 12px;
-  padding: 14px 18px; background: var(--ios-card-bg); border: 1px solid var(--ios-border);
-  border-left: 4px solid var(--ios-accent); border-radius: var(--ios-radius); box-shadow: var(--ios-shadow); }
-.ios-conclusion-card .ios-eyebrow { margin: 0; }
-.ios-conclusion-row { display: grid; grid-template-columns: 7em minmax(0, 1fr); gap: 8px; align-items: baseline; }
-.ios-conclusion-row > * { min-width: 0; overflow-wrap: anywhere; }
-.ios-conclusion-label { color: var(--ios-muted); font-size: 0.85rem; }
-.ios-conclusion-act .ios-conclusion-answer { color: var(--ios-severity-high); }
-.ios-tiers { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; margin: 12px 0; }
-.ios-tiers > * { min-width: 0; }
-.ios-tier-section h2 { margin-top: 0; }
-.ios-tier-must { border-left: 4px solid var(--ios-severity-high); }
-.ios-tier-review { border-left: 4px solid var(--ios-severity-medium); }
-.ios-tier-item { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; overflow-wrap: anywhere; }
-.ios-tier-item > * { min-width: 0; }
-.ios-tier-reasons { color: var(--ios-muted); }
-.ios-tier-focus { margin: 0; padding-left: 1.4em; overflow-wrap: anywhere; }
+/* Issue #396 PR B: 买入判断 rows lay the report's fields side by side and wrap
+   on a phone; count cards sit in two columns that stack on a narrow screen. */
+.ios-buy-group-title { margin: 14px 0 6px; font-size: 0.95rem; }
+.ios-buy-row { border: 1px solid var(--ios-border); border-radius: var(--ios-radius); padding: 10px 12px; margin: 8px 0; min-width: 0; }
+.ios-buy-row-watch { border-style: dashed; }
+.ios-buy-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; overflow-wrap: anywhere; }
+.ios-buy-head > * { min-width: 0; }
+.ios-buy-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 6px 12px; margin-top: 8px; }
+.ios-buy-field { display: flex; flex-direction: column; min-width: 0; overflow-wrap: anywhere; }
+.ios-buy-field-wide { grid-column: 1 / -1; margin-top: 6px; }
+.ios-buy-field-label { color: var(--ios-muted); font-size: 0.75rem; }
+.ios-buy-field-line { display: block; overflow-wrap: anywhere; }
+.ios-count-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 12px 0; }
+.ios-count-card { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 12px 14px; text-align: left;
+  font: inherit; color: var(--ios-text); background: var(--ios-card-bg); border: 1px solid var(--ios-border);
+  border-radius: var(--ios-radius); box-shadow: var(--ios-shadow); cursor: pointer; min-width: 0; overflow-wrap: anywhere; }
+.ios-count-card.active { border-color: var(--ios-text); }
+.ios-count-main { font-weight: 600; }
+.ios-count-sub { color: var(--ios-muted); font-size: 0.8rem; }
+.ios-report-detail-head h2 { margin: 18px 0 4px; }
+@media (max-width: 600px) { .ios-count-cards { grid-template-columns: minmax(0, 1fr); } }
 
 .ios-table-wrap { overflow-x: auto; }
 .ios-allocation-cards { display: none; }

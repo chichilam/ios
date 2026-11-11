@@ -680,7 +680,7 @@ test('#396 PR A: a layered Daily shows each asset once, in the report; a Weekly 
   const w = loadWithWindow(null, weekly, 'weekly');
   const wReport = w.document.getElementById('ios-summary-content');
   assert.equal(findAll(wReport, (n) => n.classList.contains('ios-asset-card')).length, 5, 'a Weekly verdict layering has no per-asset cards, so the cards close its page');
-  assert.equal(findAll(wReport, (n) => n.tagName === 'DETAILS' && /无变化/.test(n.children[0].textContent)).length, 0, '#383: a Weekly 无变化 hides nothing');
+  assert.equal(findAll(layering(w.document), (n) => n.tagName === 'DETAILS' && /无变化/.test(n.children[0].textContent)).length, 0, '#383: a Weekly layering hides nothing behind 无变化');
   const legacyDaily = view('daily', null, (t) => {
     t['报告持仓'].forEach((r) => { r['变化标记'] = ''; });
     t['报告风险'].forEach((r) => { r['变化标记'] = ''; });
@@ -692,33 +692,12 @@ test('#396 PR A: a layered Daily shows each asset once, in the report; a Weekly 
     legacyDaily.holdings.length + legacyDaily.watchlistCandidates.length, 'an old Daily without a change layering keeps its cards on its page');
 });
 
-// -- Issue #388 PR C: conclusion card and three tiers --
+// -- Issue #396 PR B: the 日报 / 周报 page is 结论 → 买入判断 → 计数卡 → 本期变化.
+// The #388 PR C conclusion card and three tiers are gone (the issue's "不再出现
+// 三级列表"); their tests went with them. --
 
 function summaryChild(document, className) {
   return findAll(document.getElementById('ios-summary-content'), (n) => n.classList.contains(className))[0];
-}
-
-function conclusion(document) {
-  const card = summaryChild(document, 'ios-conclusion-card');
-  const out = {};
-  card.children.filter((c) => c.classList.contains('ios-conclusion-row')).forEach((row) => {
-    out[row.children[0].textContent] = row.children[1].textContent;
-  });
-  return out;
-}
-
-function tierItems(document, className) {
-  const section = summaryChild(document, className);
-  return findAll(section, (n) => n.classList.contains('ios-tier-item')).map((li) => ({
-    title: li.children[1].textContent, reasons: li.children[2].textContent
-  }));
-}
-
-function lowerFold(document, prefix) {
-  const lower = summaryChild(document, 'ios-tier-lower');
-  const fold = lower.children.find((c) => c.tagName === 'DETAILS' && c.children[0].textContent.startsWith(prefix));
-  if (!fold) return null;
-  return findAll(fold, (n) => n.classList.contains('ios-tier-item')).map((li) => li.children[1].textContent + '：' + li.children[2].textContent);
 }
 
 function current(vmodel) {
@@ -726,280 +705,279 @@ function current(vmodel) {
   return vmodel;
 }
 
-function tiered(assets, extra) {
-  const vmodel = current(view('daily'));
+function weeklyWith(assets, extra) {
+  const vmodel = current(view('weekly'));
   vmodel.holdings = assets.filter((a) => a['资产类型'] === 'holding');
   vmodel.watchlistCandidates = assets.filter((a) => a['资产类型'] === 'watchlist');
-  Object.assign(vmodel, { todos: [], risks: [] }, extra || {});
-  return load(vmodel, null, 'daily');
+  return Object.assign(vmodel, { todos: [], risks: [], riskGroups: { current: [], released: [], unverified: [] }, holdingDetail: [] }, extra || {});
 }
 
-test('PR C: the conclusion card comes first and answers the three questions', () => {
-  const document = load(current(view('daily')), null, 'daily');
-  const children = document.getElementById('ios-summary-content').children;
-  assert.ok(children[0].classList.contains('ios-conclusion-card'), 'first screen: before the metric grid and the headline');
-  assert.deepEqual(Object.keys(conclusion(document)), ['要不要动手', '判断变了没有', '风险']);
-  const order = children.map((c) => c.className.split(' ')[0]);
-  assert.ok(order.indexOf('ios-tiers') < order.indexOf('ios-layering'), 'tiers sit above the existing layering');
-});
-
-test('PR C: Daily fixture tiers by structured fields; one asset appears once, in its highest tier', () => {
-  const document = load(current(view('daily')), null, 'daily');
-  assert.deepEqual(tierItems(document, 'ios-tier-must'), [{ title: 'AAA AAA Co.', reasons: '持仓判断或动作有变化' }]);
-  assert.deepEqual(tierItems(document, 'ios-tier-review'), [], 'AAA’s open 事件 review is not repeated below 必须执行');
-  assert.deepEqual(lowerFold(document, '仅供了解'), ['BBB BBB Co.：无变化']);
-  assert.deepEqual(lowerFold(document, '未比较'), ['DDD DDD Co.：无可比基线', 'CCC CCC Co.：变化标记未提供', 'AI 链集中：风险趋势未提供']);
-  const answers = conclusion(document);
-  assert.equal(answers['要不要动手'], '需要执行 1 项（见「必须执行」）；另有 3 项未比较');
-  assert.equal(answers['判断变了没有'], '1 只有变化；2 只未比较');
-  assert.equal(answers['风险'], '未比较（风险趋势未提供或不可比较）');
-  assert.ok(!JSON.stringify(tierItems(document, 'ios-tier-must')).includes('ZZZ'), 'a failed staged generation never renders');
-});
-
-test('PR C: Weekly fixture uses ① judgments, keeps 记录 keys out and lists 下周前三项', () => {
-  const document = load(null, current(view('weekly')), 'weekly');
-  assert.deepEqual(tierItems(document, 'ios-tier-must'), [{ title: 'BBB BBB Co.', reasons: '持仓判断或动作有变化' }]);
-  assert.deepEqual(tierItems(document, 'ios-tier-review'), [], 'a 记录 review key is not an official event');
-  assert.deepEqual(lowerFold(document, '仅供了解'), ['AAA AAA Co.：等待价格；无变化']);
-  assert.deepEqual(lowerFold(document, '未比较'), ['CCC CCC Co.：无可比基线']);
-  assert.equal(conclusion(document)['判断变了没有'], '判断已变化 1 条（见 ①）');
-  const focus = summaryChild(document, 'ios-tier-focus-section');
-  assert.deepEqual(findAll(focus, (n) => n.tagName === 'LI').length, 2);
-});
-
-test('PR C: 必须执行 rules -- in-range buy, a pause this generation marks changed (PR E), expired or invalid plan, fund data gap', () => {
-  const document = tiered([
-    weeklyAsset({ 代码: 'BUY', 名称: '' }),
-    weeklyAsset({ 代码: 'PAU', 资产类型: 'watchlist', 今日行动: '暂停新增待复核', 执行状态: '暂停复核', 准备状态: '无需准备', 周计划状态: '事件暂停', 变化标记: '有变化' }),
-    weeklyAsset({ 代码: 'EXP', 今日行动: '本周无购买区间', 周计划状态: '已过期', 变化标记: '无变化' }),
-    weeklyAsset({ 代码: 'REF', 今日行动: '本周无购买区间', 周计划状态: '引用失效', 变化标记: '无变化' }),
-    weeklyAsset({ 代码: 'FUND-SLEEVE', 名称: '', 今日行动: '先核对缺项', 变化标记: '无变化' })
-  ]);
-  assert.deepEqual(tierItems(document, 'ios-tier-must'), [
-    { title: 'BUY', reasons: '价格进入本期购买区间，可人工准备限价单' },
-    { title: 'EXP AAA Co.', reasons: '购买计划已过期，需确认新一期' },
-    { title: 'REF AAA Co.', reasons: '购买计划引用失效，需确认新一期' },
-    { title: '基金定投（合计）', reasons: '基金定投数据有缺口，需对账补录' },
-    { title: 'PAU AAA Co.', reasons: '暂停新增待复核（本期有变化）' }
-  ]);
-});
-
-test('PR C: 需要复核 rules -- failed ready row, plan review flag, missing valuation, unverifiable pause, data gap', () => {
-  const document = tiered([
-    weeklyAsset({ 代码: 'BAD', 名称: '', 资金结论: '未核验', 变化标记: '无变化' }),
-    weeklyAsset({ 代码: 'REV', 名称: '', 今日行动: '等待价格', 需要复核: true, 变化标记: '无变化' }),
-    weeklyAsset({ 代码: 'STR', 名称: '', 今日行动: '等待价格', 需要复核: 'TRUE', 变化标记: '无变化' }),
-    weeklyAsset({ 代码: 'VAL', 名称: '', 今日行动: '本周无购买区间', 周计划结论: '长期估值缺失或失效', 变化标记: '无变化' }),
-    weeklyAsset({ 代码: 'UNV', 名称: '', 今日行动: '先核对缺项', 周计划状态: '暂停记录不可核验', 变化标记: '无变化' }),
-    weeklyAsset({ 代码: 'NOT', 名称: '', 今日行动: '等待价格', 需要复核: false, 变化标记: '无变化' })
-  ]);
-  assert.deepEqual(tierItems(document, 'ios-tier-review'), [
-    { title: 'BAD', reasons: '报告标注 可人工准备限价单，但未通过核验' },
-    { title: 'REV', reasons: '入场计划触发复核' },
-    { title: 'STR', reasons: '入场计划触发复核' },
-    { title: 'VAL', reasons: '长期估值缺失或失效' },
-    { title: 'UNV', reasons: '暂停记录不可核验；先核对缺项' }
-  ]);
-  assert.deepEqual(tierItems(document, 'ios-tier-must'), []);
-  assert.deepEqual(lowerFold(document, '仅供了解'), ['NOT：等待价格；无变化']);
-});
-
-test('PR C: a gated or hold-mode ready row is never 必须执行', () => {
-  const document = tiered([
-    weeklyAsset({ 代码: 'GAT', 名称: '', 变化标记: '无变化', _iosOrderable: { ok: false, message: '纪元已变化' } }),
-    weeklyAsset({ 代码: 'HLD', 名称: '', 变化标记: '无变化', _iosPurchaseMode: 'three_layer_hold' })
-  ]);
-  assert.deepEqual(tierItems(document, 'ios-tier-must'), []);
-  assert.deepEqual(tierItems(document, 'ios-tier-review').map((i) => i.title), ['GAT', 'HLD']);
-});
-
-test('PR C: an open official-event review lifts its asset to 需要复核 once; a closed one or an unknown code does not duplicate', () => {
-  const todo = (key, status) => ({ 待办ID: key, 待办: 'x', 状态: status || '待处理', 复核键: key, 排序: 1 });
-  const document = tiered([
-    weeklyAsset({ 代码: 'INF', 名称: '', 今日行动: '等待价格', 变化标记: '无变化' }),
-    weeklyAsset({ 代码: 'REV', 名称: '', 今日行动: '等待价格', 需要复核: true, 变化标记: '无变化' }),
-    weeklyAsset({ 代码: 'DON', 名称: '', 今日行动: '等待价格', 变化标记: '无变化' })
-  ], { todos: [
-    todo('事件|INF|业绩或指引|TDNET-1|2026-11-07'),
-    todo('事件|INF|业绩或指引|TDNET-2|2026-11-08'),
-    todo('事件|REV|重大公司行动|8-K-9|2026-11-07'),
-    todo('事件|DON|业绩或指引|TDNET-3|2026-11-07', '已完成'),
-    todo('事件|NEW|监管或法律|SEC-1|2026-11-07'),
-    todo('记录|INF|入场计划|v3|估值缺失')
-  ] });
-  assert.deepEqual(tierItems(document, 'ios-tier-review'), [
-    { title: 'INF', reasons: '官方事件待复核（业绩或指引）' },
-    { title: 'REV', reasons: '入场计划触发复核；官方事件待复核（重大公司行动）' },
-    { title: 'NEW', reasons: '官方事件待复核（监管或法律）' }
-  ]);
-  assert.deepEqual(lowerFold(document, '仅供了解'), ['DON：等待价格；无变化']);
-});
-
-test('PR C: risks -- 新增/升级 need review, a compared trend is for information, anything else is 未比较', () => {
-  const risk = (name, trend) => ({ 风险: name, 风险趋势: trend, 排序: 1 });
-  const document = tiered([], { risks: [
-    risk('R新增', '新增'), risk('R升级', '升级'), risk('R降级', '降级'), risk('R解除', '解除'),
-    risk('R首次', '首次记录'), risk('R迁移', '迁移缺口'), risk('R空', '')
-  ] });
-  assert.deepEqual(tierItems(document, 'ios-tier-review'), [
-    { title: 'R新增', reasons: '风险新增' }, { title: 'R升级', reasons: '风险升级' }
-  ]);
-  assert.deepEqual(lowerFold(document, '仅供了解'), ['R降级：风险降级', 'R解除：风险解除']);
-  assert.deepEqual(lowerFold(document, '未比较'), ['R首次：风险趋势：首次记录', 'R迁移：风险趋势：迁移缺口', 'R空：风险趋势未提供']);
-  assert.equal(conclusion(document)['风险'], '新增或升级 2 条；3 条未比较');
-});
-
-test('PR C: no 必须执行 says 今日/本周无需操作; a non-current report says it is not a buy basis', () => {
-  const quiet = tiered([weeklyAsset({ 代码: 'Q', 今日行动: '等待价格', 变化标记: '无变化' })], { risks: [] });
-  assert.equal(conclusion(quiet)['要不要动手'], '今日无需操作');
-  assert.match(summaryChild(quiet, 'ios-tier-must').textContent, /今日无需操作。/);
-  assert.equal(conclusion(quiet)['风险'], '本期无风险条目');
-  assert.equal(conclusion(quiet)['判断变了没有'], '无变化');
-  const weekly = current(view('weekly'));
-  weekly.holdings = [weeklyAsset({ 今日行动: '等待价格', 变化标记: '无变化' })];
-  weekly.watchlistCandidates = [];
-  weekly.todos = [];
-  weekly.readerGate = { current: false, banner: '纪元已变化' };
-  const w = load(null, weekly, 'weekly');
-  assert.equal(conclusion(w)['要不要动手'], '本周无需操作；本报告不作为当前买入依据');
-});
-
-test('PR C: a pre-#364 Weekly and a pre-#306 Daily render as 未比较, nothing back-filled', () => {
-  const legacy = view('weekly', 'weekly-2026-10-24');
-  assert.equal(legacy.layering.legacy, true);
-  const w = load(null, legacy, 'weekly');
-  assert.equal(conclusion(w)['判断变了没有'], '未比较（本报告版本未提供周度研究）');
-  assert.match(summaryChild(w, 'ios-tier-focus-section').textContent, /未提供（本报告版本未提供周度研究）/);
-  const old = view('daily', null, (t) => {
-    t['报告持仓'].forEach((r) => { r['变化标记'] = ''; });
-    t['报告风险'].forEach((r) => { r['变化标记'] = ''; });
+/** { group title: [code, ...] } of the 买入判断 block, in page order. */
+function buyGroups(document) {
+  const block = summaryChild(document, 'ios-buy-judgment');
+  const out = {};
+  let current = null;
+  block.children.forEach((c) => {
+    if (c.tagName === 'H3') { current = c.textContent.replace(/ \(\d+\)$/, ''); out[current] = []; }
+    if (c.classList.contains('ios-buy-row')) out[current].push(c.getAttribute('data-code'));
   });
-  const d = load(old, null, 'daily');
-  assert.equal(conclusion(d)['判断变了没有'], '未比较（变化标记未提供或无可比基线）');
-  assert.deepEqual(tierItems(d, 'ios-tier-must'), []);
-  assert.deepEqual(lowerFold(d, '未比较'), ['BBB BBB Co.：变化标记未提供', 'DDD DDD Co.：变化标记未提供', 'CCC CCC Co.：变化标记未提供',
-    'AI 链集中：风险趋势未提供']);
-  assert.deepEqual(tierItems(d, 'ios-tier-review'), [{ title: 'AAA AAA Co.', reasons: '官方事件待复核（业绩或指引）' }],
-    'the open 事件 review still lifts AAA; an unflagged holding is never assumed unchanged');
+  return out;
+}
+
+function buyRow(document, code) {
+  return findAll(summaryChild(document, 'ios-buy-judgment'), (n) => n.classList.contains('ios-buy-row') && n.getAttribute('data-code') === code)[0];
+}
+
+test('#396 PR B: the report page reads 结论 → 买入判断 → 计数卡 → 本期变化, then the report detail; no tiers or conclusion card', () => {
+  const { document, window } = loadWithWindow(null, weeklyWith([weeklyAsset()]), 'weekly');
+  window.selectTab('weekly');
+  const order = document.getElementById('ios-summary-content').children.map((c) => c.className.split(' ').filter((x) => x !== 'ios-card')[0]);
+  assert.deepEqual(order.slice(0, 6), ['ios-headline-card', 'ios-report-caption', 'ios-buy-judgment', 'ios-count-cards', 'ios-period-changes', 'ios-report-detail-head']);
+  assert.equal(summaryChild(document, 'ios-tiers'), undefined);
+  assert.equal(summaryChild(document, 'ios-conclusion-card'), undefined);
+  assert.doesNotMatch(document.getElementById('ios-summary-content').textContent, /必须执行|仅供了解/);
+  assert.match(summaryChild(document, 'ios-buy-judgment').children[0].textContent, /^本周买入判断$/);
+  assert.match(summaryChild(document, 'ios-buy-judgment').textContent, /结论取自报告的今日行动，页面不自行判断；价格为报告时价格；要不要买由你决定。/);
 });
 
-test('PR C review: a watchlist row whose 变化标记 compares nothing is 未比较, never 仅供了解; triggers still win', () => {
-  const watch = (code, flag, extra) => weeklyAsset(Object.assign({ 代码: code, 名称: '', 资产类型: 'watchlist', 今日行动: '等待价格', 变化标记: flag }, extra || {}));
-  const document = tiered([
-    watch('WBL', ''), watch('WNB', '无可比基线'), watch('WUK', '有些变化'), watch('WNC', '无变化'), watch('WCH', '有变化'),
-    watch('WMI', undefined),
-    watch('WRV', '', { 需要复核: true }), watch('WBY', '', { 今日行动: '可人工准备限价单' })
-  ]);
-  assert.deepEqual(lowerFold(document, '未比较'), ['WBL：变化标记未提供', 'WNB：无可比基线', 'WUK：变化标记无法识别', 'WMI：变化标记未提供']);
-  assert.deepEqual(lowerFold(document, '仅供了解'), ['WNC：等待价格；无变化', 'WCH：等待价格；观察有变化']);
-  assert.deepEqual(tierItems(document, 'ios-tier-review'), [{ title: 'WRV', reasons: '入场计划触发复核' }]);
-  assert.deepEqual(tierItems(document, 'ios-tier-must'), [{ title: 'WBY', reasons: '价格进入本期购买区间，可人工准备限价单' }]);
-  const answers = conclusion(document);
-  assert.equal(answers['要不要动手'], '需要执行 1 项（见「必须执行」）；另有 4 项未比较');
-  assert.equal(answers['判断变了没有'], '1 只有变化；6 只未比较', 'the card and the tiers count the same rows as 未比较');
-});
-
-test('PR C review 2: an ongoing 事件暂停 alone is 需要复核, never 必须执行; an independent trigger still lifts it', () => {
-  const pause = (code, extra) => weeklyAsset(Object.assign({ 代码: code, 名称: '', 今日行动: '本周无购买区间', 执行状态: '等待价格',
-    准备状态: '无需准备', 周计划状态: '事件暂停', 变化标记: '无变化' }, extra || {}));
+test('#396 PR B: 买入判断 groups by the fixed 今日建议 mapping; a gated, inconsistent or hold row never shows as 适合买入', () => {
   const rows = [
-    pause('STAY'),
-    pause('CHG', { 变化标记: '有变化' }),
-    pause('ACT', { 今日行动: '暂停新增待复核', 执行状态: '暂停复核' }),
-    pause('WAT', { 资产类型: 'watchlist' })
+    weeklyAsset({ 代码: 'BUY' }),
+    weeklyAsset({ 代码: 'GATE', _iosOrderable: { ok: false, message: '有未纳入本报告的暂停事件' } }),
+    weeklyAsset({ 代码: 'FUNDS', 资金结论: '未核验' }),
+    weeklyAsset({ 代码: 'BLOCK', 阻塞待办ID: 'T-1' }),
+    weeklyAsset({ 代码: 'HOLD', _iosPurchaseMode: 'three_layer_hold' }),
+    weeklyAsset({ 代码: 'WAIT', 今日行动: '等待价格', 今日行动说明: '高于区间', 当前阻碍: '报告时价格高于计划买入区间', 阻塞待办ID: '无' }),
+    weeklyAsset({ 代码: 'NONE', 今日行动: '' }),
+    weeklyAsset({ 代码: 'WREADY', 资产类型: 'watchlist' }),
+    weeklyAsset({ 代码: 'WBLANK', 资产类型: 'watchlist', 今日行动: '' }),
+    weeklyAsset({ 代码: 'FUND-SLEEVE', 今日行动: '沿用定投' })
   ];
-  const daily = tiered(rows);
-  assert.deepEqual(tierItems(daily, 'ios-tier-must'), [
-    { title: 'CHG', reasons: '持仓判断或动作有变化' }
-  ]);
-  assert.deepEqual(tierItems(daily, 'ios-tier-review'), [
-    { title: 'STAY', reasons: '事件暂停中（快照无法确认是否本期新触发）' },
-    { title: 'ACT', reasons: '事件暂停中（快照无法确认是否本期新触发）；暂停新增延续中（本期无变化）' },
-    { title: 'WAT', reasons: '事件暂停中（快照无法确认是否本期新触发）' }
-  ]);
-  assert.equal(conclusion(daily)['要不要动手'], '需要执行 1 项（见「必须执行」）');
-  const quiet = tiered([pause('STAY')]);
-  assert.equal(conclusion(quiet)['要不要动手'], '今日无需操作', 'an unchanged pause never counts as an action');
-  const weekly = current(view('weekly'));
-  weekly.holdings = [pause('STAY', { 报告类型: 'weekly' })];
-  weekly.watchlistCandidates = [];
-  weekly.todos = [];
-  weekly.risks = [];
-  const w = load(null, weekly, 'weekly');
-  assert.deepEqual(tierItems(w, 'ios-tier-must'), []);
-  assert.deepEqual(tierItems(w, 'ios-tier-review').map((i) => i.title), ['STAY']);
-  assert.equal(conclusion(w)['要不要动手'], '本周无需操作');
+  const { document } = loadWithWindow(null, weeklyWith(rows, { todos: [{ 待办ID: 'T-1', 待办: '核对', 状态: '待处理' }] }), 'weekly');
+  assert.deepEqual(buyGroups(document), {
+    '适合买入': ['BUY', 'WREADY'],
+    '等待': ['WAIT'],
+    '无法判断': ['GATE', 'FUNDS', 'BLOCK', 'HOLD', 'NONE'],
+    '观察（报告未判断）': ['WBLANK']
+  });
+  assert.doesNotMatch(summaryChild(document, 'ios-buy-judgment').textContent, /基金定投|FUND-SLEEVE/, 'the fund aggregate is not part of 买入判断');
+  assert.match(buyRow(document, 'GATE').textContent, /无法判断原因: 有未纳入本报告的暂停事件，请勿据此下单/);
+  assert.match(buyRow(document, 'WREADY').textContent, /观察/);
+  assert.doesNotMatch(buyRow(document, 'BUY').textContent, /当前阻碍/, 'a 适合买入 row shows no blocker line');
+  assert.match(buyRow(document, 'WAIT').textContent, /当前阻碍报告时价格高于计划买入区间/);
 });
 
-test('PR E: 暂停新增待复核 is 必须执行 only when the generation marks the row changed; ongoing is 需要复核, uncompared is 未比较', () => {
-  const pause = (code, flag, extra) => weeklyAsset(Object.assign({ 代码: code, 名称: '', 资产类型: 'watchlist', 今日行动: '暂停新增待复核',
-    执行状态: '暂停复核', 准备状态: '无需准备', 周计划状态: '有效', 变化标记: flag }, extra || {}));
-  const document = tiered([
-    pause('NEW', '有变化'),
-    pause('OLD', '无变化'),
-    pause('BLK', ''),
-    pause('NOB', '无可比基线'),
-    pause('FLG', '', { 需要复核: true }),
-    pause('HLD', '无变化', { 资产类型: 'holding' })
-  ]);
-  assert.deepEqual(tierItems(document, 'ios-tier-must'), [{ title: 'NEW', reasons: '暂停新增待复核（本期有变化）' }]);
-  assert.deepEqual(tierItems(document, 'ios-tier-review'), [
-    { title: 'HLD', reasons: '暂停新增延续中（本期无变化）' },
-    { title: 'OLD', reasons: '暂停新增延续中（本期无变化）' },
-    { title: 'FLG', reasons: '入场计划触发复核；暂停新增待复核（变化标记未提供）' }
-  ]);
-  assert.deepEqual(lowerFold(document, '未比较'), ['BLK：暂停新增待复核（变化标记未提供）', 'NOB：暂停新增待复核（无可比基线）']);
-  const ongoing = tiered([pause('OLD', '无变化'), pause('HLD', '无变化', { 资产类型: 'holding' })]);
-  assert.equal(conclusion(ongoing)['要不要动手'], '今日无需操作', 'ongoing pauses alone never ask for action');
+test('#396 PR B: each row shows only report fields side by side, the price labelled as the report-time price, missing as 未提供', () => {
+  const rows = [weeklyAsset(), weeklyAsset({ 代码: 'GAP', 今日行动: '先核对缺项', 今日行动说明: '', 当前价格: '', 计划买入下限: '', 计划买入上限: '',
+    长期买入上限快照: '', 资金结论: '', 周计划状态: '事件暂停', 暂停事件载荷: '[{"事件":"x"}]', 当前阻碍: '本次报告没有可靠报价', 阻塞待办ID: '无' })];
+  const { document } = loadWithWindow(null, weeklyWith(rows), 'weekly');
+  const fields = (code) => Object.fromEntries(findAll(buyRow(document, code), (n) => n.classList.contains('ios-buy-field'))
+    .map((f) => [f.children[0].textContent, f.children[1].textContent]));
+  assert.deepEqual(fields('AAA'), {
+    报告时价格: '365 USD · 收盘 · 截至 2026-11-06 16:00 美东', 计划买入区间: '350 USD – 380 USD', 长期买入上限: '400',
+    暂停状态: '无暂停记录（周计划状态：有效）', 资金结论: '已核验充足', 报告结论: '可人工准备限价单。人工准备限价单，最高 380 USD，当日有效'
+  });
+  assert.deepEqual(fields('GAP'), {
+    报告时价格: '价格未提供 USD · 收盘 · 截至 2026-11-06 16:00 美东', 计划买入区间: '未提供', 长期买入上限: '未提供',
+    暂停状态: '暂停中（事件暂停） · 1 个暂停事件事件类别未提供 · 事件时间未提供：事件说明未提供',
+    资金结论: '未提供', 报告结论: '先核对缺项', 当前阻碍: '本次报告没有可靠报价'
+  });
+  assert.doesNotMatch(summaryChild(document, 'ios-buy-judgment').textContent, /%|高于区间|低于区间/, 'no distance or percentage is computed');
 });
 
-test('PR F: a Weekly folds 需要复核 items whose only reason is an ongoing pause into one 「延续暂停 N 项」 row; counts unchanged', () => {
-  const pause = (code, flag, extra) => weeklyAsset(Object.assign({ 代码: code, 名称: '', 报告类型: 'weekly', 资产类型: 'watchlist',
-    今日行动: '暂停新增待复核', 执行状态: '暂停复核', 准备状态: '无需准备', 周计划状态: '有效', 变化标记: flag }, extra || {}));
-  const weekly = current(view('weekly'));
-  weekly.holdings = [pause('HLD', '无变化', { 资产类型: 'holding' })];
-  weekly.watchlistCandidates = [
-    pause('NEW', '有变化'),
-    pause('OLD', '无变化'),
-    pause('MIX', '无变化', { 需要复核: true }),
-    pause('BLK', ''),
-    weeklyAsset({ 代码: 'RVW', 名称: '', 报告类型: 'weekly', 资产类型: 'watchlist', 今日行动: '等待价格', 变化标记: '无变化', 需要复核: true })
+test('#396 PR B: a blocker on the latest report jumps to the 待办 tab and highlights that todo', () => {
+  const weekly = weeklyWith([weeklyAsset({ 今日行动: '等待确认', 当前阻碍: '等待官方事件复核', 阻塞待办ID: 'T-9' })],
+    { todos: [{ 待办ID: 'T-9', 待办: '复核官方事件', 状态: '待处理' }] });
+  const { document, window } = loadWithWindow(null, weekly, 'weekly');
+  window.selectTab('weekly');
+  findAll(buyRow(document, 'AAA'), (n) => n.classList.contains('ios-blocker-link'))[0].click();
+  assert.ok(document.getElementById('ios-tab-todos').classList.contains('active'));
+  const lit = findAll(document.getElementById('ios-tab-content'), (n) => n.classList.contains('ios-todo-highlight'));
+  assert.deepEqual(lit.map((n) => n.getAttribute('data-todo-key')), ['weekly|T-9']);
+});
+
+test('#396 PR B: on the latest report the count cards add Daily + Weekly, say so, and jump to their tab', () => {
+  const risk = (key, evaluation) => ({ 风险: key, 风险键: key, 风险评估: evaluation, 严重度: evaluation === '触发' ? '中' : '' });
+  const riskRows = (rows) => ({ risks: rows, riskGroups: logic.buildRiskGroups_(rows) });
+  const weekly = weeklyWith([weeklyAsset({ 今日行动: '等待确认', 阻塞待办ID: 'T-1' })], Object.assign({
+    todos: [{ 待办ID: 'T-1', 待办: 'w blocker', 状态: '待处理' }, { 待办: 'w other', 状态: '待处理' }]
+  }, riskRows([risk('a|A|R1', '触发'), risk('b|B|R2', '未触发')])));
+  const daily = current(view('daily'));
+  Object.assign(daily, { holdings: [], watchlistCandidates: [], holdingDetail: [{ code: 'AAA', name: '', valuation: { researchStale: true, researchDate: 'x' } }],
+    todos: [{ 待办: 'd other', 状态: '未完成' }, { 待办: 'd done', 状态: '已完成' }] }, riskRows([risk('a|A|R1', '触发'), risk('c|C|R3', '触发')]));
+  const { document, window } = loadWithWindow(daily, weekly, 'weekly');
+  window.selectTab('weekly');
+  const cards = summaryChild(document, 'ios-count-cards').children;
+  assert.deepEqual(cards.map((c) => c.textContent), ['卡住买入 1 / 其他待办 2 →含日报+周报', '风险 2 项 →数据维护 1 项 · 含日报+周报']);
+  cards[1].click();
+  assert.ok(document.getElementById('ios-tab-risks').classList.contains('active'));
+  window.selectTab('weekly');
+  summaryChild(document, 'ios-count-cards').children[0].click();
+  assert.ok(document.getElementById('ios-tab-todos').classList.contains('active'));
+});
+
+test('#396 PR B: a history report counts only itself, opens its own lists on its page and shows its own 买入判断', () => {
+  const latest = weeklyWith([weeklyAsset({ 代码: 'NEW' })], { todos: [{ 待办: 'latest', 状态: '待处理' }] });
+  const history = Object.assign(weeklyWith([weeklyAsset({ 代码: 'OLD', 今日行动: '等待确认', 当前阻碍: '旧阻碍', 阻塞待办ID: 'H-1' })], {
+    todos: [{ 待办ID: 'H-1', 待办: 'history blocker', 状态: '待处理' }],
+    risks: [{ 风险: '历史风险', 严重度: '高' }], riskGroups: { current: [{ 风险: '历史风险', 严重度: '高' }], released: [], unverified: [] }
+  }), { error: null });
+  history.summary = Object.assign({}, history.summary, { 报告ID: 'weekly-2026-10-31', 报告日期: '2026-10-31' });
+  const { document, window } = loadWithWindow(null, latest, 'weekly', { getReport: () => history });
+  window.selectHistoryReport('weekly-2026-10-31');
+  assert.deepEqual(buyGroups(document)['等待'], ['OLD']);
+  assert.deepEqual(buyGroups(document)['适合买入'], [], 'the latest report\'s rows never leak into a history page');
+  const cards = summaryChild(document, 'ios-count-cards').children;
+  assert.deepEqual(cards.map((c) => c.textContent), ['卡住买入 1 / 其他待办 0 →仅这一期', '风险 1 项 →数据维护 0 项 · 仅这一期']);
+  cards[1].click();
+  assert.ok(document.getElementById('ios-tab-weekly').classList.contains('active'), 'a history card never jumps to the latest tab');
+  assert.match(summaryChild(document, 'ios-period-panel').textContent, /历史风险[\s\S]*风险 tab 仍是最新日报 \+ 最新周报的合并结果|风险 tab 仍是最新日报 \+ 最新周报的合并结果[\s\S]*历史风险/);
+  findAll(buyRow(document, 'OLD'), (n) => n.classList.contains('ios-blocker-link'))[0].click();
+  const panel = summaryChild(document, 'ios-period-panel');
+  assert.equal(panel.getAttribute('data-panel'), 'todos');
+  assert.deepEqual(findAll(panel, (n) => n.classList.contains('ios-todo-highlight')).map((n) => n.getAttribute('data-todo-key')), ['weekly|H-1']);
+  assert.doesNotMatch(panel.textContent, /latest/);
+});
+
+test('#396 PR B: 本期变化 groups rows by their own 变化标记; 无可比基线 and blank read 未比较; 无变化 folds', () => {
+  const rows = [
+    weeklyAsset({ 代码: 'CHG', 变化标记: '有变化', 较上次变化说明: '区间下调' }),
+    weeklyAsset({ 代码: 'SAME', 变化标记: '无变化', 较上次变化说明: '' }),
+    weeklyAsset({ 代码: 'BASE', 变化标记: '无可比基线' }),
+    weeklyAsset({ 代码: 'BLANK', 变化标记: '' }),
+    weeklyAsset({ 代码: 'FUND-SLEEVE', 变化标记: '无变化', 今日行动: '沿用定投', 今日行动说明: '定投照常' })
   ];
-  weekly.todos = [];
-  weekly.risks = [];
-  const w = load(null, weekly, 'weekly');
-  const section = summaryChild(w, 'ios-tier-review');
-  assert.equal(section.children[0].textContent, '需要复核 (4)', 'the tier count still includes the folded items');
-  const listed = section.children.find((c) => c.tagName === 'UL');
-  assert.deepEqual(listed.children.map((li) => li.children[1].textContent), ['MIX', 'RVW'],
-    'an item with any other reason is listed one by one, first');
+  const { document } = loadWithWindow(null, weeklyWith(rows), 'weekly');
+  const section = summaryChild(document, 'ios-period-changes');
+  const t = section.textContent;
+  assert.match(t, /有变化 \(1\)CHG AAA Co\.有变化区间下调/);
   const fold = section.children.find((c) => c.tagName === 'DETAILS');
-  assert.ok(fold.classList.contains('ios-continued-pauses'));
-  assert.equal(fold.getAttribute('open'), null, 'folded by default');
-  assert.equal(fold.children[0].textContent, '延续暂停 2 项（展开查看）');
-  const folded = findAll(fold, (n) => n.classList.contains('ios-tier-item'));
-  assert.equal(folded.length, 2, 'N equals the rows inside');
-  assert.deepEqual(folded.map((li) => li.children[1].textContent + '：' + li.children[2].textContent),
-    ['HLD：暂停新增延续中（本期无变化）', 'OLD：暂停新增延续中（本期无变化）'], 'titles and reasons unchanged');
-  assert.deepEqual(tierItems(w, 'ios-tier-must'), [{ title: 'NEW', reasons: '暂停新增待复核（本期有变化）' }]);
-  assert.deepEqual(lowerFold(w, '未比较'), ['BLK：暂停新增待复核（变化标记未提供）'], 'an uncompared pause stays in 未比较, never in the fold');
-  assert.equal(conclusion(w)['要不要动手'], '需要执行 1 项（见「必须执行」）；另有 1 项未比较', 'the conclusion card wording is unchanged');
+  assert.equal(fold.getAttribute('open'), null);
+  assert.match(fold.textContent, /^无变化 2 项（展开查看）[\s\S]*基金定投（合计）[\s\S]*定投照常/);
+  assert.match(t, /未比较 \(2\)BASE[\s\S]*BLANK/);
+  const badges = findAll(section, (n) => n.classList.contains('ios-badge')).map((n) => n.textContent);
+  assert.ok(!badges.includes('无可比基线'), '无可比基线 reads 未比较');
 });
 
-test('PR F: a Weekly with only ongoing pauses shows just the fold; a Daily never folds', () => {
-  const pause = (code, type) => weeklyAsset({ 代码: code, 名称: '', 报告类型: type, 资产类型: 'watchlist', 今日行动: '暂停新增待复核',
-    执行状态: '暂停复核', 准备状态: '无需准备', 周计划状态: '有效', 变化标记: '无变化' });
-  const weekly = current(view('weekly'));
-  weekly.holdings = [];
-  weekly.watchlistCandidates = [pause('A1', 'weekly'), pause('A2', 'weekly')];
-  weekly.todos = [];
-  weekly.risks = [];
-  const w = load(null, weekly, 'weekly');
-  const section = summaryChild(w, 'ios-tier-review');
-  assert.equal(section.children.filter((c) => c.tagName === 'UL').length, 0);
-  assert.equal(section.children.find((c) => c.tagName === 'DETAILS').children[0].textContent, '延续暂停 2 项（展开查看）');
-  const d = tiered([pause('A1', 'daily'), pause('A2', 'daily')]);
-  const daily = summaryChild(d, 'ios-tier-review');
-  assert.equal(daily.children.filter((c) => c.tagName === 'DETAILS').length, 0, 'the Daily list is unchanged');
-  assert.deepEqual(tierItems(d, 'ios-tier-review').map((i) => i.title), ['A1', 'A2']);
+// -- #396 PR B review: nothing the snapshot says is hidden from 买入判断. --
+
+function fieldLines(document, code, label) {
+  const field = findAll(buyRow(document, code), (n) => n.classList.contains('ios-buy-field'))
+    .find((f) => f.children[0].textContent === label);
+  if (!field) return null;
+  const value = field.children[1];
+  return value.children.length ? value.children.map((c) => c.textContent) : [value.textContent];
+}
+
+test('#396 PR B review: a watchlist row the report did not judge still shows 当前阻碍 and its blocker links', () => {
+  const rows = [
+    weeklyAsset({ 代码: 'WOPEN', 资产类型: 'watchlist', 今日行动: '', 当前阻碍: '等待官方证据', 阻塞待办ID: 'T-1' }),
+    weeklyAsset({ 代码: 'WMISS', 资产类型: 'watchlist', 今日行动: '', 当前阻碍: '', 阻塞待办ID: 'T-404' }),
+    weeklyAsset({ 代码: 'WDONE', 资产类型: 'watchlist', 今日行动: '', 当前阻碍: '已核对', 阻塞待办ID: 'T-2' }),
+    weeklyAsset({ 代码: 'WNONE', 资产类型: 'watchlist', 今日行动: '', 当前阻碍: '', 阻塞待办ID: '无' }),
+    weeklyAsset({ 代码: 'WBLANK', 资产类型: 'watchlist', 今日行动: '', 当前阻碍: '', 阻塞待办ID: '' })
+  ];
+  const todos = [{ 待办ID: 'T-1', 待办: '取得官方证据', 状态: '待处理' }, { 待办ID: 'T-2', 待办: '已做', 状态: 'done' }];
+  const { document, window } = loadWithWindow(null, weeklyWith(rows, { todos }), 'weekly');
+  window.selectTab('weekly');
+  assert.deepEqual(buyGroups(document)['观察（报告未判断）'], ['WOPEN', 'WMISS', 'WDONE', 'WNONE', 'WBLANK']);
+  assert.deepEqual(fieldLines(document, 'WOPEN', '当前阻碍'), ['等待官方证据']);
+  assert.deepEqual(fieldLines(document, 'WMISS', '当前阻碍'), ['未提供']);
+  assert.match(buyRow(document, 'WMISS').textContent, /关联异常: 待办 T-404 不在本报告中/);
+  assert.match(buyRow(document, 'WDONE').textContent, /关联异常: 待办 T-2 已标记完成，仍被列为阻碍/);
+  assert.match(buyRow(document, 'WNONE').textContent, /阻塞待办: 无/);
+  assert.match(buyRow(document, 'WBLANK').textContent, /阻塞待办: 本报告版本未提供关联/);
+  findAll(buyRow(document, 'WOPEN'), (n) => n.classList.contains('ios-blocker-link'))[0].click();
+  assert.ok(document.getElementById('ios-tab-todos').classList.contains('active'));
+  const lit = findAll(document.getElementById('ios-tab-content'), (n) => n.classList.contains('ios-todo-highlight'));
+  assert.deepEqual(lit.map((n) => n.getAttribute('data-todo-key')), ['weekly|T-1']);
+});
+
+test('#396 PR B review: every part of the report-time quote is kept; each missing part says 未提供', () => {
+  const q = (over) => weeklyAsset(Object.assign({ 当前价格: 100, 报价币种: 'USD', 行情属性: '收盘', 行情截至时间: '2026-11-11' }, over));
+  const rows = [
+    q({ 代码: 'FULL' }),
+    q({ 代码: 'NOPRICE', 当前价格: '' }),
+    q({ 代码: 'NOCCY', 报价币种: '' }),
+    q({ 代码: 'NOSESSION', 行情属性: '' }),
+    q({ 代码: 'NOTIME', 行情截至时间: '' }),
+    q({ 代码: 'TWO', 报价币种: '', 行情属性: '' }),
+    q({ 代码: 'ONLYTIME', 当前价格: '', 报价币种: '', 行情属性: '' }),
+    q({ 代码: 'NONE', 当前价格: '', 报价币种: '', 行情属性: '', 行情截至时间: '' })
+  ];
+  const { document } = loadWithWindow(null, weeklyWith(rows), 'weekly');
+  const quote = (code) => fieldLines(document, code, '报告时价格')[0];
+  assert.equal(quote('FULL'), '100 USD · 收盘 · 截至 2026-11-11');
+  assert.equal(quote('NOPRICE'), '价格未提供 USD · 收盘 · 截至 2026-11-11');
+  assert.equal(quote('NOCCY'), '100 币种未提供 · 收盘 · 截至 2026-11-11');
+  assert.equal(quote('NOSESSION'), '100 USD · 行情属性未提供 · 截至 2026-11-11');
+  assert.equal(quote('NOTIME'), '100 USD · 收盘 · 截至 未提供');
+  assert.equal(quote('TWO'), '100 币种未提供 · 行情属性未提供 · 截至 2026-11-11');
+  assert.equal(quote('ONLYTIME'), '价格未提供 币种未提供 · 行情属性未提供 · 截至 2026-11-11');
+  assert.equal(quote('NONE'), '未提供');
+});
+
+test('#396 PR B review: 暂停状态 lists every payload record as written; bad or empty payloads say so', () => {
+  const rec = (id, kind, time, said) => ({ 暂停记录ID: id, 代码: 'AAA', 周计划ID: 'wp', 事件类别: kind, 事件说明: said, 事件时间: time, 来源: 's', 记录时间: time, 记录者: 'r' });
+  const p = (over) => weeklyAsset(Object.assign({ 今日行动: '等待确认', 当前阻碍: 'x', 阻塞待办ID: '无' }, over));
+  const rows = [
+    p({ 代码: 'ONE', 周计划状态: '事件暂停', 暂停事件载荷: JSON.stringify([rec('P-1', '财报', '2026-11-05', '等待财报后复核')]) }),
+    p({ 代码: 'TWO', 周计划状态: '事件暂停', 暂停事件载荷: JSON.stringify([rec('P-1', '财报', '2026-11-05', '等待财报后复核'), rec('P-2', '公告', '2026-11-07', '')]) }),
+    p({ 代码: 'NOSAID', 今日行动: '暂停新增待复核', 周计划状态: '有效', 暂停事件载荷: JSON.stringify([{ 暂停记录ID: 'P-3' }]) }),
+    p({ 代码: 'BADREC', 周计划状态: '事件暂停', 暂停事件载荷: '["x", null]' }),
+    p({ 代码: 'NOTARRAY', 周计划状态: '事件暂停', 暂停事件载荷: '{"事件说明":"x"}' }),
+    p({ 代码: 'BROKEN', 周计划状态: '有效', 暂停事件载荷: '[{' }),
+    p({ 代码: 'EMPTYPAUSED', 周计划状态: '事件暂停', 暂停事件载荷: '[]' }),
+    p({ 代码: 'NOPAYLOAD', 周计划状态: '事件暂停', 暂停事件载荷: '' }),
+    p({ 代码: 'PAYLOADONLY', 周计划状态: '有效', 暂停事件载荷: JSON.stringify([rec('P-4', '监管', '2026-11-09', '监管问询')]) }),
+    p({ 代码: 'EMPTY', 周计划状态: '有效', 暂停事件载荷: '[]' })
+  ];
+  const { document } = loadWithWindow(null, weeklyWith(rows), 'weekly');
+  const pause = (code) => fieldLines(document, code, '暂停状态');
+  assert.deepEqual(pause('ONE'), ['暂停中（事件暂停） · 1 个暂停事件', '财报 · 2026-11-05：等待财报后复核']);
+  assert.deepEqual(pause('TWO'), ['暂停中（事件暂停） · 2 个暂停事件', '1. 财报 · 2026-11-05：等待财报后复核', '2. 公告 · 2026-11-07：事件说明未提供']);
+  assert.deepEqual(pause('NOSAID'), ['暂停中（暂停新增待复核） · 1 个暂停事件', '事件类别未提供 · 事件时间未提供：事件说明未提供']);
+  assert.deepEqual(pause('BADREC'), ['暂停中（事件暂停） · 2 个暂停事件', '1. 暂停事件记录不可读', '2. 暂停事件记录不可读']);
+  assert.deepEqual(pause('NOTARRAY'), ['暂停中（事件暂停） · 暂停载荷不可读（不是 JSON 数组），无法列出暂停原因']);
+  assert.deepEqual(pause('BROKEN'), ['暂停载荷不可读（不是 JSON 数组），无法列出暂停原因']);
+  assert.deepEqual(pause('EMPTYPAUSED'), ['暂停中（事件暂停） · 暂停载荷为空，报告未列出暂停事件']);
+  assert.deepEqual(pause('NOPAYLOAD'), ['暂停中（事件暂停） · 报告未提供暂停事件载荷']);
+  assert.deepEqual(pause('PAYLOADONLY'), ['暂停中 · 1 个暂停事件', '监管 · 2026-11-09：监管问询']);
+  assert.deepEqual(pause('EMPTY'), ['无暂停']);
+  assert.doesNotMatch(summaryChild(document, 'ios-buy-judgment').textContent, /P-1|P-2|暂停记录ID|wp/, 'record IDs stay off the page');
+});
+
+test('#396 PR B review: a reader-gated or paused row never reaches 适合买入, whatever else it carries', () => {
+  const rows = [
+    weeklyAsset({ 代码: 'GATED', _iosOrderable: { ok: false, message: '本报告不作为当前买入依据' } }),
+    weeklyAsset({ 代码: 'PAUSED', 周计划状态: '事件暂停', 暂停事件载荷: '[]' }),
+    weeklyAsset({ 代码: 'WGATED', 资产类型: 'watchlist', _iosOrderable: { ok: false, message: '本报告不作为当前买入依据' } })
+  ];
+  const { document } = loadWithWindow(null, weeklyWith(rows), 'weekly');
+  const groups = buyGroups(document);
+  assert.deepEqual(groups['适合买入'], []);
+  assert.deepEqual(groups['无法判断'], ['GATED', 'PAUSED', 'WGATED']);
+  assert.deepEqual(fieldLines(document, 'PAUSED', '暂停状态'), ['暂停中（事件暂停） · 暂停载荷为空，报告未列出暂停事件']);
+});
+
+test('#396 PR B review: a history report shows its own pause records, quotes and blockers, and opens its own list', () => {
+  const latest = weeklyWith([weeklyAsset({ 今日行动: '等待确认', 当前阻碍: '最新阻碍', 阻塞待办ID: 'T-9' })],
+    { todos: [{ 待办ID: 'T-9', 待办: '最新待办', 状态: '待处理' }] });
+  const history = weeklyWith([weeklyAsset({ 今日行动: '等待确认', 当前阻碍: '历史阻碍', 阻塞待办ID: 'T-1', 当前价格: 90, 报价币种: '',
+    周计划状态: '事件暂停', 暂停事件载荷: JSON.stringify([{ 事件类别: '财报', 事件时间: '2026-10-01', 事件说明: '历史暂停原因' }]) })],
+    { todos: [{ 待办ID: 'T-1', 待办: '历史待办', 状态: '待处理' }], error: null });
+  history.summary = Object.assign({}, history.summary, { 报告ID: 'weekly-2026-10-03', 报告日期: '2026-10-03' });
+  const { document, window } = loadWithWindow(null, latest, 'weekly', { getReport: () => history });
+  window.selectHistoryReport('weekly-2026-10-03');
+  const row = buyRow(document, 'AAA').textContent;
+  assert.match(row, /历史阻碍/);
+  assert.match(row, /财报 · 2026-10-01：历史暂停原因/);
+  assert.match(row, /90 币种未提供/);
+  assert.doesNotMatch(row, /最新阻碍|最新待办/);
+  findAll(buyRow(document, 'AAA'), (n) => n.classList.contains('ios-blocker-link'))[0].click();
+  assert.ok(document.getElementById('ios-tab-weekly').classList.contains('active'), 'stays on the history page');
+  const panel = summaryChild(document, 'ios-period-panel');
+  assert.equal(panel.getAttribute('data-panel'), 'todos');
+  assert.match(panel.textContent, /历史待办/);
+  assert.doesNotMatch(panel.textContent, /最新待办/);
 });

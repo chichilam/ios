@@ -220,14 +220,15 @@ test('Issue #396 PR A: the page opens on 待办; 日报 is rendered (hidden) beh
   assert.match(summaryText(document), /daily-2026-08-15/, 'the Daily report stays rendered (hidden) so switching to it is instant');
 });
 
-test('Issue #396 PR A: 日报 shows the report in its order, closing with the former 组合 summary grid and cards', () => {
+test('Issue #396 PR A/B: 日报 shows the report in its order, closing with the former 组合 summary grid and cards', () => {
   const { document, window } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
   window.selectTab('daily');
   assert.equal(document.getElementById('ios-summary-content').hidden, false);
   assert.equal(document.getElementById('ios-tab-content').hidden, true);
   assert.equal(document.getElementById('ios-history-select').hidden, false);
   const classes = document.getElementById('ios-summary-content').children.map((c) => c.className);
-  assert.deepEqual(classes.slice(0, 6), ['ios-conclusion-card', 'ios-headline-card', 'ios-report-caption', 'ios-tiers', 'ios-layering', 'ios-card ios-report-overview']);
+  assert.deepEqual(classes, ['ios-headline-card', 'ios-report-caption', 'ios-card ios-buy-judgment', 'ios-count-cards', 'ios-card ios-period-changes',
+    'ios-report-detail-head', 'ios-layering', 'ios-card ios-report-overview', 'ios-card', 'ios-card']);
   assert.ok(portfolioSection(document, '当前持仓'), 'the demo Daily has no change layering, so its cards close the page');
 });
 
@@ -1327,14 +1328,14 @@ test('todos: a history report never changes the 待办 tab; its own blocker link
   window.selectHistoryReport('daily-2026-11-01');
   assert.ok(document.getElementById('ios-tab-daily').classList.contains('active'));
   assert.match(document.getElementById('ios-history-banner').textContent, /待办与风险 tab 仍是最新日报 \+ 最新周报的合并结果/);
-  const period = document.getElementById('ios-summary-content').children.find((c) => c.classList.contains('ios-period-todos'));
-  assert.equal(period.children[0].getAttribute('open'), null, 'the period list starts folded');
+  const panel = () => document.getElementById('ios-summary-content').children.find((c) => c.classList.contains('ios-period-panel'));
+  assert.equal(panel(), undefined, 'the period list stays closed until asked for (#396 PR B)');
   const link = allElements(document.getElementById('ios-summary-content')).find((n) => n.classList && n.classList.contains('ios-blocker-link'));
   link.click();
   assert.ok(document.getElementById('ios-tab-daily').classList.contains('active'), 'a history link stays on the history page');
-  const reopened = document.getElementById('ios-summary-content').children.find((c) => c.classList.contains('ios-period-todos'));
-  assert.equal(reopened.children[0].getAttribute('open'), 'open');
-  assert.deepEqual(todoItems(reopened).filter((li) => li.classList.contains('ios-todo-highlight')).map((li) => li.getAttribute('data-todo-id')), ['H-1']);
+  assert.equal(panel().getAttribute('data-panel'), 'todos');
+  assert.match(panel().textContent, /只显示日报 11\/01这一期自己的待办/);
+  assert.deepEqual(todoItems(panel()).filter((li) => li.classList.contains('ios-todo-highlight')).map((li) => li.getAttribute('data-todo-id')), ['H-1']);
   window.selectTab('todos');
   assert.match(tabText(document), /Latest todo/);
   assert.doesNotMatch(tabText(document), /History todo/);

@@ -269,6 +269,9 @@ views, no 组合, see below); kept as the history of the change.
 
 ### Conclusion card and three tiers (Issue #388 PR C)
 
+Removed by Issue #396 PR B (the 日报/周报 page no longer has the conclusion card or the tiers); kept as
+the history of the change.
+
 Display only, from the same generation's rows; nothing is parsed from prose and no field is added.
 The page now opens with a conclusion card (要不要动手 / 判断变了没有 / 风险) above the metric grid, and
 below the headline caption 必须执行, 需要复核, (Weekly) 下周前三项, then folded 仅供了解 and 未比较 groups,
@@ -608,4 +611,32 @@ Display only; no Sheet field, schema, Task or Agent contract changes.
   - One entry per 代码, each report that lists it on its own line. No 数据缺失 group and no row built from
     `暂停事件载荷` (owner decisions 3 and 4 on #396). The owner confirmed on 2026-11-11 (option A) that
     decision 3 only excludes 数据缺失 and that these two groups keep coming from 报告持仓 / 持仓明细.
+
+### 日报 / 周报 page: 结论 → 买入判断 → 计数卡 → 本期变化 (Issue #396 PR B)
+
+Display only; no Sheet field, schema, Task or Agent contract changes. The #388 PR C conclusion card and
+three tiers are removed. Every block reads the shown report's own snapshot (a history report shows its own).
+
+- **结论**: the `一句话结论` card and the report caption.
+- **今日买入判断 / 本周买入判断**: every holding and watchlist row except `FUND-SLEEVE`, grouped by the fixed
+  今日建议 mapping (`todayVerdict_`, which already applies the consistency checks and the server's
+  `applyReaderGate_` result) into 适合买入 / 等待 / 无法判断, in that order. A watchlist row is grouped the same
+  way and tagged 观察; a watchlist row with no `今日行动` goes to 观察（报告未判断）. Each row lists, as written:
+  报告时价格 (`当前价格` `报价币种` · `行情属性` · 截至 `行情截至时间`, always all four, each missing part said on
+  its own: 价格未提供 / 币种未提供 / 行情属性未提供 / 截至 未提供; only a row with none of them reads 未提供),
+  计划买入区间 (`计划买入下限` – `计划买入上限`), 长期买入上限 (`长期买入上限快照`), 暂停状态, 资金结论 and 报告结论
+  (`今日行动`。`今日行动说明`); blanks read 未提供. 暂停状态 reads this report's `周计划状态`, `今日行动=暂停新增待复核`
+  and `暂停事件载荷` together (no comparison with another report): a summary line, then one line per payload record
+  `事件类别 · 事件时间：事件说明` (each missing part 未提供, record IDs not shown); a payload that is not a JSON array
+  or a record that is not an object is stated as unreadable, and a pause with an empty or missing payload says so.
+  Every row that is not 适合买入 -- including 观察（报告未判断） -- also shows `当前阻碍` and the `阻塞待办ID` links /
+  anomalies (`buildBlockerLines_`), and a 无法判断 row its gate / consistency reason.
+  Nothing is computed against the price: no distance, percentage or 适合买入 of the page's own.
+- **计数卡**: `卡住买入 N / 其他待办 M` and `风险 N 项` with `数据维护 M 项` (PR C's counts). On the latest report
+  they count the latest Daily + Weekly (`含日报+周报`) and open the 待办 / 风险 tab. On a history report they
+  count only that report (`仅这一期`) and open its own 待办 / 风险 list on its page, never the latest tab; its
+  blocker links open the same list with the todo highlighted.
+- **本期变化**: holdings and watchlist rows grouped by their own `变化标记`: 有变化, 无变化 (folded) and 未比较
+  (`无可比基线`, blank or any other value), each with `较上次变化说明` (else `今日行动说明`).
+- Below a 报告明细 heading the report's layering, 报告概况 and full cards follow unchanged.
 
