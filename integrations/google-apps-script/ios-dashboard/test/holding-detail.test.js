@@ -216,11 +216,11 @@ test('the 持仓明细 tab is a tab of its own and renders the selected report',
   assert.match(content.textContent, /估值研究日期早于本报告日期超过 90 天标「需更新」；日期缺失或不可读为「未比较」/);
 });
 
-test('table: three separate groups, 长期买入上限 and 本周区间 never adjacent', () => {
+test('table: separate groups (#388 PR F adds 当前台账), 长期买入上限 and 本周区间 never adjacent', () => {
   const { content } = load(bootstrapWith(ROWS));
   const table = byClass(content, 'ios-holding-detail-table')[0];
   const [groupRow, labelRow] = descendants(table).filter((n) => n.tagName === 'TR').slice(0, 2);
-  assert.deepEqual(groupRow.children.map((c) => c.textContent), ['标的', '估值约束（台账）', '本周执行', '第三方公允值（仅供参考）']);
+  assert.deepEqual(groupRow.children.map((c) => c.textContent), ['标的', '估值约束（台账）', '本周执行', '第三方公允值（仅供参考）', '当前台账（实时，当前台账，非本报告快照）']);
   const labels = labelRow.children.map((c) => c.textContent);
   const cap = labels.indexOf('长期买入上限');
   const range = labels.indexOf('本周区间');
@@ -240,7 +240,7 @@ test('cards: the three groups are separate blocks in order, the EFV block says �
   const cards = byClass(content, 'ios-holding-detail-cards')[0];
   const card = cards.children[0];
   const groups = card.children.filter((c) => c.classList.contains('ios-detail-group'));
-  assert.deepEqual(groups.map((g) => g.children[0].textContent), ['估值约束（台账）', '本周执行', '第三方公允值（仅供参考）']);
+  assert.deepEqual(groups.map((g) => g.children[0].textContent), ['估值约束（台账）', '本周执行', '第三方公允值（仅供参考）', '当前台账（实时）']);
   assert.match(groups[0].textContent, /长期买入上限: 400 USD/);
   assert.doesNotMatch(groups[0].textContent, /本周区间/);
   assert.match(groups[1].textContent, /本周区间: 350 USD/);
@@ -367,4 +367,128 @@ test('PR E (#388 acceptance item 3): a history report builds 持仓明细 and it
   const count = (rows, key) => rows.filter((r) => r.filters[key]).length;
   assert.equal(count(old.holdingDetail, 'suspended'), 1);
   assert.equal(count(latest.holdingDetail, 'suspended'), 0, 'the latest generation is not counted into the old one, nor the reverse');
+});
+
+// -- Issue #388 PR F: the former 资本配置 view lives in 持仓明细 as a live 当前台账 group. --
+
+const LEDGER = [
+  { code: 'AAA', name: 'Alpha Co.', quantity: 12, avgCost: 310.25, referenceRange: '340-360', currency: 'USD' },
+  { code: 'PPP', name: 'Paused Co.', quantity: 5, avgCost: null, referenceRange: null, currency: 'USD' },
+  { code: 'NEWB', name: 'Bought Later Co.', quantity: 3, avgCost: 99, referenceRange: null, currency: 'JPY' }
+];
+
+function ledgerBootstrap(rows, extra) {
+  return Object.assign(bootstrapWith(rows), { allocation: LEDGER,
+    accountStatus: { state: 'ok', rows: [{ account: 'Broker A', currency: 'JPY', availableCash: 500000 }, { account: 'Broker B', currency: 'USD', availableCash: null }] } }, extra || {});
+}
+
+test('PR F: 配置概况 opens 持仓明细 with only existing facts, labelled as the current ledger', () => {
+  const { content } = load(ledgerBootstrap(ROWS));
+  const overview = byClass(content, 'ios-allocation-overview')[0];
+  assert.ok(overview, '配置概况 is rendered');
+  assert.equal(content.children[0], overview, '配置概况 comes before the detail table');
+  assert.match(overview.textContent, /当前台账，非本报告快照/);
+  assert.match(overview.textContent, /配置比例: 未提供（Sheet 没有市值和汇率字段/);
+  assert.match(overview.textContent, /可用现金: Broker A 500000 JPY/);
+  assert.doesNotMatch(overview.textContent, /Broker B/, 'a blank cash cell is never shown as 0');
+  assert.match(overview.textContent, /当前台账持仓: 3 只/);
+  const none = load(Object.assign(bootstrapWith(ROWS), { accountStatus: { state: 'absent', rows: [] } })).content;
+  assert.match(byClass(none, 'ios-allocation-overview')[0].textContent, /可用现金: 未提供（Sheet 没有「账户状态」表）/);
+});
+
+test('PR F: table adds a 当前台账 group read as-is from 当前持仓; watchlist is 未持有; four price kinds stay separate columns', () => {
+  const { content } = load(ledgerBootstrap(ROWS));
+  const table = byClass(content, 'ios-holding-detail-table')[0];
+  const [, labelRow] = descendants(table).filter((n) => n.tagName === 'TR').slice(0, 2);
+  const labels = labelRow.children.map((c) => c.textContent);
+  ['长期买入上限', '本周区间', '参考买入价（台账）', '公允值'].forEach((label) => {
+    assert.equal(labels.filter((l) => l === label).length, 1, label + ' is its own column');
+  });
+  assert.ok(labelRow.children[labels.indexOf('持有数量')].classList.contains('ios-detail-group-ledger'));
+  const cellsOf = (code) => descendants(table).filter((n) => n.tagName === 'TR' && n.getAttribute('data-code') === code)[0].children.map((c) => c.textContent);
+  const aaa = cellsOf('AAA');
+  assert.equal(aaa[labels.indexOf('持有数量')], '12');
+  assert.equal(aaa[labels.indexOf('平均成本')], '310.25 USD');
+  assert.equal(aaa[labels.indexOf('参考买入价（台账）')], '340-360');
+  assert.equal(aaa[labels.indexOf('本周区间')], '350 USD（区间1，本周购买计划） – 380 USD（区间1，本周购买计划）', 'the weekly range is never merged with the ledger price');
+  const ppp = cellsOf('PPP');
+  assert.equal(ppp[labels.indexOf('平均成本')], '未提供');
+  assert.equal(ppp[labels.indexOf('参考买入价（台账）')], '未提供');
+  const vvv = cellsOf('VVV');
+  assert.deepEqual([vvv[labels.indexOf('持有数量')], vvv[labels.indexOf('平均成本')], vvv[labels.indexOf('参考买入价（台账）')]], ['未持有', '—', '—']);
+});
+
+test('PR F: phone cards carry the 当前台账 group with its label; a held row no longer in the ledger says so', () => {
+  const sold = [detail({ 代码: 'GONE', 名称: 'Sold Co.' })];
+  const { content } = load(ledgerBootstrap(ROWS.concat(sold)));
+  const cards = byClass(content, 'ios-holding-detail-cards')[0].children;
+  const ledgerOf = (card) => card.children.find((c) => c.classList.contains('ios-detail-group-ledger'));
+  assert.match(ledgerOf(cards[0]).textContent, /当前台账（实时）当前台账，非本报告快照持有数量: 12平均成本: 310.25 USD参考买入价（台账）: 340-360/);
+  assert.match(ledgerOf(cards[2]).textContent, /未持有/);
+  assert.match(ledgerOf(cards[3]).textContent, /当前台账无此持仓/);
+});
+
+test('PR F: ledger holdings the report does not list are still shown (nothing from the old 资本配置 is lost)', () => {
+  const { content } = load(ledgerBootstrap(ROWS));
+  const extra = byClass(content, 'ios-ledger-only')[0];
+  assert.match(extra.textContent, /当前台账中有、本报告未列出的持仓 \(1\)/);
+  assert.match(extra.textContent, /当前台账，非本报告快照/);
+  assert.equal(byClass(extra, 'ios-allocation-table')[0].children[0].children[1].children.length, 1);
+  assert.match(byClass(extra, 'ios-allocation-cards')[0].textContent, /NEWB.*持有数量: 3平均成本: 99参考买入价（台账）: 未提供/);
+  const all = load(ledgerBootstrap(ROWS.concat([detail({ 代码: 'NEWB' })]))).content;
+  assert.equal(byClass(all, 'ios-ledger-only').length, 0, 'no extra block when every ledger holding is listed');
+});
+
+test('PR F: with no report, 持仓明细 still shows the live ledger after the empty-state card', () => {
+  const boot = ledgerBootstrap([]);
+  boot.weekly = { found: false, reportType: 'weekly' };
+  const { content } = load(boot);
+  assert.match(content.textContent, /配置概况/);
+  assert.match(byClass(content, 'ios-ledger-only')[0].textContent, /当前台账持仓（实时） \(3\)/);
+});
+
+test('PR F: a history report labels the ledger group as today’s ledger, not part of that report', () => {
+  const old = Object.assign({}, bootstrapWith(ROWS).weekly, {
+    summary: Object.assign({}, bootstrapWith(ROWS).weekly.summary, { 报告ID: 'weekly-2026-10-31', 报告日期: '2026-10-31' }) });
+  const { content, window } = load(ledgerBootstrap(ROWS, { weeklyHistory: [{ reportId: 'weekly-2026-10-31', reportDate: '2026-10-31', headline: 'x' }] }),
+    { getReport: () => Object.assign({ error: null }, old) });
+  assert.doesNotMatch(content.textContent, /正在查看历史报告：「当前台账」/, 'the latest report needs no history note');
+  window.onHistorySelectChange('weekly-2026-10-31');
+  const text = content.textContent;
+  assert.match(text, /正在查看历史报告：「当前台账」与配置概况是今天的台账，不属于该期报告。/);
+  assert.match(byClass(content, 'ios-holding-detail-table')[0].textContent, /当前台账，非本报告快照/);
+});
+
+test('PR F: no share-of-portfolio numbers and no add/trim conclusions anywhere in 持仓明细', () => {
+  const { content } = load(ledgerBootstrap(ROWS));
+  const text = content.textContent;
+  assert.doesNotMatch(text, /当前占比\s*[:：]?\s*\d|目标占比\s*[:：]?\s*\d|\d+(\.\d+)?%\s*(占比|权重)/);
+  assert.doesNotMatch(text, /该加仓|该减仓|建议加仓|建议减仓|应加仓|应减仓/);
+});
+
+test('PR F review 2: a 持有 row with a blank/0/invalid quantity is not counted or listed, and its code is not called absent from the ledger', () => {
+  const tabs = [
+    { 代码: 'AAA', 名称: 'Alpha Co.', 持有数量: '', 平均成本: 310, '参考买入价/区间': '', 币种: 'USD', 状态: '持有' },
+    { 代码: 'ZERO', 名称: 'Zero Co.', 持有数量: 0, 平均成本: '', '参考买入价/区间': '', 币种: 'JPY', 状态: '持有' },
+    { 代码: 'BAD', 名称: 'Bad Co.', 持有数量: 'abc', 平均成本: '', '参考买入价/区间': '', 币种: 'JPY', 状态: '持有' },
+    { 代码: 'OK', 名称: 'Ok Co.', 持有数量: '7', 平均成本: '', '参考买入价/区间': '', 币种: 'JPY', 状态: '持有' }
+  ];
+  const { content } = load(Object.assign(bootstrapWith(ROWS), {
+    allocation: logic.buildAllocationView_(tabs), allocationExcluded: logic.buildAllocationExcluded_(tabs) }));
+  const overview = byClass(content, 'ios-allocation-overview')[0].textContent;
+  assert.match(overview, /当前台账持仓: 1 只/, 'only OK counts');
+  assert.match(overview, /另有 3 行状态为持有，但持有数量未提供或无效（不计入当前持仓）：AAA、ZERO、BAD/);
+  const table = byClass(content, 'ios-holding-detail-table')[0];
+  const labels = descendants(table).filter((n) => n.tagName === 'TR')[1].children.map((c) => c.textContent);
+  const aaa = descendants(table).filter((n) => n.tagName === 'TR' && n.getAttribute('data-code') === 'AAA')[0].children.map((c) => c.textContent);
+  assert.deepEqual([aaa[labels.indexOf('持有数量')], aaa[labels.indexOf('平均成本')], aaa[labels.indexOf('参考买入价（台账）')]],
+    ['状态为持有，但持有数量未提供或无效（不计入当前持仓）', '—', '—']);
+  assert.match(byClass(content, 'ios-holding-detail-cards')[0].children[0].textContent, /状态为持有，但持有数量未提供或无效/);
+  const ppp = descendants(table).filter((n) => n.tagName === 'TR' && n.getAttribute('data-code') === 'PPP')[0].children.map((c) => c.textContent);
+  assert.equal(ppp[labels.indexOf('持有数量')], '当前台账无此持仓', 'a code with no 持有 row at all keeps the plain wording');
+  const extra = byClass(content, 'ios-ledger-only')[0].textContent;
+  assert.match(extra, /\(1\)/);
+  assert.match(extra, /OK/);
+  assert.doesNotMatch(extra, /ZERO|BAD/, 'excluded rows are never listed as ledger-only current holdings');
+  assert.doesNotMatch(content.textContent, /NaN|持有数量: 0/);
 });

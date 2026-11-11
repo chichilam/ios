@@ -527,3 +527,18 @@ test('Issue #388 PR D: buildAccountStatusView_ tells an absent tab, an unreadabl
   delete noTab['账户状态'];
   assert.equal(logic.buildDashboardBootstrap_(noTab).accountStatus.state, 'absent');
 });
+
+test('Issue #388 PR F review 2: only 状态=持有 AND 持有数量 > 0 is a current holding; other 持有 rows are excluded evidence, never counted', () => {
+  const row = (code, qty, status) => ({ '代码': code, '名称': code, '持有数量': qty, '平均成本': '', '参考买入价/区间': '', '币种': 'USD', '状态': status || '持有' });
+  const rows = [row('E', ''), row('N', null), row('U', undefined), row('S', '  '), row('X', 'abc'), row('Z', 0), row('ZS', '0'),
+    row('NEG', -5), row('P', '12'), row('Q', 3), row('C', 7, '已清仓'), row('C0', 0, '已清仓')];
+  const allocation = logic.buildAllocationView_(rows);
+  assert.deepEqual(allocation.map((r) => [r.code, r.quantity]), [['P', 12], ['Q', 3]], 'canonical current holdings only, same as isCurrentHolding_');
+  allocation.forEach((r) => assert.ok(Number.isFinite(r.quantity) && r.quantity > 0));
+  assert.deepEqual(logic.buildAllocationExcluded_(rows).map((r) => r.code), ['E', 'N', 'U', 'S', 'X', 'Z', 'ZS', 'NEG'],
+    '状态=持有 with a missing/invalid quantity; 已清仓 rows are neither');
+  assert.ok(logic.buildAllocationExcluded_(rows).every((r) => !('quantity' in r)), 'the raw quantity is never carried');
+  const boot = logic.buildDashboardBootstrap_(Object.assign({}, demoSheet, { '当前持仓': demoSheet['当前持仓'].concat([row('Z', 0)]) }));
+  assert.equal(boot.allocation.length, 2);
+  assert.deepEqual(boot.allocationExcluded.map((r) => r.code), ['Z']);
+});

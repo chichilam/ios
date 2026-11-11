@@ -20,7 +20,7 @@
 // <select>, a 4-metric summary grid (当前持仓/观察名单/核心状态/Review,
 // each with its v1.1 explanatory subtitle -- informational only, not a
 // tab shortcut), a minimal headline card (eyebrow + 一句话结论 only), and
-// 组合 (portfolio) / 资本配置 (capital allocation) / 风险 (risks) / 待办
+// 组合 (portfolio) / 持仓明细 (holding detail) / 风险 (risks) / 待办
 // (to-dos) tabs as ordinary rounded buttons with a two-column compact
 // card grid -- rather than a single long scrolling flow or a generic
 // underline-tab/blue-pill utility layout.
@@ -32,7 +32,8 @@
   // report (conclusion, tiers, layering); every other view replaces it on the
   // whole page. The last non-report view stays rendered (hidden) so a switch
   // back is instant and needs no server call.
-  var TABS = ['report', 'portfolio', 'holdingDetail', 'allocation', 'risks', 'todos'];
+  // Issue #388 PR F folded the former 资本配置 view into 持仓明细.
+  var TABS = ['report', 'portfolio', 'holdingDetail', 'risks', 'todos'];
 
   var STATE = {
     bootstrap: IOS_BOOTSTRAP,
@@ -685,6 +686,8 @@
     return '变化标记无法识别';
   }
 
+  var CONTINUED_PAUSE_REASON_ = '暂停新增延续中（本期无变化）';
+
   /** One holding/watchlist row: its tier and that tier's reasons. */
   function assetTier_(asset) {
     var action = cellText_(asset['今日行动']);
@@ -712,7 +715,7 @@
     if (cellText_(asset['周计划结论']) === '长期估值缺失或失效') { review.push('长期估值缺失或失效'); }
     if (weekly === '暂停记录不可核验' || weekly === '周计划异常') { review.push(weekly); }
     if (action === '先核对缺项') { review.push('先核对缺项'); }
-    if (action === '暂停新增待复核' && flag === '无变化') { review.push('暂停新增延续中（本期无变化）'); }
+    if (action === '暂停新增待复核' && flag === '无变化') { review.push(CONTINUED_PAUSE_REASON_); }
     if (action === '暂停新增待复核' && review.length && flag !== '无变化') { review.push('暂停新增待复核（' + changeFlagGap_(flag) + '）'); }
     if (review.length) { return { tier: 'review', reasons: review }; }
     // A holding's 有变化 is already 必须执行; any flag that compares nothing is 未比较 for holdings and watchlist alike.
@@ -878,10 +881,36 @@
     return el('section', { className: 'ios-card ios-tier-section ios-tier-focus-section' }, children);
   }
 
+  function isContinuedPauseOnly_(item) {
+    return item.reasons.length > 0 && item.reasons.every(function (reason) { return reason === CONTINUED_PAUSE_REASON_; });
+  }
+
+  /**
+   * Issue #388 PR F: in a Weekly, the 需要复核 items whose only reason is an
+   * ongoing pause fold into one collapsed 「延续暂停 N 项」 row after the
+   * individually listed ones. Tiering, counts and the conclusion card are
+   * unchanged; a Daily pause with nothing compared is 未比较 and never here.
+   */
+  function reviewTierSection_(vm, items) {
+    if (vm.reportType !== 'weekly') { return tierSection_('需要复核', items, '没有需要复核的条目。', 'ios-tier-review'); }
+    var continued = items.filter(isContinuedPauseOnly_);
+    var listed = items.filter(function (item) { return !isContinuedPauseOnly_(item); });
+    var children = [text('h2', null, '需要复核 (' + items.length + ')')];
+    if (listed.length) { children.push(buildTierList_(listed)); }
+    if (continued.length) {
+      children.push(el('details', { className: 'ios-layer-fold ios-continued-pauses' }, [
+        text('summary', 'ios-layer-fold-title', '延续暂停 ' + continued.length + ' 项（展开查看）'),
+        buildTierList_(continued)
+      ]));
+    }
+    if (!items.length) { children.push(text('p', 'ios-empty-note', '没有需要复核的条目。')); }
+    return el('section', { className: 'ios-card ios-tier-section ios-tier-review' }, children);
+  }
+
   function buildPrioritySection_(vm, priority) {
     var children = [
       tierSection_('必须执行', priority.must, vm.reportType === 'weekly' ? '本周无需操作。' : '今日无需操作。', 'ios-tier-must'),
-      tierSection_('需要复核', priority.review, '没有需要复核的条目。', 'ios-tier-review')
+      reviewTierSection_(vm, priority.review)
     ];
     if (vm.reportType === 'weekly') { children.push(weeklyFocusSection_(vm)); }
     var lower = [layerFoldable_('仅供了解 (' + priority.info.length + ')',
@@ -896,7 +925,7 @@
     return el('div', { className: 'ios-tiers' }, children);
   }
 
-  // -- Tab content (组合 portfolio / 资本配置 capital allocation / 风险 risks / 待办 todos) --
+  // -- Tab content (组合 portfolio / 持仓明细 holding detail / 风险 risks / 待办 todos) --
 
   function renderTabContent() {
     var container = document.getElementById('ios-tab-content');
@@ -906,25 +935,24 @@
     if (STATE.bootstrap.error) return;
 
     var tab = STATE.detailTab;
-    if (tab === 'allocation') {
-      // Capital allocation is the live 当前持仓 view -- independent of
-      // which Daily/Weekly report (or history entry) is selected, so it
-      // renders even when the selected report itself is empty/missing.
-      container.appendChild(buildAllocationSection());
-      return;
-    }
-
     var vm = currentViewModel();
     if (!vm || !vm.found) {
       // Each view now replaces the report on the whole page (Issue #388 PR D),
-      // so a report-based view repeats the "no report yet" card itself.
+      // so a report-based view repeats the "no report yet" card itself. The
+      // live ledger (formerly 资本配置) does not depend on a report, so
+      // 持仓明细 still shows it (Issue #388 PR F).
       container.appendChild(buildEmptyStateCard(STATE.activeView));
+      if (tab === 'holdingDetail') {
+        container.appendChild(buildAllocationOverview_());
+        container.appendChild(buildLedgerOnlySection_(STATE.bootstrap.allocation || [], '当前台账持仓（实时）'));
+      }
       return;
     }
 
     if (tab === 'portfolio') {
       buildPortfolioView_(vm).forEach(function (node) { container.appendChild(node); });
     } else if (tab === 'holdingDetail') {
+      container.appendChild(buildAllocationOverview_());
       container.appendChild(buildHoldingDetailSection(vm.holdingDetail));
     } else if (tab === 'risks') {
       container.appendChild(buildRisksSection(vm.risks, vm.riskGroups));
@@ -936,14 +964,13 @@
   /**
    * The report view carries the reader banner at its top (renderSummarySection);
    * every other view built from the same generation repeats it above its own
-   * content, so leaving 报告 never hides that the report is not current. The
-   * live 资本配置 view is not built from a generation and shows none.
+   * content, so leaving 报告 never hides that the report is not current.
    */
   function renderViewBanner_() {
     var slot = document.getElementById('ios-view-banner');
     clear(slot);
     var vm = currentViewModel();
-    var banner = STATE.bootstrap.error || STATE.detailTab === 'allocation' || !vm || !vm.found ? null : buildReaderBanner_(vm);
+    var banner = STATE.bootstrap.error || !vm || !vm.found ? null : buildReaderBanner_(vm);
     if (banner) { slot.appendChild(banner); }
     slot.hidden = !banner || STATE.activeTab === 'report';
   }
@@ -1008,7 +1035,6 @@
       links.push(viewLink_('查看本期变化', 'report'));
     }
     links.push(viewLink_('持仓明细', 'holdingDetail'));
-    links.push(viewLink_('资本配置', 'allocation'));
     children.push(el('div', { className: 'ios-view-links' }, links));
     return el('section', { className: 'ios-card ios-portfolio-overview' }, children);
   }
@@ -2264,7 +2290,9 @@
   // report's own snapshot. Three groups kept apart -- 估值约束（台账）, 本周执行,
   // 第三方公允值 -- and the long-term cap is never placed next to the weekly
   // range. Desktop table and phone cards come from the same rows; CSS picks
-  // one, as the 资本配置 tab does. --
+  // one. Issue #388 PR F adds a fourth group, 当前台账（实时）: the live
+  // 当前持仓 row of the same code (the former 资本配置 view), always labelled
+  // as the current ledger, never as part of the report's snapshot. --
 
   var HOLDING_DETAIL_FILTERS_ = [
     ['all', '全部', function () { return true; }],
@@ -2290,13 +2318,99 @@
     return { value: efv.value + states, source: efv.source, fetched: efv.fetched };
   }
 
+  var LEDGER_NOTE_ = '当前台账，非本报告快照';
+
+  function ledgerCode_(code) {
+    return code == null ? '' : String(code).trim();
+  }
+
+  function ledgerByCode_() {
+    var byCode = {};
+    (STATE.bootstrap.allocation || []).forEach(function (entry) { byCode[ledgerCode_(entry.code)] = entry; });
+    return byCode;
+  }
+
+  /** The 当前台账（实时） group of one row: read from 当前持仓 as is, never derived; a blank cell is 未提供. */
+  var LEDGER_EXCLUDED_TEXT_ = '状态为持有，但持有数量未提供或无效（不计入当前持仓）';
+
+  function ledgerExcludedCodes_() {
+    var codes = {};
+    (STATE.bootstrap.allocationExcluded || []).forEach(function (entry) { codes[ledgerCode_(entry.code)] = true; });
+    return codes;
+  }
+
+  function ledgerParts_(row, byCode, excluded) {
+    var entry = byCode[ledgerCode_(row.code)];
+    if (!entry) {
+      var missing = excluded[ledgerCode_(row.code)] ? LEDGER_EXCLUDED_TEXT_ : (row.kind === 'watchlist' ? '未持有' : '当前台账无此持仓');
+      return { held: false, quantity: missing, avgCost: '—', reference: '—' };
+    }
+    return {
+      held: true,
+      quantity: String(entry.quantity),
+      avgCost: entry.avgCost === null ? '未提供' : entry.avgCost + (isBlank(entry.currency) ? '' : ' ' + entry.currency),
+      reference: entry.referenceRange === null ? '未提供' : entry.referenceRange
+    };
+  }
+
+  function ledgerHistoryNote_() {
+    return STATE.viewingReportId
+      ? text('p', 'ios-entry-plan-incomplete', '正在查看历史报告：「当前台账」与配置概况是今天的台账，不属于该期报告。')
+      : null;
+  }
+
+  /** 状态=持有 rows whose quantity is missing/invalid: named, never counted as current holdings. */
+  function excludedLedgerLine_() {
+    var excluded = STATE.bootstrap.allocationExcluded || [];
+    if (!excluded.length) { return null; }
+    return text('p', 'ios-entry-plan-incomplete', '另有 ' + excluded.length + ' 行' + LEDGER_EXCLUDED_TEXT_ + '：' +
+      excluded.map(function (entry) { return displayCode_(entry.code); }).join('、'));
+  }
+
+  /** 配置概况 (Issue #388 PR F): only facts the Sheet already has; nothing here is computed. */
+  function buildAllocationOverview_() {
+    var status = STATE.bootstrap.accountStatus;
+    var cash;
+    if (!status || status.state === 'absent') {
+      cash = '未提供（Sheet 没有「账户状态」表）';
+    } else if (status.state === 'unreadable') {
+      cash = '未提供（「账户状态」表无法读取或缺少必需列）';
+    } else {
+      var known = status.rows.filter(function (row) { return row.availableCash !== null; });
+      cash = known.length ? known.map(function (row) { return row.account + ' ' + row.availableCash + ' ' + row.currency; }).join(' · ') : '未提供';
+    }
+    return el('section', { className: 'ios-card ios-allocation-overview' }, [
+      text('h2', null, '配置概况'),
+      text('p', 'ios-muted', LEDGER_NOTE_),
+      ledgerHistoryNote_(),
+      labelledLine_('配置比例', null, '未提供（Sheet 没有市值和汇率字段，Dashboard 不自行计算当前占比或目标占比）'),
+      labelledLine_('可用现金', cash, '未提供'),
+      labelledLine_('当前台账持仓', (STATE.bootstrap.allocation || []).length + ' 只', '未提供'),
+      excludedLedgerLine_()
+    ]);
+  }
+
+  /** Live 当前持仓 rows the selected report does not list (e.g. bought after it): the former 资本配置 table/cards. */
+  function buildLedgerOnlySection_(entries, title) {
+    var children = [text('h3', 'ios-detail-heading', title + ' (' + entries.length + ')'), text('p', 'ios-muted', LEDGER_NOTE_)];
+    if (entries.length === 0) {
+      children.push(text('p', 'ios-empty-note', '当前没有持仓——这是合法状态，不是错误。'));
+    } else {
+      children.push(buildAllocationTable(entries));
+      children.push(buildAllocationCards(entries));
+    }
+    return el('div', { className: 'ios-detail-group ios-detail-group-ledger ios-ledger-only' }, children);
+  }
+
   function buildHoldingDetailSection(rows) {
     var children = [
       text('h2', null, '持仓明细'),
-      text('p', 'ios-hint', '估值约束来自本报告快照中的入场计划，本周执行来自本周购买计划，两者分开显示；只有同币种才计算现价距长期买入上限。第三方公允值仅供参考，不能替代长期买入上限。估值研究日期早于本报告日期超过 90 天标「需更新」；日期缺失或不可读为「未比较」。')
+      text('p', 'ios-hint', '估值约束来自本报告快照中的入场计划，本周执行来自本周购买计划，两者分开显示；只有同币种才计算现价距长期买入上限。第三方公允值仅供参考，不能替代长期买入上限。估值研究日期早于本报告日期超过 90 天标「需更新」；日期缺失或不可读为「未比较」。「当前台账（实时）」读自当前持仓表，是当前台账，非本报告快照；参考买入价（台账）不是本周区间，也不是长期买入上限。'),
+      ledgerHistoryNote_()
     ];
     if (!Array.isArray(rows)) {
       children.push(text('p', 'ios-empty-note', '本报告未提供持仓明细。'));
+      children.push(buildLedgerOnlySection_(STATE.bootstrap.allocation || [], '当前台账持仓（实时）'));
       return el('section', { className: 'ios-card ios-holding-detail' }, children);
     }
     var active = HOLDING_DETAIL_FILTERS_.filter(function (f) { return f[0] === STATE.holdingDetailFilter; })[0] || HOLDING_DETAIL_FILTERS_[0];
@@ -2317,19 +2431,26 @@
     } else if (shown.length === 0) {
       children.push(text('p', 'ios-empty-note', '没有符合「' + active[1] + '」的标的。'));
     } else {
-      children.push(buildHoldingDetailTable(shown));
-      children.push(buildHoldingDetailCards(shown));
+      var byCode = ledgerByCode_();
+      var excluded = ledgerExcludedCodes_();
+      children.push(buildHoldingDetailTable(shown, byCode, excluded));
+      children.push(buildHoldingDetailCards(shown, byCode, excluded));
     }
+    var listed = {};
+    rows.forEach(function (row) { listed[ledgerCode_(row.code)] = true; });
+    var extra = (STATE.bootstrap.allocation || []).filter(function (entry) { return !listed[ledgerCode_(entry.code)]; });
+    if (extra.length) { children.push(buildLedgerOnlySection_(extra, '当前台账中有、本报告未列出的持仓')); }
     return el('section', { className: 'ios-card ios-holding-detail' }, children);
   }
 
   /** Desktop: grouped columns; 长期买入上限 opens the first group and 本周区间 closes the second. */
-  function buildHoldingDetailTable(rows) {
+  function buildHoldingDetailTable(rows, byCode, excluded) {
     var groups = [
       ['标的', ['代码', '名称', '类型'], ''],
       ['估值约束（台账）', ['长期买入上限', '现价距上限', '长期合理价值', '来源', '估值研究日期'], 'ios-detail-group-valuation'],
       ['本周执行', ['适用周', '计划状态', '本周区间'], 'ios-detail-group-weekly'],
-      ['第三方公允值（仅供参考）', ['公允值', '来源', '获取日期'], 'ios-detail-group-efv']
+      ['第三方公允值（仅供参考）', ['公允值', '来源', '获取日期'], 'ios-detail-group-efv'],
+      ['当前台账（实时，' + LEDGER_NOTE_ + '）', ['持有数量', '平均成本', '参考买入价（台账）'], 'ios-detail-group-ledger']
     ];
     var head = el('thead', null, [
       el('tr', null, groups.map(function (g) {
@@ -2344,11 +2465,13 @@
     var body = el('tbody');
     rows.forEach(function (row) {
       var efv = holdingDetailEfvParts_(row);
+      var ledger = ledgerParts_(row, byCode, excluded);
       var values = [
         [displayCode_(row.code), row.name, holdingDetailKindLabel_(row)],
         [row.valuation.cap, row.valuation.distance.text, row.valuation.fairValue, row.valuation.source, row.valuation.researchDate],
         [row.weekly.week, row.weekly.status, holdingDetailRangeText_(row)],
-        [efv.value, efv.source || '—', efv.fetched || '—']
+        [efv.value, efv.source || '—', efv.fetched || '—'],
+        [ledger.quantity, ledger.avgCost, ledger.reference]
       ];
       var cells = [];
       values.forEach(function (group, gi) {
@@ -2363,10 +2486,11 @@
   }
 
   /** Phone: one card per row, the three groups as separate blocks in the same order as the table. */
-  function buildHoldingDetailCards(rows) {
+  function buildHoldingDetailCards(rows, byCode, excluded) {
     var grid = el('div', { className: 'ios-holding-detail-cards' });
     rows.forEach(function (row) {
       var efv = holdingDetailEfvParts_(row);
+      var ledger = ledgerParts_(row, byCode, excluded);
       grid.appendChild(el('div', { className: 'ios-asset-card', attrs: { 'data-code': row.code } }, [
         el('div', { className: 'ios-asset-head' }, [
           text('strong', null, displayCode_(row.code)),
@@ -2392,50 +2516,46 @@
           text('p', 'ios-asset-line', '公允值: ' + efv.value),
           efv.source ? text('p', 'ios-asset-line ios-muted', '来源: ' + efv.source + ' · 获取日期: ' + efv.fetched) : null,
           text('p', 'ios-asset-line ios-muted', '仅供参考，不能替代长期买入上限')
+        ]),
+        el('div', { className: 'ios-detail-group ios-detail-group-ledger' }, ledger.held ? [
+          text('h3', 'ios-detail-heading', '当前台账（实时）'),
+          text('p', 'ios-asset-line ios-muted', LEDGER_NOTE_),
+          text('p', 'ios-asset-line', '持有数量: ' + ledger.quantity),
+          text('p', 'ios-asset-line', '平均成本: ' + ledger.avgCost),
+          text('p', 'ios-asset-line', '参考买入价（台账）: ' + ledger.reference)
+        ] : [
+          text('h3', 'ios-detail-heading', '当前台账（实时）'),
+          text('p', 'ios-asset-line ios-muted', LEDGER_NOTE_),
+          text('p', 'ios-asset-line', ledger.quantity)
         ])
       ]));
     });
     return grid;
   }
 
-  // -- Current-holdings allocation view (live, view-independent -- the
-  // 资本配置 tab). Renders both a desktop table and a mobile card list from
-  // the exact same `allocation` array -- CSS breakpoints (not JS viewport
-  // branching) decide which one is visible, so there is only one place
-  // that selects/normalizes the data (Issue #255: the wide table alone
-  // caused horizontal page overflow on mobile). --
-
-  function buildAllocationSection() {
-    var children = [
-      text('h2', null, '当前持仓（实时，仅含数量/平均成本/参考价）'),
-      text('p', 'ios-hint', '这里不显示市值权重——本 schema 不携带实时价格，本 Dashboard 也绝不会凭空编造。参考买入价/区间直接读取自当前持仓，绝不从平均成本推算。')
-    ];
-    var allocation = STATE.bootstrap.allocation || [];
-    if (allocation.length === 0) {
-      children.push(text('p', 'ios-empty-note', '当前没有持仓——这是合法状态，不是错误。'));
-      return el('section', { className: 'ios-card' }, children);
-    }
-    children.push(buildAllocationTable(allocation));
-    children.push(buildAllocationCards(allocation));
-    return el('section', { className: 'ios-card' }, children);
-  }
+  // -- Live current-holdings ledger rows (the former 资本配置 view, inside
+  // 持仓明细 since Issue #388 PR F). Both a desktop table and a mobile card
+  // list from the exact same `allocation` array -- CSS breakpoints (not JS
+  // viewport branching) decide which one is visible (Issue #255: the wide
+  // table alone caused horizontal page overflow on mobile). No market-value
+  // weight: the schema carries no live price or FX rate. --
 
   /** Desktop representation -- hidden below the mobile breakpoint (see .ios-allocation-table in Styles.html), never the mobile rendering path. */
   function buildAllocationTable(allocation) {
     var table = el('table', { className: 'ios-table' });
     var thead = el('thead', null, [
-      el('tr', null, ['代码', '名称', '数量', '平均成本', '参考买入价/区间', '币种'].map(function (label) {
+      el('tr', null, ['代码', '名称', '持有数量', '平均成本', '参考买入价（台账）', '币种'].map(function (label) {
         return text('th', null, label);
       }))
     ]);
     var tbody = el('tbody');
     allocation.forEach(function (entry) {
       tbody.appendChild(el('tr', null, [
-        text('td', null, entry.code),
+        text('td', null, displayCode_(entry.code)),
         text('td', null, entry.name),
         text('td', null, String(entry.quantity)),
-        text('td', null, entry.avgCost === null ? '未知' : String(entry.avgCost)),
-        text('td', null, entry.referenceRange === null ? '未设定' : entry.referenceRange),
+        text('td', null, entry.avgCost === null ? '未提供' : String(entry.avgCost)),
+        text('td', null, entry.referenceRange === null ? '未提供' : entry.referenceRange),
         text('td', null, entry.currency)
       ]));
     });
@@ -2450,13 +2570,13 @@
     allocation.forEach(function (entry) {
       grid.appendChild(el('div', { className: 'ios-asset-card' }, [
         el('div', { className: 'ios-asset-head' }, [
-          text('strong', null, entry.code),
+          text('strong', null, displayCode_(entry.code)),
           text('span', 'ios-muted', entry.currency)
         ]),
         text('p', 'ios-asset-name', entry.name),
-        text('p', 'ios-asset-line', '数量: ' + entry.quantity),
-        text('p', 'ios-asset-line', '平均成本: ' + (entry.avgCost === null ? '未知' : String(entry.avgCost))),
-        text('p', 'ios-asset-line', '参考: ' + (entry.referenceRange === null ? '未设定' : entry.referenceRange))
+        text('p', 'ios-asset-line', '持有数量: ' + entry.quantity),
+        text('p', 'ios-asset-line', '平均成本: ' + (entry.avgCost === null ? '未提供' : String(entry.avgCost))),
+        text('p', 'ios-asset-line', '参考买入价（台账）: ' + (entry.referenceRange === null ? '未提供' : entry.referenceRange))
       ]));
     });
     return grid;

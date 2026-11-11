@@ -442,6 +442,7 @@ function buildDashboardBootstrap_(tabs, reader) {
     dailyHistory: buildHistoryList_(tabs['报告摘要'], 'daily'),
     weeklyHistory: buildHistoryList_(tabs['报告摘要'], 'weekly'),
     allocation: buildAllocationView_(tabs['当前持仓']),
+    allocationExcluded: buildAllocationExcluded_(tabs['当前持仓']),
     accountStatus: buildAccountStatusView_(tabs[ACCOUNT_STATUS_TAB_])
   };
 }
@@ -742,8 +743,24 @@ function isUnconfiguredSpreadsheetId_(spreadsheetId) {
  * (docs/v2.1-architecture.md). referenceRange is read directly from
  * 当前持仓's own 参考买入价/区间 column -- never derived from avgCost, and
  * independently blank/null when the user hasn't set one, regardless of
- * whether avgCost itself is known.
+ * whether avgCost itself is known. Only canonical current holdings
+ * (isCurrentHolding_: 状态=持有 AND 持有数量 > 0) are listed.
  */
+/**
+ * Issue #388 PR F review: 当前持仓 rows marked 状态=持有 whose 持有数量 is
+ * blank, zero, negative or not a number. They are NOT current holdings
+ * (isCurrentHolding_) and are never counted or listed as such; the 持仓明细
+ * ledger group only uses them to say a code's quantity is missing/invalid
+ * instead of claiming the ledger has no such row. The raw value is not shown.
+ */
+function buildAllocationExcluded_(currentHoldingsRows) {
+  return (currentHoldingsRows || []).filter(function (row) {
+    return row['状态'] === '持有' && !isCurrentHolding_(row);
+  }).map(function (row) {
+    return { code: row['代码'], name: row['名称'] };
+  });
+}
+
 function buildAllocationView_(currentHoldingsRows) {
   return getCurrentHoldings_(currentHoldingsRows).map(function (row) {
     return {
@@ -796,7 +813,7 @@ var ACCOUNT_STATUS_REQUIRED_ = ['账户', '币种'];
 
 /**
  * The 组合 view's account card (Issue #388 PR D): the live 账户状态 rows, like
- * the live 资本配置 view -- never a report snapshot. state is 'absent' (no tab,
+ * the live 当前台账 group in 持仓明细 -- never a report snapshot. state is 'absent' (no tab,
  * schema_version 1), 'unreadable' (missing a required column or read failure)
  * or 'ok'; blank cells stay null, never zero.
  */
@@ -2700,6 +2717,7 @@ if (typeof module !== 'undefined') {
     buildReportViewModel_: buildReportViewModel_,
     buildHistoryList_: buildHistoryList_,
     buildAllocationView_: buildAllocationView_,
+    buildAllocationExcluded_: buildAllocationExcluded_,
     getAccountFacts_: getAccountFacts_,
     buildAccountStatusView_: buildAccountStatusView_,
     hasSuppliedCashFacts_: hasSuppliedCashFacts_,

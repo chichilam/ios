@@ -25,8 +25,8 @@ credentials anywhere — every value in [`demo/demo-sheet.json`](demo/demo-sheet
 - `Styles.html` — CSS for the shell and everything Script.html renders into it.
 - `Script.html` — the client-side rendering/interaction engine (Issue #250): Daily/Weekly (日报/
   周报) view switching, a compact topbar history `<select>`, the v1.1 4-metric summary grid, a
-  minimal headline card, and 组合 (portfolio) / 资本配置 (capital allocation) / 风险 (risks) /
-  待办 (to-dos) tabs — all driven by `google.script.run` and local state, porting the v1.1
+  minimal headline card, and 组合 (portfolio) / 持仓明细 (holding detail, which holds the live
+  current-holdings ledger since Issue #388 PR F) / 风险 (risks) / 待办 (to-dos) tabs — all driven by `google.script.run` and local state, porting the v1.1
   Dashboard's visual structure onto the v2.1 data contract (see "Visual structure" below).
 - `appsscript.json` — project manifest. `webapp.access` defaults to `MYSELF` (only the deploying
   Google account can open the URL) — the safest default for a personal portfolio Dashboard; widen
@@ -120,7 +120,7 @@ approximation of it:
   conclusion text only, with an accent left border and soft gradient background — report id/
   period/generated-time metadata lives in a small muted caption underneath it instead, not inside
   the headline card itself.
-- The view tabs (报告/组合/持仓明细/资本配置/风险/待办) render as ordinary rounded buttons (10px radius) with a
+- The view tabs (报告/组合/持仓明细/风险/待办) render as ordinary rounded buttons (10px radius) with a
   dark active state, matching v1.1's `.tabs`/`.tab` control language — not blue accent pills. Nav
   buttons, tabs, the history `<select>`, and the refresh button all share this same control family.
 - Compact holding/watchlist cards render two per row on desktop, one per row on narrow screens,
@@ -131,8 +131,8 @@ approximation of it:
 
 ## Mobile responsiveness and todo scannability (Issue #255)
 
-- **资本配置 (Capital Allocation)** renders both a desktop table and a mobile card list from the
-  exact same `allocation` array in one pass — a CSS breakpoint (720px, the same one the holding/
+- **The live ledger rows (former 资本配置 view, inside 持仓明细 since Issue #388 PR F)** render both a
+  desktop table and a mobile card list from the exact same `allocation` array in one pass — a CSS breakpoint (720px, the same one the holding/
   watchlist card grid collapses to a single column at) decides which one is visible; `Script.html`
   never branches on viewport width itself. Below the breakpoint the table is `display: none`
   entirely, so the wide table can never cause horizontal page overflow — the table's own wrapper
@@ -248,18 +248,20 @@ Display only, from the same rows; nothing is hidden that cannot be opened.
 
 Display only; no Sheet field, schema, Task or Agent contract changes.
 
-- One row of views sits directly under the topbar: 报告 / 组合 / 持仓明细 / 资本配置 / 风险 / 待办. 报告 is the
+- One row of views sits directly under the topbar: 报告 / 组合 / 持仓明细 / 风险 / 待办 (资本配置 was folded into
+  持仓明细 by PR F, see below). 报告 is the
   default and holds the conclusion card, headline, tiers and layering; any other view replaces it on the
   whole page and the page scrolls back to the top. On a narrow screen the row scrolls sideways and the
   current view's tab is scrolled fully into sight.
 - A non-current generation's reader banner (#316 P4) repeats above every view built from that generation;
-  the live 资本配置 view shows none. Without a report, every report-based view shows the "no report yet" card.
+  the live ledger group inside 持仓明细 carries its own “当前台账，非本报告快照” label instead. Without a report,
+  every report-based view shows the "no report yet" card (持仓明细 still shows the live ledger below it).
 - 组合 opens with 组合概况: the report's 4-metric grid, `配置比例: 未提供` (the Sheet has no portfolio market
   value, and the Dashboard does not compute a ratio), the optional `账户状态` tab read live (labelled
   “当前台账，非本报告快照”, blank cash shown as 未提供, never 0; absent tab → 未提供, unreadable or missing
   `账户`/`币种` → a stated read problem; never Blocks the page), the change count (`本期 N 项变化` for a
-  layered Daily = its 本期有变化 group; `本周 N 项判断已变化` for a Weekly) with a link back to 报告, and links
-  to 持仓明细 and 资本配置.
+  layered Daily = its 本期有变化 group; `本周 N 项判断已变化` for a Weekly) with a link back to 报告, and a link
+  to 持仓明细 (the former 资本配置 link points there since PR F).
 - A post-#364 Daily already shows every holding and candidate in the report (本期有变化 / 其余 N 只无变化 /
   无可比基线), so its 组合 lists no card again, only the counts. A Weekly's report has verdict lines only,
   so its full cards stay in 组合 (unfolded, #383); so does every Daily without a change layering.
@@ -288,6 +290,33 @@ of that tier; the full cards stay where they were.
 - Not graded (no structured field in the snapshot, maintainer decision on #388): earnings within two
   trading days, a pause that meets its release condition, and a tsumitate deduction due this period
   (a `沿用定投` row is 仅供了解).
+
+### 持仓明细 absorbs 资本配置; Weekly folds ongoing pauses (Issue #388 PR F)
+
+Display only; no Sheet field, schema, Task or Agent contract changes, and nothing is computed.
+
+- The 资本配置 view is gone from the view row. 持仓明细 opens with **配置概况**: `配置比例: 未提供` (the schema has
+  no market value or FX field, so no 当前占比/目标占比 is shown), `可用现金` from the optional `账户状态` tab
+  (blank → not listed; none or absent → 未提供), and the number of live `当前持仓` rows — all labelled
+  “当前台账，非本报告快照”.
+- The detail table/cards gain a fourth group, **当前台账（实时）**: `持有数量`, `平均成本` (with the ledger's
+  `币种`) and `参考买入价（台账）` (the ledger's own `参考买入价/区间`), read as-is from the live `当前持仓` row of
+  the same 代码. A watchlist row without a ledger row shows `未持有`; a report holding no longer in the
+  ledger shows `当前台账无此持仓`; a blank cell is `未提供`. Only canonical current holdings (`状态=持有` AND
+  `持有数量 > 0`, as in `setup/schema/sheet-schema.json`) are ledger rows and counted. A `状态=持有` row whose
+  `持有数量` is blank, 0, negative or not a number is not a current holding: it is never counted or listed,
+  the matching code's ledger group reads `状态为持有，但持有数量未提供或无效（不计入当前持仓）` instead of
+  `当前台账无此持仓`, and 配置概况 names such rows on a separate line. 长期买入上限, 本周区间, 参考买入价（台账） and
+  第三方公允值 stay four separate, differently named columns; no add/trim conclusion is generated.
+- Live ledger rows the selected report does not list (e.g. bought after it) are listed below the table
+  (`当前台账中有、本报告未列出的持仓`), so nothing the old 资本配置 view showed is lost. Without a report, the
+  ledger rows still show below the "no report yet" card.
+- On a history report the page also says that 配置概况 and the 当前台账 group are today's ledger, not part of
+  that report; the report's own reader banner stays.
+- In a **Weekly**, 需要复核 lists every item with another reason first, then folds the items whose only
+  reason is `暂停新增延续中（本期无变化）` into one collapsed row `延续暂停 N 项（展开查看）` (N = the rows
+  inside, titles and reasons unchanged). Tier rules, the 需要复核 count and the conclusion card are unchanged
+  (PR E). A Daily's list is not folded; a pause with no comparison stays in 未比较.
 
 ## 持仓明细 tab (Issue #388 PR A)
 

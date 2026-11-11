@@ -959,3 +959,54 @@ test('PR E: 暂停新增待复核 is 必须执行 only when the generation marks
   const ongoing = tiered([pause('OLD', '无变化'), pause('HLD', '无变化', { 资产类型: 'holding' })]);
   assert.equal(conclusion(ongoing)['要不要动手'], '今日无需操作', 'ongoing pauses alone never ask for action');
 });
+
+test('PR F: a Weekly folds 需要复核 items whose only reason is an ongoing pause into one 「延续暂停 N 项」 row; counts unchanged', () => {
+  const pause = (code, flag, extra) => weeklyAsset(Object.assign({ 代码: code, 名称: '', 报告类型: 'weekly', 资产类型: 'watchlist',
+    今日行动: '暂停新增待复核', 执行状态: '暂停复核', 准备状态: '无需准备', 周计划状态: '有效', 变化标记: flag }, extra || {}));
+  const weekly = current(view('weekly'));
+  weekly.holdings = [pause('HLD', '无变化', { 资产类型: 'holding' })];
+  weekly.watchlistCandidates = [
+    pause('NEW', '有变化'),
+    pause('OLD', '无变化'),
+    pause('MIX', '无变化', { 需要复核: true }),
+    pause('BLK', ''),
+    weeklyAsset({ 代码: 'RVW', 名称: '', 报告类型: 'weekly', 资产类型: 'watchlist', 今日行动: '等待价格', 变化标记: '无变化', 需要复核: true })
+  ];
+  weekly.todos = [];
+  weekly.risks = [];
+  const w = load(null, weekly, 'weekly');
+  const section = summaryChild(w, 'ios-tier-review');
+  assert.equal(section.children[0].textContent, '需要复核 (4)', 'the tier count still includes the folded items');
+  const listed = section.children.find((c) => c.tagName === 'UL');
+  assert.deepEqual(listed.children.map((li) => li.children[1].textContent), ['MIX', 'RVW'],
+    'an item with any other reason is listed one by one, first');
+  const fold = section.children.find((c) => c.tagName === 'DETAILS');
+  assert.ok(fold.classList.contains('ios-continued-pauses'));
+  assert.equal(fold.getAttribute('open'), null, 'folded by default');
+  assert.equal(fold.children[0].textContent, '延续暂停 2 项（展开查看）');
+  const folded = findAll(fold, (n) => n.classList.contains('ios-tier-item'));
+  assert.equal(folded.length, 2, 'N equals the rows inside');
+  assert.deepEqual(folded.map((li) => li.children[1].textContent + '：' + li.children[2].textContent),
+    ['HLD：暂停新增延续中（本期无变化）', 'OLD：暂停新增延续中（本期无变化）'], 'titles and reasons unchanged');
+  assert.deepEqual(tierItems(w, 'ios-tier-must'), [{ title: 'NEW', reasons: '暂停新增待复核（本期有变化）' }]);
+  assert.deepEqual(lowerFold(w, '未比较'), ['BLK：暂停新增待复核（变化标记未提供）'], 'an uncompared pause stays in 未比较, never in the fold');
+  assert.equal(conclusion(w)['要不要动手'], '需要执行 1 项（见「必须执行」）；另有 1 项未比较', 'the conclusion card wording is unchanged');
+});
+
+test('PR F: a Weekly with only ongoing pauses shows just the fold; a Daily never folds', () => {
+  const pause = (code, type) => weeklyAsset({ 代码: code, 名称: '', 报告类型: type, 资产类型: 'watchlist', 今日行动: '暂停新增待复核',
+    执行状态: '暂停复核', 准备状态: '无需准备', 周计划状态: '有效', 变化标记: '无变化' });
+  const weekly = current(view('weekly'));
+  weekly.holdings = [];
+  weekly.watchlistCandidates = [pause('A1', 'weekly'), pause('A2', 'weekly')];
+  weekly.todos = [];
+  weekly.risks = [];
+  const w = load(null, weekly, 'weekly');
+  const section = summaryChild(w, 'ios-tier-review');
+  assert.equal(section.children.filter((c) => c.tagName === 'UL').length, 0);
+  assert.equal(section.children.find((c) => c.tagName === 'DETAILS').children[0].textContent, '延续暂停 2 项（展开查看）');
+  const d = tiered([pause('A1', 'daily'), pause('A2', 'daily')]);
+  const daily = summaryChild(d, 'ios-tier-review');
+  assert.equal(daily.children.filter((c) => c.tagName === 'DETAILS').length, 0, 'the Daily list is unchanged');
+  assert.deepEqual(tierItems(d, 'ios-tier-review').map((i) => i.title), ['A1', 'A2']);
+});

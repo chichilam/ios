@@ -106,7 +106,7 @@ function harnessScript() {
     var doc = win.document;
     ['daily', 'weekly'].forEach(function (view) {
       win.switchView(view);
-      ['report', 'portfolio', 'holdingDetail', 'allocation', 'risks', 'todos'].forEach(function (tab) {
+      ['report', 'portfolio', 'holdingDetail', 'risks', 'todos'].forEach(function (tab) {
         win.selectTab(tab);
         Array.prototype.forEach.call(doc.querySelectorAll('details'), function (d) { d.open = true; });
         var root = doc.documentElement;
@@ -148,7 +148,7 @@ function harnessScript() {
           }),
           cardColumns: grid ? win.getComputedStyle(grid).gridTemplateColumns.split(' ').length : 0,
           sections: ['.ios-layering', '.ios-layer-fact', '.ios-layer-verdict', '.ios-inline-fair-value', '.ios-asset-card',
-            '.ios-checklist', '.ios-list', '.ios-allocation-cards', '.ios-holding-detail-cards']
+            '.ios-checklist', '.ios-list', '.ios-allocation-cards', '.ios-holding-detail-cards', '.ios-holding-detail-cards .ios-detail-group-ledger']
             .filter(function (sel) { return Array.prototype.some.call(doc.querySelectorAll(sel), visible); })
         });
       });
@@ -235,7 +235,7 @@ test('no Daily or Weekly tab scrolls sideways at 320-430px or desktop, and deskt
   }
   const boot = stressBootstrap();
   const results = runInChrome(chrome, harnessHtml(dashboardHtml(boot, 'daily')));
-  assert.equal(results.length, WIDTHS.length * 12, JSON.stringify(results.filter((r) => r.error)));
+  assert.equal(results.length, WIDTHS.length * 10, JSON.stringify(results.filter((r) => r.error)));
   results.forEach((r) => {
     assert.ok(r.scrollWidth <= r.clientWidth,
       `${r.width}px ${r.view}/${r.tab}: scrollWidth ${r.scrollWidth} > clientWidth ${r.clientWidth}; widest: ${r.offenders.join(', ')}`);
@@ -264,5 +264,7 @@ test('no Daily or Weekly tab scrolls sideways at 320-430px or desktop, and deskt
   ['daily', 'weekly'].forEach((view) => {
     const detail = results.find((r) => r.width === 390 && r.view === view && r.tab === 'holdingDetail');
     assert.ok(detail.sections.includes('.ios-holding-detail-cards'), `${view} renders the 持仓明细 cards`);
+    // Issue #388 PR F: the live ledger group (former 资本配置) is inside each 持仓明细 card at 390px.
+    assert.ok(detail.sections.includes('.ios-holding-detail-cards .ios-detail-group-ledger'), `${view} renders the 当前台账 group in the 持仓明细 cards`);
   });
 });

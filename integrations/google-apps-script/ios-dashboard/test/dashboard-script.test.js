@@ -234,7 +234,7 @@ test('Issue #388 PR D: each top view replaces the whole page, and 报告 brings 
   let scrolled = 0;
   const { document, window } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
   window.scrollTo = () => { scrolled += 1; };
-  ['portfolio', 'holdingDetail', 'allocation', 'risks', 'todos'].forEach((tab) => {
+  ['portfolio', 'holdingDetail', 'risks', 'todos'].forEach((tab) => {
     window.selectTab(tab);
     assert.equal(document.getElementById('ios-summary-content').hidden, true, tab + ' hides the report');
     assert.equal(document.getElementById('ios-tab-content').hidden, false, tab + ' shows its own content');
@@ -244,7 +244,21 @@ test('Issue #388 PR D: each top view replaces the whole page, and 报告 brings 
   window.selectTab('report');
   assert.equal(document.getElementById('ios-summary-content').hidden, false);
   assert.equal(document.getElementById('ios-tab-content').hidden, true);
-  assert.equal(scrolled, 6, 'every switch starts the new view at the top of the page');
+  assert.equal(scrolled, 5, 'every switch starts the new view at the top of the page');
+});
+
+test('Issue #388 PR F: the view row has no 资本配置; selecting it is ignored, and 组合 links to 持仓明细 instead', () => {
+  const index = fs.readFileSync(path.join(__dirname, '..', 'Index.html'), 'utf8');
+  assert.doesNotMatch(index, /资本配置|ios-tab-allocation/);
+  const labels = [...index.matchAll(/class="ios-tab-btn"[^>]*>([^<]+)</g)].map((m) => m[1]);
+  assert.deepEqual(labels, ['报告', '组合', '持仓明细', '风险', '待办']);
+  const { document, window } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
+  window.selectTab('portfolio');
+  window.selectTab('allocation');
+  assert.ok(document.getElementById('ios-tab-portfolio').classList.contains('active'), 'an unknown view name is ignored');
+  const links = portfolioOverview(document).children.find((c) => c.classList.contains('ios-view-links')).children.map((b) => b.textContent);
+  assert.ok(links.includes('持仓明细'));
+  assert.ok(!links.includes('资本配置'));
 });
 
 test('Issue #388 PR D: the 组合 overview shows the report summary grid, live account state labelled as such, and 配置比例 as 未提供', () => {
@@ -276,7 +290,7 @@ test('Issue #388 PR D: the top view row comes before the report in Index.html', 
   assert.ok(index.indexOf('id="ios-tab-report"') > bar);
 });
 
-test('Issue #388 PR D: a non-current generation keeps its reader banner above every view built from it, but not above live 资本配置', () => {
+test('Issue #388 PR D/F: a non-current generation keeps its reader banner above every view built from it, including 持仓明细 with its live ledger group', () => {
   const bootstrap = buildBootstrapWithTodos([]);
   const { document, window } = loadDashboard(bootstrap, 'daily', {});
   const banner = document.getElementById('ios-view-banner');
@@ -284,8 +298,8 @@ test('Issue #388 PR D: a non-current generation keeps its reader banner above ev
   window.selectTab('todos');
   assert.equal(banner.hidden, false);
   assert.match(banner.textContent, /不作为当前买入依据/);
-  window.selectTab('allocation');
-  assert.equal(banner.hidden, true);
+  window.selectTab('holdingDetail');
+  assert.equal(banner.hidden, false, 'PR F: 持仓明细 is report-based, so the banner stays; the ledger group carries its own 当前台账 label');
 });
 
 test('the summary grid (now in the 组合 overview, #388 PR D) has exactly the 4 v1.1 metrics (当前持仓/观察名单/核心状态/Review) with their explanatory subtitles, not tab-count shortcuts', () => {
@@ -371,17 +385,17 @@ test('switchView repopulates the history <select> with that view\'s own history 
   assert.deepEqual(historySelectOptionValues(document), ['', 'weekly-2026-08-15']);
 });
 
-test('selectTab switches between 组合/资本配置/风险/待办 without any google.script.run call, and updates aria-current', () => {
+test('selectTab switches between 组合/持仓明细/风险/待办 without any google.script.run call, and updates aria-current', () => {
   let runCalls = 0;
   const { document, window } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {
     getReport: () => { runCalls += 1; return {}; },
     getDashboardBootstrap: () => { runCalls += 1; return {}; }
   });
 
-  window.selectTab('allocation');
-  assert.ok(document.getElementById('ios-tab-allocation').classList.contains('active'));
+  window.selectTab('holdingDetail');
+  assert.ok(document.getElementById('ios-tab-holdingDetail').classList.contains('active'));
   assert.equal(document.getElementById('ios-tab-portfolio').getAttribute('aria-current'), null);
-  assert.match(tabText(document), /DEMO1/, '资本配置 tab shows the live current-holdings table');
+  assert.match(tabText(document), /DEMO1/, '持仓明细 shows the live current-holdings ledger (former 资本配置, #388 PR F)');
 
   window.selectTab('risks');
   assert.ok(document.getElementById('ios-tab-risks').classList.contains('active'));
@@ -404,22 +418,38 @@ test('selectTab ignores an unrecognized tab name rather than clearing the curren
   assert.ok(document.getElementById('ios-tab-portfolio').classList.contains('active'), 'must remain on the previously active tab');
 });
 
-test('the 资本配置 (capital allocation) tab renders live current-holdings data independent of which Daily/Weekly view is active', () => {
+function ledgerGroups(document) {
+  const out = [];
+  (function walk(node) {
+    (node.children || []).forEach((child) => {
+      if (child.classList && (child.classList.contains('ios-allocation-overview') || child.classList.contains('ios-detail-group-ledger'))) out.push(child);
+      walk(child);
+    });
+  })(document.getElementById('ios-tab-content'));
+  return out;
+}
+
+function ledgerText(document) {
+  return ledgerGroups(document).map((n) => n.textContent).join('|');
+}
+
+test('the live current-holdings ledger in 持仓明细 (former 资本配置, #388 PR F) is the same whichever Daily/Weekly view is active', () => {
   const { document, window } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
-  window.selectTab('allocation');
-  const allocationText = tabText(document);
-  assert.match(allocationText, /DEMO1/);
-  assert.match(allocationText, /DEMO2/);
+  window.selectTab('holdingDetail');
+  const facts = ['当前台账，非本报告快照', '当前台账持仓: 2 只', '持有数量: 100平均成本: 42.5 USD参考买入价（台账）: 38-40', '持有数量: 50平均成本: 未提供参考买入价（台账）: 未提供'];
+  const dailyLedger = ledgerText(document);
+  facts.forEach((fact) => assert.ok(dailyLedger.includes(fact), 'daily: ' + fact));
   window.switchView('weekly');
-  assert.equal(tabText(document), allocationText, 'allocation is not report-scoped and must not change when the active view changes');
+  const weeklyLedger = ledgerText(document);
+  facts.forEach((fact) => assert.ok(weeklyLedger.includes(fact), 'weekly: ' + fact + ' is not report-scoped and must not change when the active view changes'));
 });
 
-test('capital allocation (Issue #255) renders both a desktop table and a mobile card list from the same data -- a CSS breakpoint picks one, Script.html never branches on viewport itself', () => {
-  const { document, window } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
-  window.selectTab('allocation');
-  const section = document.getElementById('ios-tab-content').children[0];
-  const tableWrap = section.children[2];
-  const cards = section.children[3];
+test('the ledger rows (Issue #255, inside 持仓明细 since #388 PR F) render both a desktop table and a mobile card list from the same data -- a CSS breakpoint picks one, Script.html never branches on viewport itself', () => {
+  const { document, window } = loadDashboard(Object.assign({}, DEMO_BOOTSTRAP, { daily: { found: false, reportType: 'daily' } }), 'daily', {});
+  window.selectTab('holdingDetail');
+  const block = ledgerGroups(document).find((n) => n.classList.contains('ios-ledger-only'));
+  const tableWrap = block.children.find((c) => c.classList.contains('ios-allocation-table'));
+  const cards = block.children.find((c) => c.classList.contains('ios-allocation-cards'));
   assert.ok(tableWrap.classList.contains('ios-allocation-table'), 'the table wrapper carries the class the mobile breakpoint hides');
   assert.ok(cards.classList.contains('ios-allocation-cards'), 'the card container carries the class the desktop breakpoint hides');
   assert.equal(tableWrap.children[0].tagName, 'TABLE');
@@ -428,16 +458,17 @@ test('capital allocation (Issue #255) renders both a desktop table and a mobile 
   assert.equal(cards.children.length, 2, 'one card per allocation entry -- the same 2 live holdings the table shows');
 });
 
-test('a capital-allocation mobile card surfaces code/name/quantity/avg-cost/reference with the same missing-value handling as the table', () => {
-  const { document, window } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
-  window.selectTab('allocation');
-  const cards = document.getElementById('ios-tab-content').children[0].children[3];
+test('a ledger mobile card surfaces code/name/quantity/avg-cost/reference with the same missing-value handling as the table', () => {
+  const { document, window } = loadDashboard(Object.assign({}, DEMO_BOOTSTRAP, { daily: { found: false, reportType: 'daily' } }), 'daily', {});
+  window.selectTab('holdingDetail');
+  const block = ledgerGroups(document).find((n) => n.classList.contains('ios-ledger-only'));
+  const cards = block.children.find((c) => c.classList.contains('ios-allocation-cards'));
   const demo1Card = cards.children.find((card) => card.textContent.indexOf('DEMO1') !== -1);
   const demo2Card = cards.children.find((card) => card.textContent.indexOf('DEMO2') !== -1);
   assert.match(demo1Card.textContent, /42\.5/);
-  assert.match(demo1Card.textContent, /38-40/);
-  assert.match(demo2Card.textContent, /未知/, 'DEMO2 has a blank 平均成本 in 当前持仓 -- must render explicitly, never a fabricated 0');
-  assert.match(demo2Card.textContent, /未设定/, 'DEMO2 has a blank 参考买入价/区间 in 当前持仓 -- must render explicitly, never blank/omitted');
+  assert.match(demo1Card.textContent, /参考买入价（台账）: 38-40/);
+  assert.match(demo2Card.textContent, /平均成本: 未提供/, 'DEMO2 has a blank 平均成本 in 当前持仓 -- must render explicitly, never a fabricated 0');
+  assert.match(demo2Card.textContent, /参考买入价（台账）: 未提供/, 'DEMO2 has a blank 参考买入价/区间 in 当前持仓 -- must render explicitly, never blank/omitted');
 });
 
 test('onHistorySelectChange("") resets to latest, same as clicking the active Daily/Weekly nav button', () => {
@@ -532,8 +563,8 @@ test('a Blocked bootstrap (error set) renders the status banner and leaves the s
   window.switchView('weekly');
   assert.equal(summaryText(document), '', 'Blocked must stay Blocked across a view switch, never partially recover');
 
-  window.selectTab('allocation');
-  assert.equal(tabText(document), '', 'Blocked must stay Blocked across a tab switch too, including the otherwise view-independent allocation tab');
+  window.selectTab('holdingDetail');
+  assert.equal(tabText(document), '', 'Blocked must stay Blocked across a tab switch too, including the live ledger inside 持仓明细');
 });
 
 test('an empty-state (found: false, no error) renders the explicit "no report yet" card in the summary section, not a blank page', () => {
