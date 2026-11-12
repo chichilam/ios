@@ -690,9 +690,23 @@ Display only; no Sheet field, schema, Task or Agent contract changes.
   joiner (`+ - : . _`) glued before it, or a letter/digit/`_` after it (directly or after a run of joiners, e.g.
   `Z..q`, `+09:00::1`), leaves the whole longer
   token as written (`+09:000`, `…Zebra`, `12026-…`), while punctuation and Chinese text around it are fine. 技术信息 (raw) is untouched.
-- **报告结论 vs 当前阻碍**: 今日行动说明 drops the row's 当前阻碍 text only when it is exactly that text
-  (报告结论 = 今日行动, or `见当前阻碍` when 今日行动 is blank), or an independent prefix + a separator
-  (`：:，,；;。—`) + the whole 当前阻碍 text (报告结论 keeps 今日行动 + the prefix). Any other overlap -- an
-  ordinary suffix such as `需要等待财报` vs `财报`, or a space -- keeps the full text. Nothing is reworded. A 适合买入
-  row keeps its full conclusion.
+- **报告结论 vs 当前阻碍**: superseded by PR F below.
 
+### 报告结论 vs 当前阻碍 (Issue #396 PR F)
+
+Display only; no Sheet field, schema, Task or Agent contract changes. On a 买入判断 card (日报/周报, latest or
+history) of a row that shows 当前阻碍 (every row that is not 适合买入), one shared function
+(`dedupeConclusionBlocker_`) compares 报告结论 C (`今日行动。今日行动说明`) with 当前阻碍 B. **当前阻碍 is always
+shown in full; 报告结论 shows only what it says beyond it:**
+
+| Case | 报告结论 | 当前阻碍 |
+| --- | --- | --- |
+| C ≡ B | not shown | B as written |
+| C contains the whole B (start, end or middle, once or more) | C without every whole instance of B (not shown when only punctuation/space is left) | B as written |
+| B contains the whole C | not shown | B as written |
+| partial overlap, different, or either blank | as written (`未提供` when blank) | as written |
+
+Comparison is on a normalized form only (trimmed, whitespace runs as one space and none next to punctuation,
+full-width `。，：；` read as `. , : ;`); the shown text is cut from the original (leading punctuation and a
+trailing `，：；` of the cut are dropped, and where two kept slices meet a separator on both sides reads once), never
+reworded. 报告明细's full cards are untouched.

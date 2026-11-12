@@ -1063,7 +1063,7 @@ test('#396 PR D/E: 当前阻碍 identical to the 今日行动说明 is shown onc
   const rows = [weeklyAsset({ 代码: 'SAME', 今日行动: '等待价格', 今日行动说明: '高于计划区间', 当前阻碍: '高于计划区间', 阻塞待办ID: '无' }),
     weeklyAsset({ 代码: 'DIFF', 今日行动: '等待价格', 今日行动说明: '高于计划区间', 当前阻碍: '等待财报', 阻塞待办ID: '无' })];
   const { document } = loadWithWindow(null, weeklyWith(rows), 'weekly');
-  assert.deepEqual(fieldLines(document, 'SAME', '报告结论'), ['等待价格']);
+  assert.deepEqual(fieldLines(document, 'SAME', '报告结论'), ['等待价格。'], 'PR F: 报告结论 is cut to what it says beyond 当前阻碍');
   assert.deepEqual(fieldLines(document, 'SAME', '当前阻碍'), ['高于计划区间']);
   assert.deepEqual(fieldLines(document, 'DIFF', '当前阻碍'), ['等待财报']);
 });
@@ -1297,35 +1297,6 @@ test('#396 PR E review: ISO instants -- Z with/without ms, ± offsets, day rollo
   ].join('、')));
 });
 
-test('#396 PR E review: 报告结论 drops 当前阻碍 only on an exact match or an independent prefix + separator', () => {
-  const row = (code, action, said, blocker) => weeklyAsset({ 代码: code, 今日行动: action, 今日行动说明: said, 当前阻碍: blocker, 阻塞待办ID: '无' });
-  const rows = [
-    row('EXACT', '等待价格', '高于计划区间', '高于计划区间'),
-    row('EXACTNA', '', '高于计划区间', '高于计划区间'),
-    row('PREFIX', '暂停新增待复核', '事件暂停中：等待 10-Q 复核', '等待 10-Q 复核'),
-    row('PREFIX2', '等待价格', '等待价格，高于计划区间', '高于计划区间'),
-    row('SUFFIX', '等待价格', '需要等待财报', '财报'),
-    row('SPACE', '等待价格', '需要等待 财报', '财报'),
-    row('DIFF', '等待价格', '高于计划区间', '等待财报'),
-    row('EMPTYB', '等待价格', '高于计划区间', ''),
-    row('EMPTYS', '等待价格', '', '高于计划区间'),
-    weeklyAsset({ 代码: 'BUY', 今日行动说明: '人工准备限价单：财报', 当前阻碍: '财报' })
-  ];
-  const { document } = loadWithWindow(null, weeklyWith(rows), 'weekly');
-  const c = (code) => fieldLines(document, code, '报告结论')[0];
-  assert.equal(c('EXACT'), '等待价格');
-  assert.equal(c('EXACTNA'), '见当前阻碍');
-  assert.equal(c('PREFIX'), '暂停新增待复核。事件暂停中');
-  assert.equal(c('PREFIX2'), '等待价格。等待价格');
-  assert.equal(c('SUFFIX'), '等待价格。需要等待财报', 'an ordinary suffix overlap keeps the full text');
-  assert.equal(c('SPACE'), '等待价格。需要等待 财报', 'whitespace alone is not a separator');
-  assert.equal(c('DIFF'), '等待价格。高于计划区间');
-  assert.equal(c('EMPTYB'), '等待价格。高于计划区间');
-  assert.equal(c('EMPTYS'), '等待价格');
-  assert.equal(c('BUY'), '可人工准备限价单。人工准备限价单：财报', 'a 适合买入 row keeps its full conclusion');
-  assert.deepEqual(fieldLines(document, 'SUFFIX', '当前阻碍'), ['财报']);
-});
-
 test('#396 PR E review: a latest and a history report with malformed changes both fail closed, independently', () => {
   const bad = '已核验暂停记录ID由["AAA|x';
   const latest = weeklyWith([weeklyAsset({ 变化标记: '有变化', 较上次变化说明: bad })]);
@@ -1461,4 +1432,102 @@ test('#396 PR E review 4: only a whole ISO token converts; a valid prefix of a l
   kept.forEach((k) => assert.ok(text.includes(' ' + k + ' ') || text.includes(k + ' ／'), 'kept as written: ' + k));
   converted.forEach(([, out]) => assert.ok(text.includes(out), 'converted: ' + out));
   assert.equal((text.match(/JST/g) || []).length, 10, 'only the whole valid tokens convert');
+});
+
+// -- #396 PR F: 报告结论 (C) shows only what it says beyond 当前阻碍 (B); B is always shown in full. --
+
+test('#396 PR F: 报告结论 vs 当前阻碍 -- equal, containment either way, punctuation/space-only differences, overlap, blanks', () => {
+  const row = (code, action, said, blocker, extra) => weeklyAsset(Object.assign({ 代码: code, 今日行动: action, 今日行动说明: said, 当前阻碍: blocker, 阻塞待办ID: '无' }, extra || {}));
+  const B = '本周无购买计划：周计划状态为事件暂停，原计划暂停条件。';
+  const cases = [
+    // [code, action, said, blocker, expected 报告结论 (null = not shown)]
+    ['EQ', '', B, B, null],
+    ['EQPUNCT', '', '本周无购买计划:周计划状态为事件暂停,  原计划暂停条件.', B, null],
+    ['EQSPACE', '', '  ' + B + '  ', B, null],
+    ['PREFIX', '本周无购买区间', B, B, '本周无购买区间。'],
+    ['PREFIXN', '本周无购买区间', '本周无购买计划:周计划状态为事件暂停, 原计划暂停条件.', B, '本周无购买区间。'],
+    ['SUFFIX', '', B + '下周复核。', B, '下周复核。'],
+    ['MIDDLE', '本周无购买区间', B + '下周复核。', B, '本周无购买区间。下周复核。'],
+    ['BHASC', '', '周计划状态为事件暂停', B, null],
+    ['BHASC2', '等待价格', '', '等待价格，报告时价格高于计划区间', null],
+    ['ONLYPUNCT', '', B + '。', B, null],
+    ['OVERLAP', '等待价格', '报告时价格高于计划区间上沿', '高于计划区间上沿且资金未核验', '等待价格。报告时价格高于计划区间上沿'],
+    ['DIFF', '等待价格', '高于计划区间', '等待财报', '等待价格。高于计划区间'],
+    ['NOB', '等待价格', '高于计划区间', '', '等待价格。高于计划区间'],
+    ['NOC', '', '', '等待财报', '未提供']
+  ];
+  const rows = cases.map(([code, action, said, blocker]) => row(code, action, said, blocker))
+    .concat([weeklyAsset({ 代码: 'BUY', 今日行动说明: '人工准备限价单：财报', 当前阻碍: '财报' })]);
+  const { document } = loadWithWindow(null, weeklyWith(rows), 'weekly');
+  cases.forEach(([code, action, said, blocker, expected]) => {
+    const got = fieldLines(document, code, '报告结论');
+    assert.deepEqual(got, expected === null ? null : [expected], code);
+    assert.deepEqual(fieldLines(document, code, '当前阻碍'), [blocker === '' ? '未提供' : blocker], code + ': 当前阻碍 is always the original');
+    if (expected !== null && expected !== '未提供') {
+      const full = action === '' ? said : (said === '' ? action : action + '。' + said);
+      if (code === 'MIDDLE') {
+        const cut = full.indexOf(blocker);
+        assert.equal(expected, full.slice(0, cut) + full.slice(cut + blocker.length), 'middle: the two original slices around B');
+      } else {
+        assert.ok(full.includes(expected), code + ': the shown text is a substring of the original');
+      }
+    }
+  });
+  assert.match(fieldLines(document, 'BUY', '报告结论')[0], /^可人工准备限价单。人工准备限价单：财报$/, 'a 适合买入 row (no 当前阻碍 field) keeps its full conclusion');
+  assert.equal(fieldLines(document, 'BUY', '当前阻碍'), null);
+});
+
+test('#396 PR F: the same rule applies to Daily, Weekly and history reports; 报告明细 keeps the full text', () => {
+  const B = '本周无购买计划：周计划状态为事件暂停。';
+  const mk = () => weeklyAsset({ 代码: 'PAU', 今日行动: '本周无购买区间', 今日行动说明: B, 当前阻碍: B, 阻塞待办ID: '无', 变化标记: '有变化' });
+  const latest = weeklyWith([mk()]);
+  const history = Object.assign(weeklyWith([mk()]), { error: null });
+  history.summary = Object.assign({}, history.summary, { 报告ID: 'weekly-2026-11-01', 报告日期: '2026-11-01' });
+  const { document, window } = loadWithWindow(null, latest, 'weekly', { getReport: () => history });
+  window.selectTab('weekly');
+  assert.deepEqual(fieldLines(document, 'PAU', '报告结论'), ['本周无购买区间。']);
+  assert.deepEqual(fieldLines(document, 'PAU', '当前阻碍'), [B]);
+  window.selectHistoryReport('weekly-2026-11-01');
+  assert.deepEqual(fieldLines(document, 'PAU', '报告结论'), ['本周无购买区间。']);
+  assert.deepEqual(fieldLines(document, 'PAU', '当前阻碍'), [B]);
+  // Daily, through the same buy-judgment card.
+  const { document: daily } = dailyWithWeekly([dailyTwin({ 代码: 'PAU', 今日行动: '本周无购买区间', 今日行动说明: B, 当前阻碍: B, 阻塞待办ID: '无' })], [weeklyAsset()]);
+  assert.deepEqual(fieldLines(daily, 'PAU', '报告结论'), ['本周无购买区间。']);
+  assert.deepEqual(fieldLines(daily, 'PAU', '当前阻碍'), [B]);
+});
+
+test('#396 PR F review: every whole instance of 当前阻碍 is cut from 报告结论, not only the first', () => {
+  const row = (code, action, said, blocker) => weeklyAsset({ 代码: code, 今日行动: action, 今日行动说明: said, 当前阻碍: blocker, 阻塞待办ID: '无' });
+  const cases = [
+    ['TWICE', '等待价格', '等待价格', '等待价格', null],
+    ['TWICE2', '', '等待价格。等待价格', '等待价格', null],
+    ['TWICEMIX', '', '等待价格.  等待价格；', '等待价格', null],
+    ['SANDWICH', '', '财报；下周复核；财报', '财报', '下周复核'],
+    ['AROUND', '等待价格', '高于区间；等待价格', '等待价格', '高于区间'],
+    ['THREE', '', '财报，A，财报，B。财报', '财报', 'A，B。'],
+    ['PRESUF', '', '前缀：财报，后缀。', '财报', '前缀：后缀。'],
+    ['ADJ', '', '财报财报，补充', '财报', '补充'],
+    ['OVERLAP', '', '财报日前', '财报日前后', '财报日前' /* B contains C -> hidden */],
+    ['PARTIAL', '', '等待价格回落', '价格回落到区间', '等待价格回落']
+  ];
+  cases[8][4] = null;
+  const rows = cases.map(([code, a, sd, b]) => row(code, a, sd, b));
+  const { document } = loadWithWindow(null, weeklyWith(rows), 'weekly');
+  cases.forEach(([code, , , blocker, expected]) => {
+    assert.deepEqual(fieldLines(document, code, '报告结论'), expected === null ? null : [expected], code);
+    assert.deepEqual(fieldLines(document, code, '当前阻碍'), [blocker], code);
+    if (expected !== null && code !== 'PARTIAL') { assert.ok(!expected.includes(blocker), code + ': no whole 当前阻碍 is left'); }
+  });
+});
+
+test('#396 PR F review: a latest and a history report with repeated 当前阻碍 dedupe independently', () => {
+  const latest = weeklyWith([weeklyAsset({ 代码: 'REP', 今日行动: '等待价格', 今日行动说明: '高于区间；等待价格', 当前阻碍: '等待价格', 阻塞待办ID: '无' })]);
+  const history = Object.assign(weeklyWith([weeklyAsset({ 代码: 'REP', 今日行动: '', 今日行动说明: '财报；下周复核；财报', 当前阻碍: '财报', 阻塞待办ID: '无' })]), { error: null });
+  history.summary = Object.assign({}, history.summary, { 报告ID: 'weekly-2026-11-01', 报告日期: '2026-11-01' });
+  const { document, window } = loadWithWindow(null, latest, 'weekly', { getReport: () => history });
+  window.selectTab('weekly');
+  assert.deepEqual(fieldLines(document, 'REP', '报告结论'), ['高于区间']);
+  window.selectHistoryReport('weekly-2026-11-01');
+  assert.deepEqual(fieldLines(document, 'REP', '报告结论'), ['下周复核']);
+  assert.deepEqual(fieldLines(document, 'REP', '当前阻碍'), ['财报']);
 });

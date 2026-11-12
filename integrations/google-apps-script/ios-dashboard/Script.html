@@ -689,29 +689,87 @@
     return [status === '' ? '未提供' : '无暂停记录（周计划状态：' + status + '）'];
   }
 
-  /**
-   * 报告结论 = 今日行动。今日行动说明, as written. The row's 当前阻碍 has its own
-   * field, so 今日行动说明 drops it only when (#396 PR E review) it is exactly
-   * the 当前阻碍 text, or an independent prefix + a separator (：:，,；;。—)
-   * + the whole 当前阻碍 text; the prefix is kept. Any other overlap (e.g.
-   * 「需要等待财报」 vs 「财报」) keeps the full text. Nothing is reworded.
-   */
-  var CONCLUSION_PREFIX_SEPARATOR_ = /^(.*\S)\s*[：:，,；;。—]\s*$/;
-
-  function conclusionText_(row, blocker) {
+  /** 报告结论 = 今日行动。今日行动说明, as written (未提供 when both are blank). */
+  function conclusionText_(row) {
     var action = cellText_(row['今日行动']);
     var said = cellText_(row['今日行动说明']);
-    if (blocker) {
-      if (said === blocker) {
-        said = '';
-        if (action === '') { return '见当前阻碍'; }
-      } else if (said.length > blocker.length && said.slice(said.length - blocker.length) === blocker) {
-        var prefix = CONCLUSION_PREFIX_SEPARATOR_.exec(said.slice(0, said.length - blocker.length));
-        if (prefix) { said = prefix[1]; }
-      }
-    }
     if (action === '') { return said === '' ? '未提供' : said; }
     return said === '' ? action : action + '。' + said;
+  }
+
+  // -- Issue #396 PR F: 报告结论 (C) vs 当前阻碍 (B) on a 买入判断 card. 当前阻碍 is
+  // always shown in full; 报告结论 shows only what it says beyond 当前阻碍:
+  //   C ≡ B, or B contains the whole C  -> 报告结论 is not shown;
+  //   C contains the whole B            -> 报告结论 shows C without every whole
+  //                                        instance of B (if only punctuation/
+  //                                        space is left: not shown);
+  //   partial overlap / different / either blank -> both as written.
+  // Comparison is on a normalized form (trimmed, whitespace runs as one space --
+  // none next to punctuation -- and full-width 。，：； read as . , : ;); what is shown is always cut from the
+  // original text, never reworded. 报告明细's full cards keep the full text. --
+
+  var DEDUPE_PUNCT_MAP_ = { '。': '.', '，': ',', '：': ':', '；': ';' };
+  var DEDUPE_PUNCT_RE_ = /[。，：；.,:;]/;
+  var DEDUPE_ONLY_PUNCT_ = /^[\s。，：；.,:;、—\-]*$/;
+  var DEDUPE_EDGE_PUNCT_ = /^[\s。，：；.,:;、]+|[\s，：；,:;、]+$/g;
+
+  /** { text, spans }: the normalized text and, per normalized char, its [start, end) in the original. */
+  function dedupeNormalize_(value) {
+    var out = '';
+    var spans = [];
+    var i = 0;
+    while (i < value.length) {
+      var c = value.charAt(i);
+      if (/\s/.test(c)) {
+        var j = i;
+        while (j < value.length && /\s/.test(value.charAt(j))) { j++; }
+        // A run reads as one space; next to punctuation it reads as nothing (`，  原` ≡ `，原`).
+        var near = /[.,:;]$/.test(out) || DEDUPE_PUNCT_RE_.test(value.charAt(j));
+        if (out !== '' && j < value.length && !near) { out += ' '; spans.push([i, j]); }
+        i = j;
+        continue;
+      }
+      out += DEDUPE_PUNCT_MAP_[c] || c;
+      spans.push([i, i + 1]);
+      i++;
+    }
+    return { text: out, spans: spans };
+  }
+
+  /** Two kept original slices joined; a separator at the end of the first drops the second's leading separators. */
+  function dedupeJoin_(left, right) {
+    if (/[\s。，：；.,:;、]$/.test(left)) { return left + right.replace(/^[\s。，：；.,:;、]+/, ''); }
+    return left + right;
+  }
+
+  /**
+   * { conclusion: string|null, blocker } for one card. conclusion null means
+   * 报告结论 is not shown. Both inputs are the texts as written.
+   */
+  function dedupeConclusionBlocker_(conclusion, blocker) {
+    var keep = { conclusion: conclusion, blocker: blocker };
+    if (conclusion === '' || conclusion === '未提供' || blocker === '') { return keep; }
+    var c = dedupeNormalize_(conclusion);
+    var b = dedupeNormalize_(blocker);
+    if (c.text === '' || b.text === '') { return keep; }
+    if (c.text === b.text || b.text.indexOf(c.text) !== -1) { return { conclusion: null, blocker: blocker }; }
+    if (c.text.indexOf(b.text) === -1) { return keep; }
+    // Every whole, non-overlapping instance of B (left to right) is cut; the
+    // original slices between them are kept in order. Where two kept slices
+    // meet, a separator left on both sides reads once (`A。B。C` - B -> `A。C`).
+    var rest = '';
+    var from = 0;
+    var at = c.text.indexOf(b.text);
+    var origFrom = 0;
+    while (at !== -1) {
+      rest = dedupeJoin_(rest, conclusion.slice(origFrom, c.spans[at][0]));
+      origFrom = c.spans[at + b.text.length - 1][1];
+      from = at + b.text.length;
+      at = c.text.indexOf(b.text, from);
+    }
+    rest = dedupeJoin_(rest, conclusion.slice(origFrom)).replace(DEDUPE_EDGE_PUNCT_, '');
+    if (DEDUPE_ONLY_PUNCT_.test(rest)) { return { conclusion: null, blocker: blocker }; }
+    return { conclusion: rest, blocker: blocker };
   }
 
   function buildBuyRow_(row, verdict, todos) {
@@ -722,20 +780,23 @@
       watch ? text('span', 'ios-badge ios-badge-muted ios-watch-tag', '观察') : null,
       text('span', badgeClass('ios-badge ios-badge-today-verdict', TODAY_VERDICT_BADGE_CLASS_[verdict] || ''), verdict || '报告未判断')
     ]);
-    var blocker = verdict === '适合买入' || isBlank(row['当前阻碍']) ? '' : cellText_(row['当前阻碍']);
+    var showsBlocker = verdict !== '适合买入';
+    var deduped = showsBlocker
+      ? dedupeConclusionBlocker_(conclusionText_(row), isBlank(row['当前阻碍']) ? '' : cellText_(row['当前阻碍']))
+      : { conclusion: conclusionText_(row) };
     var fields = el('div', { className: 'ios-buy-fields' }, [
       judgmentField_('报告时价格', quoteText_(row)),
       judgmentField_('计划买入区间', planRangeText_(row)),
       judgmentField_('长期买入上限', row['长期买入上限快照']),
       judgmentField_('暂停状态', pauseLines_(row)),
       judgmentField_('资金结论', row['资金结论']),
-      judgmentField_('报告结论', conclusionText_(row, blocker), 'ios-buy-field-wide')
+      deduped.conclusion === null ? null : judgmentField_('报告结论', deduped.conclusion, 'ios-buy-field-wide')
     ]);
     var children = [head, fields];
-    if (verdict !== '适合买入') {
+    if (showsBlocker) {
       // Every row that is not 适合买入 -- including a watchlist row the report
-      // did not judge -- shows its 当前阻碍 and 阻塞待办ID as written.
-      // The blocker text is shown here once; 报告结论 drops it (conclusionText_).
+      // did not judge -- shows its 当前阻碍 (always in full) and 阻塞待办ID as written.
+      // 报告结论 above shows only what it says beyond it (dedupeConclusionBlocker_).
       children.push(judgmentField_('当前阻碍', row['当前阻碍'], 'ios-buy-field-wide'));
       if (verdict === '无法判断') {
         var reason = buildReasonLine_(row, verdict);
