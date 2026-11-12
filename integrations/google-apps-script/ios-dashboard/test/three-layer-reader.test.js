@@ -735,7 +735,7 @@ test('#63/#58 research-time labels: before the event, expired, superseded valuat
   assert.match(nextDayUnzoned, UNKNOWN, 'a time without offset may fall on the event day in another zone');
   const after = label({ row: eventRow({ 周计划研究截至: '2026-11-04T22:42:54+09:00',
     已核验暂停记录ID: ids('AAA|业绩或指引|TDNET-1|2026-10-28', 'AAA|重大公司行动|TDNET-2|2026-10-29') }) });
-  assert.match(after, /^技术研究截至 2026-11-04T22:42:54\+09:00（事件（2026-10-29）后的研究，暂停尚未解除，不表示可以买入）$/);
+  assert.match(after, /^技术研究截至 2026-11-04 22:42 JST（事件（2026-10-29）后的研究，暂停尚未解除，不表示可以买入）$/);
   const production = label({ row: eventRow({ 周计划研究截至: '2026-11-04T22:42:54.131125+09:00',
     已核验暂停记录ID: ids('MSFT|计划列明事件|https://example.com/q1|2026-10-28'),
     暂停事件载荷: JSON.stringify([{ 暂停记录ID: 'MSFT|计划列明事件|https://example.com/q1|2026-10-28', 代码: 'MSFT', 事件时间: '2026-10-28' }]) }) });

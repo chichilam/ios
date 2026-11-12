@@ -58,7 +58,13 @@
     var node = document.createElement(tag);
     opts = opts || {};
     if (opts.className) node.className = opts.className;
-    if (opts.text != null) node.textContent = opts.raw ? opts.text : readable_(opts.text);
+    if (opts.text != null) {
+      if (!opts.raw && hasArrayChange_(opts.text)) {
+        arrayChangeNodes_(String(opts.text)).forEach(function (child) { node.appendChild(child); });
+      } else {
+        node.textContent = opts.raw ? opts.text : readable_(opts.text);
+      }
+    }
     if (opts.attrs) {
       Object.keys(opts.attrs).forEach(function (key) { node.setAttribute(key, opts.attrs[key]); });
     }
@@ -71,9 +77,205 @@
     return el(tag, { className: className, text: value });
   }
 
-  /** A text node for reading text: internal identifiers become their readable names (see readable_). */
+  /**
+   * Reading text as a node. Text with a `<字段>由[…]变为[…]` change becomes a
+   * span that keeps its 依据 links (#396 PR E review); anything else is a plain
+   * text node. Internal identifiers become their readable names (see readable_).
+   */
   function textNode_(value) {
+    if (value != null && hasArrayChange_(value)) {
+      var span = document.createElement('span');
+      arrayChangeNodes_(String(value)).forEach(function (child) { span.appendChild(child); });
+      return span;
+    }
     return document.createTextNode(readable_(value));
+  }
+
+  // -- Issue #396 PR E: a report sentence `<字段>由<JSON 数组>变为<JSON 数组>`
+  // (any field, e.g. 已核验暂停记录ID) never reaches the page as raw JSON or
+  // pipe-joined records. The field reads without a trailing ID; the change
+  // reads 新增 N 条：… / 移除 N 条：… / 已清空 / 未变. A record
+  // `<代码>|<事件类型>|<URL>|<日期>` reads `<事件类型>（<日期>）· 依据`, 依据 a
+  // link to an http(s) URL only. A plain string element is shown as written.
+  //
+  // Both arrays are found by a scanner that keeps a bracket-type stack and
+  // respects strings and escapes (a `]` or `}` inside a JSON string, escaped
+  // quotes and backslashes), never by a regex; a closer that does not match
+  // its opener (`[…}`, `{…]`, an extra closer) makes the array unclosed.
+  // Whenever `<字段>由` starts an array change and either side is missing,
+  // truncated, mismatched or unreadable -- bad JSON, a non-string element, a
+  // record with another number of parts, an empty 事件类型 or date, raw
+  // residue such as `|…` glued after the right array -- the whole fragment
+  // (through the end of its clause `。；;`/newline, or of the text when an
+  // array never closes) reads only `<字段>有变化（格式无法解析）` and a console
+  // warning is logged. No raw fragment is left. --
+
+  var ARRAY_CHANGE_FIELD_SRC_ = '([^\\s，,；;。:：、（）()「」\\[\\]{}"|]+?)\\s*由\\s*';
+  var ARRAY_CHANGE_ARROW_SRC_ = '(?:变为|变成|改为|更新为|→|->)';
+  // `<字段>由[` starts a change; so does `<字段>由<非数组>变为[` (the left side is missing).
+  var ARRAY_CHANGE_START_SRC_ = ARRAY_CHANGE_FIELD_SRC_ + '(?=\\[|[^。；;\\n\\[]*?' + ARRAY_CHANGE_ARROW_SRC_ + '\\s*\\[)';
+  var ARRAY_CHANGE_CLAUSE_END_ = /[。；;\n]/;
+  // #396 PR E review: the whole tail after a right array (to the next change in
+  // the clause, or the clause end) must be ordinary wording. A pipe, bracket,
+  // quote, backslash, angle bracket, URL/scheme or internal ID anywhere in it
+  // makes the change unreadable. Valid ISO times are wording, not a scheme.
+  var ARRAY_CHANGE_TAIL_UNSAFE_ = /[|\[\]{}"\\<>]|[A-Za-z][A-Za-z0-9+.-]*:|\/\/|\b(?:ep|wp)-\d{8}-|\bFUND-SLEEVE\b/;
+  var ARRAY_CHANGE_TAIL_TIME_ = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})?|\b\d{1,2}:\d{2}\b/g;
+
+  function arrayChangeTailUnsafe_(value, from) {
+    var end = clauseEnd_(value, from);
+    var next = new RegExp(ARRAY_CHANGE_START_SRC_, 'g');
+    next.lastIndex = from;
+    var n = next.exec(value);
+    if (n && n.index < end) { end = n.index; }
+    return ARRAY_CHANGE_TAIL_UNSAFE_.test(value.slice(from, end).replace(ARRAY_CHANGE_TAIL_TIME_, ' '));
+  }
+
+  function hasArrayChange_(value) {
+    return value != null && new RegExp(ARRAY_CHANGE_START_SRC_).test(String(value));
+  }
+
+  /**
+   * End index (exclusive) of the JSON array starting at s[i] === '[', or -1 when
+   * it never closes or a closer does not match its opener (`[…}`, `{…]`, an
+   * extra closer): a bracket-type stack, strings and escapes respected.
+   */
+  function scanJsonArray_(s, i) {
+    var stack = [];
+    var inString = false;
+    for (var j = i; j < s.length; j++) {
+      var c = s.charAt(j);
+      if (inString) {
+        if (c === '\\') { j++; } else if (c === '"') { inString = false; }
+      } else if (c === '"') {
+        inString = true;
+      } else if (c === '[' || c === '{') {
+        stack.push(c === '[' ? ']' : '}');
+      } else if (c === ']' || c === '}') {
+        if (stack.pop() !== c) { return -1; }
+        if (stack.length === 0) { return j + 1; }
+      }
+    }
+    return -1;
+  }
+
+  /** End of the clause from i: the next 。；; or newline, or the end of the text. */
+  function clauseEnd_(s, i) {
+    for (var j = i; j < s.length; j++) {
+      if (ARRAY_CHANGE_CLAUSE_END_.test(s.charAt(j))) { return j; }
+    }
+    return s.length;
+  }
+
+  /**
+   * One change starting at `from` (just after `<字段>由`): { end, before, after }
+   * with the raw array texts, or { end, before: null } when it cannot be read.
+   */
+  function scanArrayChange_(s, from) {
+    var arrow = new RegExp('^\\s*' + ARRAY_CHANGE_ARROW_SRC_ + '\\s*');
+    if (s.charAt(from) !== '[') {
+      // Left side missing: skip to the arrow, then consume the right array.
+      var m = new RegExp(ARRAY_CHANGE_ARROW_SRC_ + '\\s*').exec(s.slice(from));
+      var rightAt = from + m.index + m[0].length;
+      var rightEnd = scanJsonArray_(s, rightAt);
+      return { end: rightEnd === -1 ? s.length : rightEnd, before: null };
+    }
+    var leftEnd = scanJsonArray_(s, from);
+    if (leftEnd === -1) { return { end: s.length, before: null }; }
+    var a = arrow.exec(s.slice(leftEnd));
+    if (!a) {
+      // Right side missing: consume the rest of the clause (a stray right side may follow).
+      return { end: clauseEnd_(s, leftEnd), before: null };
+    }
+    var at = leftEnd + a[0].length;
+    if (s.charAt(at) !== '[') { return { end: clauseEnd_(s, at), before: null }; }
+    var end = scanJsonArray_(s, at);
+    if (end === -1) { return { end: s.length, before: null }; }
+    return { end: end, before: s.slice(from, leftEnd), after: s.slice(at, end) };
+  }
+
+  function arrayChangeLabel_(field) {
+    var name = String(field).replace(/\s*(?:ID|Id|id)$/, '');
+    return name === '' ? String(field) : name;
+  }
+
+  // A plain element or 事件类型 that looks like a URL, a record or a JSON value is never shown as written.
+  // A `]`, `}`, quote or backslash inside ordinary wording is the wording itself and is shown.
+  var ARRAY_ITEM_UNSAFE_ = /\||^\s*[\[{]|[A-Za-z][A-Za-z0-9+.-]*:|\/\/|[<>]/;
+
+  /** One element as [text, url|null], or null when it cannot be read. */
+  function arrayChangeItem_(item) {
+    if (typeof item !== 'string') { return null; }
+    if (item.indexOf('|') === -1) {
+      var plain = item.trim();
+      return plain === '' || ARRAY_ITEM_UNSAFE_.test(plain) ? null : [readable_(plain), null];
+    }
+    var parts = item.split('|');
+    if (parts.length !== 4) { return null; }
+    var kind = parts[1].trim();
+    var url = parts[2].trim();
+    var day = parts[3].trim();
+    if (kind === '' || ARRAY_ITEM_UNSAFE_.test(kind) || parseIsoTime_(day) === null) { return null; }
+    return [kind + '（' + tokyoTimeText_(day) + '）', /^https?:\/\/[^\s"'<>\\]+$/i.test(url) ? url : null];
+  }
+
+  function arrayChangeLink_(url) {
+    return el('a', { className: 'ios-source-link', text: '依据', raw: true, attrs: { href: url, target: '_blank', rel: 'noopener' } });
+  }
+
+  /** Nodes for one change, or null when it cannot be read. */
+  function arrayChangeMatchNodes_(field, beforeText, afterText) {
+    var before;
+    var after;
+    try { before = JSON.parse(beforeText); after = JSON.parse(afterText); } catch (e) { return null; }
+    if (!Array.isArray(before) || !Array.isArray(after)) { return null; }
+    var all = before.concat(after);
+    if (all.some(function (v) { return arrayChangeItem_(v) === null; })) { return null; }
+    var added = after.filter(function (v) { return before.indexOf(v) === -1; });
+    var removed = before.filter(function (v) { return after.indexOf(v) === -1; });
+    var label = arrayChangeLabel_(field);
+    var nodes = [];
+    var push = function (value) { nodes.push(document.createTextNode(value)); };
+    var list = function (values) {
+      values.map(arrayChangeItem_).forEach(function (item, i) {
+        if (i > 0) { push('、'); }
+        push(item[0]);
+        if (item[1]) { push(' · '); nodes.push(arrayChangeLink_(item[1])); }
+      });
+    };
+    if (after.length === 0 && before.length > 0) { push(label + '已清空'); return nodes; }
+    if (added.length === 0 && removed.length === 0) { push(label + '未变'); return nodes; }
+    push(label + '：');
+    if (added.length) { push('新增 ' + added.length + ' 条：'); list(added); }
+    if (removed.length) { push((added.length ? '；' : '') + '移除 ' + removed.length + ' 条：'); list(removed); }
+    return nodes;
+  }
+
+  function arrayChangeNodes_(value) {
+    var re = new RegExp(ARRAY_CHANGE_START_SRC_, 'g');
+    var nodes = [];
+    var last = 0;
+    var m;
+    while ((m = re.exec(value)) !== null) {
+      if (m.index < last) { continue; }
+      if (m.index > last) { nodes.push(document.createTextNode(readable_(value.slice(last, m.index)))); }
+      var scan = scanArrayChange_(value, m.index + m[0].length);
+      var change = scan.before === null ? null : arrayChangeMatchNodes_(m[1], scan.before, scan.after);
+      // Raw residue anywhere in the tail (e.g. `]|leaked`, `]x|raw`, `] 说明 https://…`) also makes it unreadable.
+      if (change !== null && arrayChangeTailUnsafe_(value, scan.end)) { change = null; }
+      if (change === null) {
+        // A failed change never leaves a raw tail: consume through the end of its clause at least.
+        scan.end = clauseEnd_(value, scan.end);
+        if (typeof console !== 'undefined' && console.warn) { console.warn('[IOS] 无法解析的数组变化：' + arrayChangeLabel_(m[1])); }
+        nodes.push(document.createTextNode(arrayChangeLabel_(m[1]) + '有变化（格式无法解析）'));
+      } else {
+        change.forEach(function (n) { nodes.push(n); });
+      }
+      last = scan.end;
+      re.lastIndex = Math.max(scan.end, m.index + 1);
+    }
+    if (last < value.length) { nodes.push(document.createTextNode(readable_(value.slice(last)))); }
+    return nodes;
   }
 
   function clear(node) {
@@ -120,8 +322,18 @@
       .replace(WEEKLY_PLAN_CHANGE_PATTERN_, '周计划已更新')
       .replace(WEEKLY_PLAN_LABELLED_PATTERN_, '周计划')
       .replace(WEEKLY_PLAN_ID_PATTERN_, '周计划')
-      .replace(/\bFUND-SLEEVE\b/g, FUND_SLEEVE_LABEL_);
+      .replace(/\bFUND-SLEEVE\b/g, FUND_SLEEVE_LABEL_)
+      .replace(ISO_INSTANT_PATTERN_, function (all, before, iso) { return before + tokyoTimeText_(iso); });
   }
+
+  // Issue #396 PR E: an ISO instant (with Z or an offset) anywhere in reading
+  // text reads in Tokyo time; a bare date or a time without a zone is unchanged.
+  // #396 PR E review: only a whole token converts. The character before it must
+  // not be a letter, digit or token joiner (+ - : . _), and what follows must not
+  // be a letter, digit or _, even after a run of joiners (`Z..q`, `+09:00::1`,
+  // `Z.+abc`) -- so `+09:000`, `…Zebra` and `12026-…` stay as written instead of
+  // converting a valid prefix, while `…+09:00，正常` and `…Z.` (sentence end) still convert.
+  var ISO_INSTANT_PATTERN_ = /(^|[^0-9A-Za-z_+\-:.])(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2}))(?![+\-:.]*[0-9A-Za-z_])/g;
 
   /** A third-party source's display name without the export-format suffix (e.g. "InvestingPro Premium Export" → "InvestingPro"). */
   function efvSourceName_(value) {
@@ -364,15 +576,50 @@
    * wrote (e.g. `16:00 美东`), is shown unchanged.
    */
   function tokyoTimeText_(value) {
-    var m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/.exec(value);
-    if (!m) { return value; }
-    var ms = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], m[6] ? +m[6] : 0);
-    if (isNaN(ms)) { return value; }
-    if (m[7] !== 'Z') { ms -= (m[7][0] === '-' ? -1 : 1) * (+m[7].slice(1, 3) * 60 + +m[7].slice(4, 6)) * 60000; }
-    var t = new Date(ms + 9 * 3600 * 1000);
+    var t = parseIsoTime_(value);
+    if (t === null || t.offsetMinutes === null) { return value; }
+    var ms = t.utcMs - t.offsetMinutes * 60000 + 9 * 3600 * 1000;
+    var d = new Date(ms);
     var pad = function (n) { return (n < 10 ? '0' : '') + n; };
-    return t.getUTCFullYear() + '-' + pad(t.getUTCMonth() + 1) + '-' + pad(t.getUTCDate()) + ' ' +
-      pad(t.getUTCHours()) + ':' + pad(t.getUTCMinutes()) + ' JST';
+    return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate()) + ' ' +
+      pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes()) + ' JST';
+  }
+
+  /**
+   * #396 PR E review: a semantically valid ISO 8601 date or date-time, or null.
+   * The calendar date must exist (leap days included), the time must be
+   * 00:00:00–23:59:59, and an offset must be ±HH:MM with minutes 00–59 and at
+   * most ±14:00. Returns { utcMs (local wall clock as UTC), offsetMinutes
+   * (null without a zone, 0 for Z), hasTime }.
+   */
+  function parseIsoTime_(value) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?(Z|([+-])(\d{2}):(\d{2}))?)?$/.exec(String(value));
+    if (!m) { return null; }
+    var year = +m[1];
+    var month = +m[2];
+    var day = +m[3];
+    if (month < 1 || month > 12 || day < 1) { return null; }
+    var leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+    var days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1];
+    if (day > days) { return null; }
+    var hasTime = m[4] !== undefined;
+    var hour = hasTime ? +m[4] : 0;
+    var minute = hasTime ? +m[5] : 0;
+    var second = m[6] !== undefined ? +m[6] : 0;
+    if (hour > 23 || minute > 59 || second > 59) { return null; }
+    var offset = null;
+    if (m[7] === 'Z') {
+      offset = 0;
+    } else if (m[7] !== undefined) {
+      var oh = +m[9];
+      var om = +m[10];
+      if (om > 59 || oh * 60 + om > 14 * 60) { return null; }
+      offset = (m[8] === '-' ? -1 : 1) * (oh * 60 + om);
+    }
+    var date = new Date(0);
+    date.setUTCFullYear(year, month - 1, day);
+    date.setUTCHours(hour, minute, second, 0);
+    return { utcMs: date.getTime(), offsetMinutes: offset, hasTime: hasTime };
   }
 
   /** A price end as written: a number, optionally with a 3-letter currency (e.g. `350`, `350 USD`, `1,234.5 JPY`). */
@@ -442,9 +689,27 @@
     return [status === '' ? '未提供' : '无暂停记录（周计划状态：' + status + '）'];
   }
 
-  function conclusionText_(row) {
+  /**
+   * 报告结论 = 今日行动。今日行动说明, as written. The row's 当前阻碍 has its own
+   * field, so 今日行动说明 drops it only when (#396 PR E review) it is exactly
+   * the 当前阻碍 text, or an independent prefix + a separator (：:，,；;。—)
+   * + the whole 当前阻碍 text; the prefix is kept. Any other overlap (e.g.
+   * 「需要等待财报」 vs 「财报」) keeps the full text. Nothing is reworded.
+   */
+  var CONCLUSION_PREFIX_SEPARATOR_ = /^(.*\S)\s*[：:，,；;。—]\s*$/;
+
+  function conclusionText_(row, blocker) {
     var action = cellText_(row['今日行动']);
     var said = cellText_(row['今日行动说明']);
+    if (blocker) {
+      if (said === blocker) {
+        said = '';
+        if (action === '') { return '见当前阻碍'; }
+      } else if (said.length > blocker.length && said.slice(said.length - blocker.length) === blocker) {
+        var prefix = CONCLUSION_PREFIX_SEPARATOR_.exec(said.slice(0, said.length - blocker.length));
+        if (prefix) { said = prefix[1]; }
+      }
+    }
     if (action === '') { return said === '' ? '未提供' : said; }
     return said === '' ? action : action + '。' + said;
   }
@@ -457,22 +722,21 @@
       watch ? text('span', 'ios-badge ios-badge-muted ios-watch-tag', '观察') : null,
       text('span', badgeClass('ios-badge ios-badge-today-verdict', TODAY_VERDICT_BADGE_CLASS_[verdict] || ''), verdict || '报告未判断')
     ]);
+    var blocker = verdict === '适合买入' || isBlank(row['当前阻碍']) ? '' : cellText_(row['当前阻碍']);
     var fields = el('div', { className: 'ios-buy-fields' }, [
       judgmentField_('报告时价格', quoteText_(row)),
       judgmentField_('计划买入区间', planRangeText_(row)),
       judgmentField_('长期买入上限', row['长期买入上限快照']),
       judgmentField_('暂停状态', pauseLines_(row)),
       judgmentField_('资金结论', row['资金结论']),
-      judgmentField_('报告结论', conclusionText_(row), 'ios-buy-field-wide')
+      judgmentField_('报告结论', conclusionText_(row, blocker), 'ios-buy-field-wide')
     ]);
     var children = [head, fields];
     if (verdict !== '适合买入') {
       // Every row that is not 适合买入 -- including a watchlist row the report
       // did not judge -- shows its 当前阻碍 and 阻塞待办ID as written.
-      // 当前阻碍 identical to the 今日行动说明 already in 报告结论 is not repeated.
-      var blocker = isBlank(row['当前阻碍']) ? '' : cellText_(row['当前阻碍']);
-      children.push(judgmentField_('当前阻碍', blocker !== '' && blocker === cellText_(row['今日行动说明']) ? '同报告结论' : row['当前阻碍'],
-        'ios-buy-field-wide'));
+      // The blocker text is shown here once; 报告结论 drops it (conclusionText_).
+      children.push(judgmentField_('当前阻碍', row['当前阻碍'], 'ios-buy-field-wide'));
       if (verdict === '无法判断') {
         var reason = buildReasonLine_(row, verdict);
         if (reason) { children.push(reason); }

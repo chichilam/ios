@@ -657,5 +657,42 @@ Display only; no Sheet field, schema, Task or Agent contract changes.
   the 持仓明细 / 风险 / 待办 tabs.
 - 报告时价格's 截至: an ISO instant with `Z` or an offset reads `YYYY-MM-DD HH:mm JST`; a bare date or free text
   (e.g. `16:00 美东`) is unchanged.
-- 当前阻碍 identical to the row's 今日行动说明 (already in 报告结论) reads `同报告结论` instead of repeating it.
+- 当前阻碍 identical to the row's 今日行动说明 is shown once, in 当前阻碍 (PR E below).
+
+### Production re-acceptance fixes (Issue #396 PR E)
+
+Display only; no Sheet field, schema, Task or Agent contract changes.
+
+- **Array changes in report text**: a sentence `<字段>由<JSON 数组>变为<JSON 数组>` (any field, found in
+  较上次变化说明 as `已核验暂停记录ID由[]变为[...]`) is never shown raw. The field reads without a trailing `ID`;
+  the change reads `新增 N 条：…` / `移除 N 条：…` / `已清空` (`未变` when equal). A record
+  `<代码>|<事件类型>|<URL>|<日期>` reads `<事件类型>（<日期>） · 依据`, where 依据 is a link (`target="_blank"
+  rel="noopener"`) to the record's URL, only when it is `http(s)://`; the URL itself is never shown. A plain
+  string element (or 事件类型) is shown as written unless it looks like a URL, a record or a JSON value; a `]`,
+  `}`, quote or backslash inside ordinary wording is shown as wording.
+  Both arrays are found by a scanner that keeps a bracket-type stack and respects strings and escapes (a `]`/`}`
+  inside a string, escaped quotes and backslashes), not a regex; a closer that does not match its opener (`[…}`,
+  `{…]`, an extra or crossed closer) leaves the array unclosed. Whenever `<字段>由` starts a change and either
+  side is missing, truncated, mismatched or unreadable (bad JSON, a non-string element, a record with another
+  number of parts, an empty 事件类型, a 日期 that is not a real ISO date/date-time -- see below), or the tail after
+  the right array (up to the next change in the clause, or the clause end) holds anything but ordinary wording
+  anywhere in it (a pipe, bracket, quote, backslash, `<>`, URL/`scheme:`/`//`, or an `ep-`/`wp-` ID; valid times
+  are wording), the whole fragment -- through the end of its clause (`。；;` / newline), or of the text when an
+  array never closes -- reads only
+  `<字段>有变化（格式无法解析）` and logs a console warning; no raw fragment is left. This sits in the shared
+  text helpers (`el`/`text` and `textNode_`, which keeps the 依据 links), so every reading-text place (本期变化,
+  report cards, a research row's 依据与证据 lines) is covered, not one field name. 技术信息 stays raw.
+- **ISO instants**: any `YYYY-MM-DDTHH:mm[:ss[.sss]]` with `Z` or an offset in reading text (the Daily header's
+  生成时间, the report detail's 市价截至 and 行情区间, ...) reads `YYYY-MM-DD HH:mm JST`; bare dates and times
+  without a zone, and invalid values, are unchanged. Validity is semantic, shared with record dates: the calendar
+  date must exist (leap days checked), the time is 00:00:00–23:59:59, and an offset is ±HH:MM with minutes 00–59 and
+  at most ±14:00 (`+09:60`, `+99:99`, `2026-02-29` are invalid). Only a whole token converts: a letter, digit or
+  joiner (`+ - : . _`) glued before it, or a letter/digit/`_` after it (directly or after a run of joiners, e.g.
+  `Z..q`, `+09:00::1`), leaves the whole longer
+  token as written (`+09:000`, `…Zebra`, `12026-…`), while punctuation and Chinese text around it are fine. 技术信息 (raw) is untouched.
+- **报告结论 vs 当前阻碍**: 今日行动说明 drops the row's 当前阻碍 text only when it is exactly that text
+  (报告结论 = 今日行动, or `见当前阻碍` when 今日行动 is blank), or an independent prefix + a separator
+  (`：:，,；;。—`) + the whole 当前阻碍 text (报告结论 keeps 今日行动 + the prefix). Any other overlap -- an
+  ordinary suffix such as `需要等待财报` vs `财报`, or a space -- keeps the full text. Nothing is reworded. A 适合买入
+  row keeps its full conclusion.
 

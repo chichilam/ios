@@ -1059,11 +1059,406 @@ test('#396 PR D: an ISO as-of instant reads in Tokyo time; a bare date or free t
   assert.equal(quote('FREE'), '100 USD · 收盘 · 截至 2026-11-06 16:00 美东');
 });
 
-test('#396 PR D: 当前阻碍 identical to the 今日行动说明 in 报告结论 is not repeated', () => {
+test('#396 PR D/E: 当前阻碍 identical to the 今日行动说明 is shown once, in 当前阻碍', () => {
   const rows = [weeklyAsset({ 代码: 'SAME', 今日行动: '等待价格', 今日行动说明: '高于计划区间', 当前阻碍: '高于计划区间', 阻塞待办ID: '无' }),
     weeklyAsset({ 代码: 'DIFF', 今日行动: '等待价格', 今日行动说明: '高于计划区间', 当前阻碍: '等待财报', 阻塞待办ID: '无' })];
   const { document } = loadWithWindow(null, weeklyWith(rows), 'weekly');
-  assert.deepEqual(fieldLines(document, 'SAME', '报告结论'), ['等待价格。高于计划区间']);
-  assert.deepEqual(fieldLines(document, 'SAME', '当前阻碍'), ['同报告结论']);
+  assert.deepEqual(fieldLines(document, 'SAME', '报告结论'), ['等待价格']);
+  assert.deepEqual(fieldLines(document, 'SAME', '当前阻碍'), ['高于计划区间']);
   assert.deepEqual(fieldLines(document, 'DIFF', '当前阻碍'), ['等待财报']);
+});
+
+// -- #396 PR E: array changes, ISO instants, prefix dedupe. --
+
+function periodChangeText(document) {
+  return summaryChild(document, 'ios-period-changes');
+}
+
+test('#396 PR E: a 已核验暂停记录ID change reads as added / removed records with an 依据 link, never raw JSON or pipes', () => {
+  const rec = (code, kind, url, day) => code + '|' + kind + '|' + url + '|' + day;
+  const sec1 = 'https://www.sec.gov/Archives/edgar/data/1/0001.htm';
+  const sec2 = 'https://www.sec.gov/Archives/edgar/data/2/0002.htm';
+  const r1 = rec('AAA', '业绩或指引', sec1, '2026-11-05');
+  const r2 = rec('AAA', '重大公告', sec2, '2026-11-07');
+  const said = (a, b) => '已核验暂停记录ID由' + JSON.stringify(a) + '变为' + JSON.stringify(b);
+  const rows = [
+    weeklyAsset({ 代码: 'ADD', 变化标记: '有变化', 较上次变化说明: said([], [r1]) }),
+    weeklyAsset({ 代码: 'CLEAR', 变化标记: '有变化', 较上次变化说明: said([r1], []) }),
+    weeklyAsset({ 代码: 'MORE', 变化标记: '有变化', 较上次变化说明: said([r1], [r1, r2]) + '；价格未变' }),
+    weeklyAsset({ 代码: 'SWAP', 变化标记: '有变化', 较上次变化说明: said([r1], [r2]) }),
+    weeklyAsset({ 代码: 'BADURL', 变化标记: '有变化', 较上次变化说明: said([], [rec('AAA', '业绩或指引', 'javascript:alert(1)', '2026-11-05')]) }),
+    weeklyAsset({ 代码: 'PARTS', 变化标记: '有变化', 较上次变化说明: said([], ['AAA|业绩或指引|2026-11-05']) }),
+    weeklyAsset({ 代码: 'JSON', 变化标记: '有变化', 较上次变化说明: '已核验暂停记录ID由[]变为["AAA|x|' + sec1 + '|2026-11-05",]' }),
+    weeklyAsset({ 代码: 'PLAIN', 变化标记: '有变化', 较上次变化说明: '关注标签由["半导体"]变为["半导体","AI"]' })
+  ];
+  const warnings = [];
+  const realWarn = console.warn;
+  console.warn = (msg) => warnings.push(String(msg));
+  let document;
+  try {
+    ({ document } = loadWithWindow(null, weeklyWith(rows), 'weekly'));
+  } finally {
+    console.warn = realWarn;
+  }
+  const changes = periodChangeText(document);
+  const items = findAll(changes, (n) => n.tagName === 'LI');
+  const textOf = (i) => items[i].textContent;
+  assert.match(textOf(0), /已核验暂停记录：新增 1 条：业绩或指引（2026-11-05） · 依据/);
+  assert.match(textOf(1), /已核验暂停记录已清空/);
+  assert.match(textOf(2), /已核验暂停记录：新增 1 条：重大公告（2026-11-07） · 依据；价格未变/);
+  assert.match(textOf(3), /新增 1 条：重大公告（2026-11-07） · 依据；移除 1 条：业绩或指引（2026-11-05） · 依据/);
+  assert.match(textOf(4), /新增 1 条：业绩或指引（2026-11-05）$/, 'a non-http URL gets no link');
+  assert.match(textOf(5), /已核验暂停记录有变化（格式无法解析）/);
+  assert.match(textOf(6), /已核验暂停记录有变化（格式无法解析）/);
+  assert.match(textOf(7), /关注标签：新增 1 条：AI/);
+  const links = findAll(changes, (n) => n.tagName === 'A');
+  assert.equal(links.length, 4, 'ADD 1 + MORE 1 + SWAP 2; BADURL none');
+  links.forEach((a) => {
+    assert.equal(a.textContent, '依据');
+    assert.match(a.getAttribute('href'), /^https:\/\/www\.sec\.gov\//);
+    assert.equal(a.getAttribute('target'), '_blank');
+    assert.equal(a.getAttribute('rel'), 'noopener');
+  });
+  const all = changes.textContent;
+  assert.doesNotMatch(all, /\||\["|sec\.gov|javascript:|暂停记录ID/);
+  assert.equal(warnings.filter((w) => /无法解析/.test(w)).length, 2);
+});
+
+test('#396 PR E: ISO instants read in Tokyo time anywhere in reading text; bare dates are unchanged', () => {
+  const rows = [weeklyAsset({ 代码: 'T1', 变化标记: '有变化', 较上次变化说明: '行情 2026-11-09T05:03:42.295Z、2026-11-07T00:59:59Z、2026-11-06T15:00+09:00、2026-11-06 ~ 2026-11-07T00:59:59Z、2026-11-09' })];
+  const vmodel = weeklyWith(rows);
+  vmodel.summary = Object.assign({}, vmodel.summary, { 生成时间: '2026-11-09T05:03:42.295Z' });
+  const { document } = loadWithWindow(null, vmodel, 'weekly');
+  const said = periodChangeText(document).textContent;
+  assert.match(said, /行情 2026-11-09 14:03 JST、2026-11-07 09:59 JST、2026-11-06 15:00 JST、2026-11-06 ~ 2026-11-07 09:59 JST、2026-11-09/);
+  const page = document.getElementById('ios-summary-content').textContent;
+  assert.doesNotMatch(page, /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})/, 'no raw ISO instant is left on the page');
+});
+
+test('#396 PR E: when 今日行动说明 is a status prefix + the 当前阻碍 text, 报告结论 keeps the prefix and 当前阻碍 the body', () => {
+  const rows = [
+    weeklyAsset({ 代码: 'PRE', 今日行动: '暂停新增待复核', 今日行动说明: '事件暂停中：等待 10-Q 复核', 当前阻碍: '等待 10-Q 复核', 阻塞待办ID: '无' }),
+    weeklyAsset({ 代码: 'OTHER', 今日行动: '等待价格', 今日行动说明: '高于计划区间', 当前阻碍: '等待财报', 阻塞待办ID: '无' }),
+    weeklyAsset({ 代码: 'BUY' })
+  ];
+  const { document } = loadWithWindow(null, weeklyWith(rows), 'weekly');
+  assert.deepEqual(fieldLines(document, 'PRE', '报告结论'), ['暂停新增待复核。事件暂停中']);
+  assert.deepEqual(fieldLines(document, 'PRE', '当前阻碍'), ['等待 10-Q 复核']);
+  assert.deepEqual(fieldLines(document, 'OTHER', '报告结论'), ['等待价格。高于计划区间']);
+  assert.deepEqual(fieldLines(document, 'OTHER', '当前阻碍'), ['等待财报']);
+  assert.match(fieldLines(document, 'BUY', '报告结论')[0], /^可人工准备限价单。人工准备限价单/, 'a 适合买入 row keeps its full conclusion');
+});
+
+// -- #396 PR E review: array changes are scanned (never regex-truncated),
+// keep their links on every reading path, and fail closed with no raw fragment. --
+
+const PE_SEC1 = 'https://www.sec.gov/Archives/edgar/data/1/0001.htm';
+const PE_SEC2 = 'http://www.sec.gov/Archives/edgar/data/2/0002.htm';
+const peRec = (kind, url, day) => 'AAA|' + kind + '|' + url + '|' + day;
+const peSaid = (a, b) => '已核验暂停记录ID由' + JSON.stringify(a) + '变为' + JSON.stringify(b);
+const PE_LEAK = /\||\[|\]|"|\\|sec\.gov|javascript:|data:|ftp:|暂停记录ID|AAA\||leaked|ep-2026|\{|\}/;
+
+function withWarnings(fn) {
+  const warnings = [];
+  const realWarn = console.warn;
+  console.warn = (msg) => warnings.push(String(msg));
+  try { return { result: fn(), warnings }; } finally { console.warn = realWarn; }
+}
+
+function periodItems(document) {
+  return findAll(periodChangeText(document), (n) => n.tagName === 'LI');
+}
+
+function assertLinks(root, expected) {
+  const links = findAll(root, (n) => n.tagName === 'A' && n.classList.contains('ios-source-link'));
+  assert.deepEqual(links.map((a) => a.getAttribute('href')), expected);
+  links.forEach((a) => {
+    assert.equal(a.textContent, '依据');
+    assert.equal(a.getAttribute('target'), '_blank');
+    assert.equal(a.getAttribute('rel'), 'noopener');
+  });
+}
+
+test('#396 PR E review: 0→1, 1→0, 1→2, replace, 未变 and two changes in one sentence all read cleanly', () => {
+  const r1 = peRec('业绩或指引', PE_SEC1, '2026-11-05');
+  const r2 = peRec('重大公告', PE_SEC2, '2026-11-07');
+  const rows = [
+    ['ADD', peSaid([], [r1])],
+    ['CLEAR', peSaid([r1], [])],
+    ['MORE', peSaid([r1], [r1, r2])],
+    ['SWAP', peSaid([r1], [r2])],
+    ['SAME', peSaid([r1], [r1])],
+    ['TWO', peSaid([], [r1]) + '；关注标签由["半导体"]变为["半导体","AI"]，价格未变'],
+    ['WORD', peSaid([], [peRec('公告]补充}', PE_SEC1, '2026-11-05'), peRec('业绩"指引\\修订', PE_SEC2, '2026-11-06')])]
+  ].map(([code, said]) => weeklyAsset({ 代码: code, 变化标记: '有变化', 较上次变化说明: said }));
+  const { result: { document }, warnings } = withWarnings(() => loadWithWindow(null, weeklyWith(rows), 'weekly'));
+  const items = periodItems(document).map((li) => li.textContent);
+  assert.match(items[0], /已核验暂停记录：新增 1 条：业绩或指引（2026-11-05） · 依据$/);
+  assert.match(items[1], /已核验暂停记录已清空$/);
+  assert.match(items[2], /已核验暂停记录：新增 1 条：重大公告（2026-11-07） · 依据$/);
+  assert.match(items[3], /已核验暂停记录：新增 1 条：重大公告（2026-11-07） · 依据；移除 1 条：业绩或指引（2026-11-05） · 依据$/);
+  assert.match(items[4], /已核验暂停记录未变$/);
+  assert.match(items[5], /已核验暂停记录：新增 1 条：业绩或指引（2026-11-05） · 依据；关注标签：新增 1 条：AI，价格未变$/);
+  assert.match(items[6], /已核验暂停记录：新增 2 条：公告\]补充}（2026-11-05） · 依据、业绩"指引\\修订（2026-11-06） · 依据$/,
+    'a ] } " or \\ inside a JSON string is scanned as wording, not as the array end');
+  assertLinks(periodChangeText(document), [PE_SEC1, PE_SEC2, PE_SEC2, PE_SEC1, PE_SEC1, PE_SEC1, PE_SEC2]);
+  assert.doesNotMatch(items.slice(0, 6).join('\n'), PE_LEAK);
+  assert.doesNotMatch(items[6], /\||sec\.gov|暂停记录ID|AAA\|/);
+  assert.equal(warnings.length, 0);
+});
+
+test('#396 PR E review: every malformed change fails closed to 「<字段>有变化（格式无法解析）」 with no raw fragment', () => {
+  const ok = peRec('业绩或指引', PE_SEC1, '2026-11-05');
+  const cases = [
+    ['LTRUNC', '已核验暂停记录ID由["' + ok + '"', ''],
+    ['LTRUNC2', '已核验暂停记录ID由["' + ok + '"；价格未变', ''],
+    ['RTRUNC', '已核验暂停记录ID由[]变为["' + ok, ''],
+    ['RMISS', '已核验暂停记录ID由["' + ok + '"]；价格未变', '；价格未变'],
+    ['RNOTARR', '已核验暂停记录ID由[]变为 ' + ok + '；价格未变', '；价格未变'],
+    ['LMISS', '已核验暂停记录ID由 ' + ok + ' 变为["' + ok + '"]；价格未变', '；价格未变'],
+    ['BADJSON', '已核验暂停记录ID由[]变为["' + ok + '",]；价格未变', '；价格未变'],
+    ['NONSTR', peSaid([], [1]) + '；价格未变', '；价格未变'],
+    ['OBJ', peSaid([], [{ url: PE_SEC1 }]) + '；价格未变', '；价格未变'],
+    ['PARTS', peSaid([], ['AAA|业绩或指引|2026-11-05']) + '；价格未变', '；价格未变'],
+    ['NOKIND', peSaid([], [peRec('', PE_SEC1, '2026-11-05')]) + '；价格未变', '；价格未变'],
+    ['NODAY', peSaid([], [peRec('业绩或指引', PE_SEC1, '')]) + '；价格未变', '；价格未变'],
+    ['BADDAY', peSaid([], [peRec('业绩或指引', PE_SEC1, 'soon')]) + '；价格未变', '；价格未变'],
+    ['LMISMATCH', '已核验暂停记录ID由["' + ok + '"}变为[]；价格未变|leaked ' + PE_SEC1, ''],
+    ['RMISMATCH', '已核验暂停记录ID由[]变为["' + ok + '"}|leaked ' + PE_SEC1 + '；javascript:alert(1)', ''],
+    ['RBRACE', '已核验暂停记录ID由[]变为{"a":"' + ok + '"]|leaked；价格未变', '；价格未变'],
+    ['EXTRA', '已核验暂停记录ID由[]变为["' + ok + '"]}|leaked ep-20261101-AAA-v3；价格未变', '；价格未变'],
+    ['CROSS', '已核验暂停记录ID由[]变为[["' + ok + '"}]|leaked；价格未变', ''],
+    ['RESIDUE', peSaid([], [ok]) + '|leaked ' + PE_SEC1 + ' {"x":1}；价格未变', '；价格未变'],
+    ['LBRACE', '已核验暂停记录ID由{"a":1}变为["' + ok + '"]|leaked；价格未变', '；价格未变'],
+    ['PLAINJSON', peSaid([], ['{"x":1}']) + '；价格未变', '；价格未变'],
+    ['PLAINURL', peSaid([], ['javascript:alert(1)']) + '；价格未变', '；价格未变'],
+    ['PLAINPIPE', peSaid(['AAA|x'], []) + '；价格未变', '；价格未变']
+  ];
+  const rows = cases.map(([code, said]) => weeklyAsset({ 代码: code, 变化标记: '有变化', 较上次变化说明: said }));
+  const { result: { document }, warnings } = withWarnings(() => loadWithWindow(null, weeklyWith(rows), 'weekly'));
+  const items = periodItems(document);
+  cases.forEach(([code, , rest], i) => {
+    const said = items[i].textContent;
+    assert.ok(said.endsWith('已核验暂停记录有变化（格式无法解析）' + rest), code + ': ' + said);
+    assert.doesNotMatch(said, PE_LEAK, code);
+    assert.equal(findAll(items[i], (n) => n.tagName === 'A').length, 0, code + ' has no link');
+  });
+  assert.equal(warnings.filter((w) => /无法解析的数组变化：已核验暂停记录$/.test(w)).length, cases.length);
+});
+
+test('#396 PR E review: only http(s) URLs become links; other protocols never reach text or href', () => {
+  const urls = ['javascript:alert(1)', 'data:text/html,x', 'ftp://www.sec.gov/x', 'JAVASCRIPT:alert(1)', 'https://x y', ''];
+  const rows = urls.map((url, i) => weeklyAsset({ 代码: 'P' + i, 变化标记: '有变化', 较上次变化说明: peSaid([], [peRec('业绩或指引', url, '2026-11-05')]) }));
+  const { document } = loadWithWindow(null, weeklyWith(rows), 'weekly');
+  periodItems(document).forEach((li, i) => {
+    assert.match(li.textContent, /已核验暂停记录：新增 1 条：业绩或指引（2026-11-05）$/, urls[i]);
+  });
+  assertLinks(periodChangeText(document), []);
+  assert.doesNotMatch(periodChangeText(document).textContent, PE_LEAK);
+});
+
+test('#396 PR E review: links survive on report cards and in a layered research row\'s evidence (layerLine_)', () => {
+  const said = peSaid([], [peRec('业绩或指引', PE_SEC1, '2026-11-05')]);
+  // A Daily report card (pre-three-layer row: 较上次变化 sits in 研究与估值详情).
+  const legacy = dailyTwin({ 较上次变化说明: said, _iosThreeLayer: false, 周计划ID: '', 周计划状态: '' });
+  const { document: daily } = dailyWithWeekly([legacy], [weeklyAsset()]);
+  const card = portfolioCards(daily)[0];
+  const line = findAll(card, (n) => n.tagName === 'P' && /^较上次变化: /.test(n.textContent))[0];
+  assert.equal(line.textContent, '较上次变化: 已核验暂停记录：新增 1 条：业绩或指引（2026-11-05） · 依据');
+  assertLinks(line, [PE_SEC1]);
+  assert.doesNotMatch(card.textContent, PE_LEAK);
+  // A Weekly research row's 本周证据 (layerLine_); 来源记录 stays raw in 技术信息.
+  const root = layering(load(null, view('weekly', null, (t) => {
+    const row = t['报告周度研究'].find((r) => r['生成ID'] === 'gen-w2-b' && r['状态'] === '已变化');
+    row['本周证据'] = said;
+    row['来源记录'] = said;
+  }), 'weekly'));
+  const evidence = findAll(root, (n) => n.tagName === 'DETAILS' && n.classList.contains('ios-layer-evidence'))
+    .find((d) => /业绩或指引（2026-11-05）/.test(d.textContent));
+  const evLine = evidence.children.find((c) => /^本周证据：/.test(c.textContent));
+  assert.equal(evLine.textContent, '本周证据：已核验暂停记录：新增 1 条：业绩或指引（2026-11-05） · 依据');
+  assertLinks(evLine, [PE_SEC1]);
+  const tech = findAll(evidence, (n) => n.classList.contains('ios-tech-info'))[0];
+  assert.ok(tech.textContent.includes('来源: ' + said), '技术信息 keeps the raw value');
+  assertLinks(tech, []);
+});
+
+test('#396 PR E review: ISO instants -- Z with/without ms, ± offsets, day rollover; bare dates, zone-less and invalid times unchanged', () => {
+  const said = [
+    'A 2026-11-09T05:03:42.295Z', 'B 2026-11-09T05:03:42Z', 'C 2026-11-09T05:03Z',
+    'D 2026-11-06T15:00:00+09:00', 'E 2026-11-06T15:00:00-05:00', 'F 2026-12-31T20:30:00Z',
+    'G 2026-11-09', 'H 2026-11-09T05:03:42', 'I 2026-13-45T99:99:00Z'
+  ].join('、');
+  const { document } = loadWithWindow(null, weeklyWith([weeklyAsset({ 变化标记: '有变化', 较上次变化说明: said })]), 'weekly');
+  assert.match(periodChangeText(document).textContent, new RegExp([
+    'A 2026-11-09 14:03 JST', 'B 2026-11-09 14:03 JST', 'C 2026-11-09 14:03 JST',
+    'D 2026-11-06 15:00 JST', 'E 2026-11-07 05:00 JST', 'F 2027-01-01 05:30 JST',
+    'G 2026-11-09', 'H 2026-11-09T05:03:42', 'I 2026-13-45T99:99:00Z'
+  ].join('、')));
+});
+
+test('#396 PR E review: 报告结论 drops 当前阻碍 only on an exact match or an independent prefix + separator', () => {
+  const row = (code, action, said, blocker) => weeklyAsset({ 代码: code, 今日行动: action, 今日行动说明: said, 当前阻碍: blocker, 阻塞待办ID: '无' });
+  const rows = [
+    row('EXACT', '等待价格', '高于计划区间', '高于计划区间'),
+    row('EXACTNA', '', '高于计划区间', '高于计划区间'),
+    row('PREFIX', '暂停新增待复核', '事件暂停中：等待 10-Q 复核', '等待 10-Q 复核'),
+    row('PREFIX2', '等待价格', '等待价格，高于计划区间', '高于计划区间'),
+    row('SUFFIX', '等待价格', '需要等待财报', '财报'),
+    row('SPACE', '等待价格', '需要等待 财报', '财报'),
+    row('DIFF', '等待价格', '高于计划区间', '等待财报'),
+    row('EMPTYB', '等待价格', '高于计划区间', ''),
+    row('EMPTYS', '等待价格', '', '高于计划区间'),
+    weeklyAsset({ 代码: 'BUY', 今日行动说明: '人工准备限价单：财报', 当前阻碍: '财报' })
+  ];
+  const { document } = loadWithWindow(null, weeklyWith(rows), 'weekly');
+  const c = (code) => fieldLines(document, code, '报告结论')[0];
+  assert.equal(c('EXACT'), '等待价格');
+  assert.equal(c('EXACTNA'), '见当前阻碍');
+  assert.equal(c('PREFIX'), '暂停新增待复核。事件暂停中');
+  assert.equal(c('PREFIX2'), '等待价格。等待价格');
+  assert.equal(c('SUFFIX'), '等待价格。需要等待财报', 'an ordinary suffix overlap keeps the full text');
+  assert.equal(c('SPACE'), '等待价格。需要等待 财报', 'whitespace alone is not a separator');
+  assert.equal(c('DIFF'), '等待价格。高于计划区间');
+  assert.equal(c('EMPTYB'), '等待价格。高于计划区间');
+  assert.equal(c('EMPTYS'), '等待价格');
+  assert.equal(c('BUY'), '可人工准备限价单。人工准备限价单：财报', 'a 适合买入 row keeps its full conclusion');
+  assert.deepEqual(fieldLines(document, 'SUFFIX', '当前阻碍'), ['财报']);
+});
+
+test('#396 PR E review: a latest and a history report with malformed changes both fail closed, independently', () => {
+  const bad = '已核验暂停记录ID由["AAA|x';
+  const latest = weeklyWith([weeklyAsset({ 变化标记: '有变化', 较上次变化说明: bad })]);
+  const history = Object.assign(weeklyWith([weeklyAsset({ 变化标记: '有变化', 较上次变化说明: peSaid([], [1]) + '；价格未变' })]), { error: null });
+  history.summary = Object.assign({}, history.summary, { 报告ID: 'weekly-2026-11-01', 报告日期: '2026-11-01' });
+  const { result, warnings } = withWarnings(() => {
+    const loaded = loadWithWindow(null, latest, 'weekly', { getReport: () => history });
+    loaded.window.selectTab('weekly');
+    const first = periodChangeText(loaded.document).textContent;
+    loaded.window.selectHistoryReport('weekly-2026-11-01');
+    return { first, second: periodChangeText(loaded.document).textContent };
+  });
+  assert.match(result.first, /已核验暂停记录有变化（格式无法解析）$/);
+  assert.match(result.second, /已核验暂停记录有变化（格式无法解析）；价格未变$/);
+  assert.doesNotMatch(result.first + result.second, PE_LEAK);
+  assert.ok(warnings.length >= 2);
+});
+
+test('#396 PR E review 2: mismatched closers in two reports at once leave no raw value anywhere on the page', () => {
+  const ok = peRec('业绩或指引', PE_SEC1, '2026-11-05');
+  const bad1 = '已核验暂停记录ID由[]变为["' + ok + '"}|leaked ep-20261101-AAA-v3 javascript:alert(1)';
+  const bad2 = '已核验暂停记录ID由[["' + ok + '"}]变为[]|leaked {"x":1}';
+  const bad3 = peSaid([], [ok]) + '}|leaked ' + PE_SEC2 + '；价格未变 2026-11-09T05:03Z..q';
+  const latest = weeklyWith([weeklyAsset({ 变化标记: '有变化', 较上次变化说明: bad1 }), weeklyAsset({ 代码: 'BBB', 变化标记: '有变化', 较上次变化说明: bad3 })]);
+  const history = Object.assign(weeklyWith([weeklyAsset({ 变化标记: '有变化', 较上次变化说明: bad2 })]), { error: null });
+  history.summary = Object.assign({}, history.summary, { 报告ID: 'weekly-2026-11-01', 报告日期: '2026-11-01' });
+  const { result, warnings } = withWarnings(() => {
+    const { document, window } = loadWithWindow(null, latest, 'weekly', { getReport: () => history });
+    const page = () => document.getElementById('ios-summary-content').textContent + document.getElementById('ios-tab-content').textContent;
+    window.selectTab('weekly');
+    const first = { page: page(), items: periodItems(document).map((li) => li.textContent) };
+    window.selectHistoryReport('weekly-2026-11-01');
+    return { first, second: { page: page(), items: periodItems(document).map((li) => li.textContent) } };
+  });
+  assert.match(result.first.items[0], /已核验暂停记录有变化（格式无法解析）$/);
+  assert.match(result.first.items[1], /已核验暂停记录有变化（格式无法解析）；价格未变 2026-11-09T05:03Z\.\.q$/);
+  assert.match(result.second.items[0], /已核验暂停记录有变化（格式无法解析）$/);
+  [result.first.page, result.second.page].forEach((page) => {
+    assert.doesNotMatch(page, /leaked|sec\.gov|javascript:|ep-20261101|\{"x"|AAA\|/);
+  });
+  assert.ok(warnings.length >= 3, "each render warns once per broken change");
+});
+
+test('#396 PR E review 3: the whole tail after a right array is checked, not only its first character', () => {
+  const ok = peSaid([], [peRec('业绩或指引', PE_SEC1, '2026-11-05')]);
+  const bad = [
+    ['PIPE', ok + '|raw；价格未变'],
+    ['XPIPE', ok + 'x|raw；价格未变'],
+    ['URL', ok + '，说明 https://sec.gov/x|raw；价格未变'],
+    ['URL2', ok + ' 详见 www.sec.gov//x；价格未变'],
+    ['JSON', ok + '，前缀{"x":1}；价格未变'],
+    ['QUOTE', ok + '，备注"raw；价格未变'],
+    ['EPID', ok + '，沿用 ep-20261101-AAA-v3；价格未变'],
+    ['WPID', ok + '，沿用 wp-20261101-AAA-v3；价格未变'],
+    ['SCHEME', ok + '，见 javascript:alert(1)；价格未变'],
+    ['BEFORE2', ok + '，x|raw 关注标签由["半导体"]变为["AI"]；价格未变']
+  ];
+  const good = [
+    ['TAIL', ok + '，价格未变'],
+    ['TAILTIME', ok + '，复核于 2026-11-09T05:03:42Z 与 16:00 收盘后；价格未变'],
+    ['TWO', ok + '，另 关注标签由["半导体"]变为["AI"]，价格未变']
+  ];
+  const rows = bad.concat(good).map(([code, said]) => weeklyAsset({ 代码: code, 变化标记: '有变化', 较上次变化说明: said }));
+  const { result: { document }, warnings } = withWarnings(() => loadWithWindow(null, weeklyWith(rows), 'weekly'));
+  const items = periodItems(document).map((li) => li.textContent);
+  bad.forEach(([code], i) => {
+    assert.ok(items[i].endsWith('已核验暂停记录有变化（格式无法解析）；价格未变'), code + ': ' + items[i]);
+    assert.doesNotMatch(items[i], /raw|sec\.gov|\{|"|ep-2026|wp-2026|javascript:|半导体|AI/, code);
+  });
+  const g = items.slice(bad.length);
+  assert.match(g[0], /已核验暂停记录：新增 1 条：业绩或指引（2026-11-05） · 依据，价格未变$/);
+  assert.match(g[1], /依据，复核于 2026-11-09 14:03 JST 与 16:00 收盘后；价格未变$/);
+  assert.match(g[2], /依据，另 关注标签：新增 1 条：AI；移除 1 条：半导体，价格未变$/);
+  assert.equal(warnings.length, bad.length);
+});
+
+test('#396 PR E review 3: record dates are semantically valid or the change fails closed', () => {
+  const day = (d) => peSaid([], [peRec('业绩或指引', PE_SEC1, d)]) + '；价格未变';
+  const valid = ['2028-02-29', '2000-02-29', '2026-11-05T10:00', '2026-11-05T10:00:59Z', '2026-11-05T10:00+14:00', '2026-11-05T10:00-12:00'];
+  const invalid = ['2026-02-29', '1900-02-29', '2026-00-10', '2026-13-10', '2026-11-00', '2026-11-31', '2026-13-40',
+    '2026-11-05T24:00', '2026-11-05T10:60', '2026-11-05T10:00:60Z', '2026-11-05T10:00+09:60', '2026-11-05T10:00+99:99',
+    '2026-11-05T10:00+14:01', '2026/11/05'];
+  const rows = valid.concat(invalid).map((d, i) => weeklyAsset({ 代码: 'D' + i, 变化标记: '有变化', 较上次变化说明: day(d) }));
+  const { result: { document }, warnings } = withWarnings(() => loadWithWindow(null, weeklyWith(rows), 'weekly'));
+  const items = periodItems(document).map((li) => li.textContent);
+  valid.forEach((d, i) => assert.match(items[i], /已核验暂停记录：新增 1 条：业绩或指引（.+） · 依据；价格未变$/, d));
+  assert.match(items[0], /业绩或指引（2028-02-29）/);
+  assert.match(items[3], /业绩或指引（2026-11-05 19:00 JST）/);
+  assert.match(items[4], /业绩或指引（2026-11-05 05:00 JST）/);
+  assert.match(items[5], /业绩或指引（2026-11-06 07:00 JST）/);
+  invalid.forEach((d, i) => {
+    const said = items[valid.length + i];
+    assert.ok(said.endsWith('已核验暂停记录有变化（格式无法解析）；价格未变'), d + ': ' + said);
+    assert.doesNotMatch(said, /sec\.gov|\|/, d);
+  });
+  assert.equal(warnings.length, invalid.length);
+});
+
+test('#396 PR E review 3: an invalid ISO-like time in reading text is shown as written, never converted', () => {
+  const said = [
+    'A 2026-11-09T05:03:42+09:60', 'B 2026-11-09T05:03:42+99:99', 'C 2026-02-29T10:00:00Z', 'D 2026-11-31T10:00Z',
+    'E 2026-11-09T24:00Z', 'F 2026-11-09T10:00+14:01', 'G 2028-02-29T15:00:00Z', 'H 2026-11-09T10:00+14:00',
+    'I 2026-11-09T10:00-12:00', 'J 2026-12-31T23:59:59.999-05:00'
+  ].join('、');
+  const { document } = loadWithWindow(null, weeklyWith([weeklyAsset({ 变化标记: '有变化', 较上次变化说明: said })]), 'weekly');
+  assert.match(periodChangeText(document).textContent, new RegExp([
+    'A 2026-11-09T05:03:42\\+09:60', 'B 2026-11-09T05:03:42\\+99:99', 'C 2026-02-29T10:00:00Z', 'D 2026-11-31T10:00Z',
+    'E 2026-11-09T24:00Z', 'F 2026-11-09T10:00\\+14:01', 'G 2028-03-01 00:00 JST', 'H 2026-11-09 05:00 JST',
+    'I 2026-11-10 07:00 JST', 'J 2027-01-01 13:59 JST'
+  ].join('、')));
+});
+
+test('#396 PR E review 4: only a whole ISO token converts; a valid prefix of a longer token stays as written', () => {
+  const kept = ['2026-11-09T05:03:42+09:000', '2026-11-09T05:03:42Zebra', '12026-11-09T05:03:42Z', '2026-11-09T05:03:42+14:001',
+    '2026-11-09T05:03:42+09:00abc', 'x2026-11-09T05:03:42Z', '2026-11-09T05:03:42Z9', '2026-11-09T05:03:42.12Zq',
+    '2026-11-09T05:03:42Z-05', 'v.2026-11-09T05:03Z', '2026-11-09T05:03:42+09:00:15', '2026-11-09T05:03Z_x',
+    '2026-11-09T05:03:42Z..q', '2026-11-09T05:03:42+09:00::1', '2026-11-09T05:03:42Z.+abc', '2026-11-09T05:03Z-.-:_',
+    '2026-11-09T05:03Z+++9', 'q..2026-11-09T05:03Z', '2026-11-09T05:03:42.5Z...7'];
+  const converted = [
+    ['2026-11-09T05:03:42+09:00，正常', '2026-11-09 05:03 JST，正常'],
+    ['2026-11-09T05:03:42Z.', '2026-11-09 14:03 JST.'],
+    ['(2026-11-09T05:03:42.5-05:00)', '(2026-11-09 19:03 JST)'],
+    ['「2026-12-31T20:30Z」', '「2027-01-01 05:30 JST」'],
+    ['2028-02-29T15:00:00Z; ok', '2028-03-01 00:00 JST; ok'],
+    ['at 2026-11-09T05:03Z, then', 'at 2026-11-09 14:03 JST, then'],
+    ['2026-11-09T05:03Z 2026-11-09T06:03Z', '2026-11-09 14:03 JST 2026-11-09 15:03 JST'],
+    ['2026-11-09T05:03Z...', '2026-11-09 14:03 JST...'],
+    ['2026-11-09T05:03Z--', '2026-11-09 14:03 JST--']
+  ];
+  const said = kept.concat(converted.map((c) => c[0])).join(' ／ ');
+  const { document } = loadWithWindow(null, weeklyWith([weeklyAsset({ 变化标记: '有变化', 较上次变化说明: said })]), 'weekly');
+  const text = periodChangeText(document).textContent;
+  kept.forEach((k) => assert.ok(text.includes(' ' + k + ' ') || text.includes(k + ' ／'), 'kept as written: ' + k));
+  converted.forEach(([, out]) => assert.ok(text.includes(out), 'converted: ' + out));
+  assert.equal((text.match(/JST/g) || []).length, 10, 'only the whole valid tokens convert');
 });
