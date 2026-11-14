@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE: do not edit by hand. Edit setup/runtime/fragments/ and run
 python3 setup/runtime/build_task_runtime.py build -->
-<!-- runtime-stats: {"runtime_snapshot":"issue-296-v1","runtime_digest":"087a4dd81b7c542362607e0b8bfa036a2338aadd05de5059408b3918fdcf3f51","utf16_units":62056,"code_points":62056,"utf8_bytes":146452,"worst_case_bound_utf16_units":63671,"budget_utf16_units":85000} -->
+<!-- runtime-stats: {"runtime_snapshot":"issue-296-v1","runtime_digest":"cceb6c945f14b29550eac019056ff752d95ee507923c36dd4f79e1fdcb4d069d","utf16_units":62840,"code_points":62840,"utf8_bytes":148244,"worst_case_bound_utf16_units":64455,"budget_utf16_units":85000} -->
 
 This is the installable runtime snapshot of the Daily Scheduled Task (Issue #296). The
 installer (`setup/chatgpt-install-prompt.md`) pastes everything between the `PASTE-READY START`/
@@ -12,13 +12,13 @@ references; `setup/runtime/rule-map.json` maps every runtime rule back to them.
 
 | Measure | Value |
 | --- | --- |
-| UTF-16 code units (paste-ready body, before binding) | 62056 |
-| Unicode code points | 62056 |
-| UTF-8 bytes | 146452 |
+| UTF-16 code units (paste-ready body, before binding) | 62840 |
+| Unicode code points | 62840 |
+| UTF-8 bytes | 148244 |
 | Embedded authority (no separate embedding step) | 0 |
-| Worst-case bound after binding (UTF-16 code units) | 63671 |
+| Worst-case bound after binding (UTF-16 code units) | 64455 |
 | Engineering budget (UTF-16 code units, not a proven platform limit) | 85000 |
-| runtime_digest | `087a4dd81b7c542362607e0b8bfa036a2338aadd05de5059408b3918fdcf3f51` |
+| runtime_digest | `cceb6c945f14b29550eac019056ff752d95ee507923c36dd4f79e1fdcb4d069d` |
 
 <!-- PASTE-READY START -->
 
@@ -40,7 +40,7 @@ Report 研究，回答"今天发生了什么，值得长期投资者记录或继
 时区名称，例如 Asia/Tokyo——不能是"用户本地时区"这类无法直接计算的描述>`
 
 - runtime_snapshot: issue-296-v1
-- runtime_digest: 087a4dd81b7c542362607e0b8bfa036a2338aadd05de5059408b3918fdcf3f51
+- runtime_digest: cceb6c945f14b29550eac019056ff752d95ee507923c36dd4f79e1fdcb4d069d
 - 快照来源 commit/版本：`<CONTENT_VERSION_PLACEHOLDER：由安装程序填写读取本快照时的仓库 commit>`
 - 快照时间：`<CONTENT_SNAPSHOT_TIME_PLACEHOLDER：由安装程序填写，ISO 8601>`
 
@@ -500,7 +500,7 @@ schema_version 8（这些列不存在）时不写这些字段，其余行为不�
 - `阻塞待办ID`：只列出**阻碍本行今日建议**的待办的 `待办ID`（用"、"分隔）；没有阻碍写 `无`，新写入的
   schema_version 8 行不留空，空白或缺列都不等于 `无`；`沿用定投` 与 `适合买入` 时必须是 `无`。`今日建议=无法
   判断`、`计划买入上限` 为"需补全"、计划没有声明执行路径时，都必须至少关联一条**具体写明该缺口**的待办
-  （`跟进类型=可执行`，写清由谁补什么），不能只写"需 Deep Dive 补齐"而没有可定位的待办。`计划买入下限` 的
+  （`跟进类型=可执行`，第 403 号 issue 的 `等待证据` 例外除外；写清由谁补什么），不能只写"需 Deep Dive 补齐"而没有可定位的待办。`计划买入下限` 的
   "需补全"只是首屏范围的展示缺项，**不列入** `阻塞待办ID`、不改变 `今日建议`（上限明确且原有全部门槛通过、
   只缺下限的计划仍可以是 `适合买入`）；这类缺项另写一条非阻断的计划维护待办（`跟进类型=可执行`，例如
   "计划维护：明确 8001 区间1 单点价是唯一允许价还是最高出价"）。
@@ -1052,6 +1052,17 @@ generation 的持仓数量、行情与汇率证据汇总成"覆盖部分"的组�
 不得用 `跟进类型` 掩盖当下就能推进的实质工作——只有确实不是"现在就能做的事"才归为 `持续观察`/`等待证据`。
 这一节只改变 Sheet 里怎么标记，不改变第二步应该研究、判断、写出什么内容。
 
+**待办对账（第 403 号 issue）**：Plan 之前读最近一份同 `报告类型` live 报告（`报告摘要` 中该 `报告ID` 唯一一行的精确
+`生成ID`）的 `报告待办`；同 `报告ID` 的其他 generation 不读、不合并、不相加，读不全时不关闭任何待办。按 `待办ID` 去重：
+- `已完成` 只在本次读到的证据（active `入场计划` 的 `计划ID`/版本、官方文件、该待办 `备注` 的研究记录标识）覆盖原待办
+  **全部**验收项时写，`备注` 写证据标识、原 `待办ID` 与原 `生成ID`；只核验完一次财报或事件而估值、上限、交割、融资等仍缺，不是完成。
+- 其余沿用原 `待办ID`、`状态=待处理`：可做研究已完成、剩余只等未发布的外部披露或事件时写 `等待证据`，`备注` 写“已核验：
+  <证据>；剩余：<条件>；下一验证点：<事件或日期>”，下一验证点前且无新官方披露时不重做同一研究；有现在能做的动作（新文件
+  未复核、需重估、需用户提供账户/资金事实）写 `可执行`；只是观察写 `持续观察`。
+- 这种 `等待证据` 阻塞待办照常列入 `阻塞待办ID`，是各节"阻塞/补全待办须 `可执行`"的唯一例外，`今日建议`、空上限、暂停
+  与门槛都不放宽；用户需提供的事实永远 `可执行`，只索取真正缺的项。旧 generation 行不改不删，关闭被 live 阻塞引用的待办按
+  第 337 号 issue 发布新 generation。
+
 ## 报告分层：变化标记与周度研究（第 364 号 issue）
 
 report_layering: issue-364-v1
@@ -1141,7 +1152,8 @@ risk_identity: issue-375-v1
    事先算好的行号写入会互相覆盖；"先读回目标区域确认为空再按区域写入"**不算**安全做法（读和写是分开的两步，
    另一份报告可能在两步之间、甚至在本次切换确认之后写入同一区域）。本次运行可用的写入工具不支持服务端原子
    追加（插入新行）时，**不要暂存任何行**：停在第 3 步之前，`报告摘要` 保持指向上一次成功的 `生成ID`，运行状态
-   写明"Blocked：写入工具不支持原子追加"。
+   写明"Blocked：写入工具不支持原子追加"。目标 tab 的 `gridProperties.rowCount` 恰好等于最后一行数据不是容量
+   不足：原子追加由服务端扩展行，不预先插行或改写末行；只有追加调用实际报错才按第 4 步失败。
 4. **Verify（校验，切换前，失败即终止）**：把刚写入的 `(报告ID, 生成ID)` 行读回来，与第 2 步预先定好的期望
    内容逐一比对——每个部分的行数和逐条具体条目（`代码` 集合、名称，或风险/待办的具体内容）都要与计划完全一致；
    不是"看起来差不多"，也不是用刚写入的行反过来当作预期。行数刚好对上但条目不对、或第 2 步预期非零而实际暂存
