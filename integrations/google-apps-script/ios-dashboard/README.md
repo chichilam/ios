@@ -601,6 +601,19 @@ Display only; no Sheet field, schema, Task or Agent contract changes, and nothin
   (split on `；`) are shown first in that order, and the whole note folds under `完整备注与来源`. A note without
   them that is longer than 120 characters or contains a link folds under `备注（展开）`; a short one stays
   inline. A note is never cut.
+- **Mixed-todo split (Issue #403, PR #406)**: identity lives only in existing columns -- the parent's `备注`
+  segment `拆分：<P>-S1=<步骤键>、<P>-S2=<步骤键>`, each child's `待办ID` `<P>-S<n>` and its `备注` segments
+  `父待办：<P>` and `步骤键：<键>`. Inside one report a parent's children are nested only when all of it agrees
+  one-to-one: the list parses (every item `<P>-S<n>=<键>` with nothing trimmed, no repeated n or key, every key
+  valid under `fixtures/todo-split/step-keys.json` -- the same grammar as the writer spec), the parent and every listed child occur exactly once, and every row naming P as `父待办` or
+  shaped `<P>-S<n>` is listed with the same `步骤键`; P must not itself be a child. Anything else leaves every row of
+  that parent on its own -- nothing is nested or hidden. The parent card's first screen groups its children by
+  their own `状态`/`跟进类型`: **现在能做** (open, `可执行` or blank/unknown, with the child's `剩余`), **等待什么**
+  (open `等待证据`/`持续观察`, with `剩余` and `下一验证点`) and **已核验** (the parent's `已核验` segment, then
+  finished children); the child rows fold under `子待办原条目 N 条`. A blocker naming a child shows its parent once
+  (counted once); children never repeat under 其他待办. A Daily/Weekly pair of the same parent folds as above, except
+  when their lists bind one child ID to two keys or one key to two IDs: then both stay apart, each marked
+  `拆分清单不一致`. The parent's `状态`/`跟进类型` are shown as written; nothing is derived on the page.
 
 ### 风险 tab: latest Daily + Weekly, 投资风险 and 数据维护 (Issue #396 PR C)
 

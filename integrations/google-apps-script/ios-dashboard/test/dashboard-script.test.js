@@ -1417,6 +1417,153 @@ test('Issue #403: a note shows 已核验 / 剩余 / 下一验证点 first and fo
   assert.equal(short.children[2].textContent, '已核验 但没有冒号');
 });
 
+function splitSample(type, date, overrides) {
+  const o = overrides || {};
+  return reportVm(type, date, {
+    holdings: [blockedRow('TSM', o.blockers || 'TSM-32-S1、TSM-32-S2')],
+    todos: [
+      { 待办ID: 'TSM-32', 待办: type + ' TSM-32 parent', 状态: '待处理', 跟进类型: '可执行', 备注: o.parentNote || '拆分：TSM-32-S1=13周行情、TSM-32-S2=产能利用；已核验：10月营收与 Q3 先进制程占比' },
+      { 待办ID: 'TSM-32-S1', 待办: type + ' 4/13 周背景', 状态: o.s1Status || '待处理', 跟进类型: '可执行', 备注: '父待办：TSM-32；步骤键：13周行情；已核验：11/09–13 OHLCV；剩余：补 13 周同口径行情' },
+      { 待办ID: 'TSM-32-S2', 待办: type + ' 产能利用', 状态: '待处理', 跟进类型: '等待证据', 备注: '父待办：TSM-32；步骤键：' + (o.s2Key || '产能利用') + '；剩余：实际产能利用；下一验证点：11 月月报 https://example.com/' + 'x'.repeat(200) }
+    ].concat(o.extra || [])
+  });
+}
+
+function splitBlock(li) {
+  return li.children.find((c) => c.classList && c.classList.contains('ios-todo-split'));
+}
+
+test('Issue #403 split: a blocker naming split children shows the parent once, first screen 现在能做 / 等待什么 / 已核验, children folded', () => {
+  const { document } = loadDashboard(latestBootstrap(splitSample('daily', '2026-11-14'), null), 'daily', {});
+  const blocked = todoSection(document, 'ios-todo-blocked');
+  const asset = blocked.children.filter((c) => c.classList.contains('ios-todo-asset'))[0];
+  const top = asset.children[1].children;
+  assert.equal(top.length, 1, 'both child blockers resolve to one parent card');
+  assert.equal(top[0].children[0].children[1].textContent, 'daily TSM-32 parent');
+  const split = splitBlock(top[0]);
+  const groups = split.children.map((g) => g.children[0].textContent);
+  assert.deepEqual(groups, ['现在能做（1）', '等待什么（1）', '已核验（1）']);
+  assert.match(split.children[0].textContent, /TSM-32-S1[\s\S]*剩余：补 13 周同口径行情/);
+  assert.match(split.children[1].textContent, /TSM-32-S2[\s\S]*剩余：实际产能利用[\s\S]*下一验证点：11 月月报/);
+  assert.match(split.children[2].textContent, /10月营收与 Q3 先进制程占比/);
+  const fold = top[0].children.find((c) => c.classList && c.classList.contains('ios-todo-split-fold'));
+  assert.equal(fold.getAttribute('open'), null);
+  assert.match(fold.textContent, /子待办原条目 2 条[\s\S]*daily 4\/13 周背景[\s\S]*daily 产能利用/);
+  assert.equal(todoSection(document, 'ios-todo-others').textContent.indexOf('TSM-32-S'), -1, 'children never repeat under 其他待办');
+  assert.match(todoSection(document, 'ios-todo-overview').textContent, /卡住买入 1 项 · 其他待办 0 项/);
+});
+
+test('Issue #403 split: a half-done parent lists the finished child under 已核验 and stays open', () => {
+  const { document } = loadDashboard(latestBootstrap(splitSample('daily', '2026-11-14', { s1Status: '已完成' }), null), 'daily', {});
+  const parent = itemNamed(document, 'daily TSM-32 parent');
+  assert.ok(parent.classList.contains('ios-todo-open'));
+  const groups = splitBlock(parent).children.map((g) => g.children[0].textContent);
+  assert.deepEqual(groups, ['等待什么（1）', '已核验（2）']);
+  assert.match(splitBlock(parent).children[1].textContent, /TSM-32-S1[\s\S]*已核验：11\/09–13 OHLCV/);
+});
+
+test('Issue #403 split: the same parent in Daily and Weekly is one item; the other report keeps its own children in the fold', () => {
+  const { document } = loadDashboard(latestBootstrap(splitSample('daily', '2026-11-14'), splitSample('weekly', '2026-11-15')), 'daily', {});
+  const asset = todoSection(document, 'ios-todo-blocked').children.filter((c) => c.classList.contains('ios-todo-asset'))[0];
+  const top = asset.children[1].children;
+  assert.equal(top.length, 1);
+  assert.equal(top[0].children[0].children[1].textContent, 'weekly TSM-32 parent', 'the newer report leads');
+  const copyFold = top[0].children.find((c) => c.classList && c.classList.contains('ios-todo-copy-fold') && !c.classList.contains('ios-todo-split-fold'));
+  assert.match(copyFold.textContent, /daily TSM-32 parent[\s\S]*子待办原条目 2 条[\s\S]*daily 4\/13 周背景/);
+});
+
+test('Issue #403 split: an unknown parent, a one-sided link, a duplicated child ID or a contradicting 步骤键 is never nested, and no row is hidden', () => {
+  const cases = [
+    ['unlisted child', [{ 待办ID: 'P-1', 待办: 'Parent', 备注: '拆分：P-1-S1=a；已核验：x' }, { 待办ID: 'P-1-S1', 待办: 'Child one', 备注: '父待办：P-1；步骤键：a' },
+      { 待办ID: 'P-1-S2', 待办: 'Child two', 备注: '父待办：P-1；步骤键：b' }]],
+    ['unknown parent', [{ 待办ID: 'Q-1-S1', 待办: 'Child one', 备注: '父待办：Q-1；步骤键：a' }]],
+    ['duplicate child ID', [{ 待办ID: 'R-1', 待办: 'Parent', 备注: '拆分：R-1-S1=a' }, { 待办ID: 'R-1-S1', 待办: 'Child one', 备注: '父待办：R-1；步骤键：a' },
+      { 待办ID: 'R-1-S1', 待办: 'Child two', 备注: '父待办：R-1；步骤键：a' }]],
+    ['contradicting 步骤键', [{ 待办ID: 'S-1', 待办: 'Parent', 备注: '拆分：S-1-S1=a、S-1-S2=b' }, { 待办ID: 'S-1-S1', 待办: 'Child one', 备注: '父待办：S-1；步骤键：b' },
+      { 待办ID: 'S-1-S2', 待办: 'Child two', 备注: '父待办：S-1；步骤键：a' }]],
+    ['missing 步骤键', [{ 待办ID: 'T-1', 待办: 'Parent', 备注: '拆分：T-1-S1=a' }, { 待办ID: 'T-1-S1', 待办: 'Child one', 备注: '父待办：T-1；剩余：x' }]],
+    ['list without keys', [{ 待办ID: 'U-1', 待办: 'Parent', 备注: '拆分：U-1-S1、U-1-S2' }, { 待办ID: 'U-1-S1', 待办: 'Child one', 备注: '父待办：U-1；步骤键：a' },
+      { 待办ID: 'U-1-S2', 待办: 'Child two', 备注: '父待办：U-1；步骤键：b' }]],
+    ['repeated key', [{ 待办ID: 'V-1', 待办: 'Parent', 备注: '拆分：V-1-S1=a、V-1-S2=a' }, { 待办ID: 'V-1-S1', 待办: 'Child one', 备注: '父待办：V-1；步骤键：a' },
+      { 待办ID: 'V-1-S2', 待办: 'Child two', 备注: '父待办：V-1；步骤键：a' }]],
+    ['listed child missing', [{ 待办ID: 'W-1', 待办: 'Parent', 备注: '拆分：W-1-S1=a、W-1-S2=b' }, { 待办ID: 'W-1-S1', 待办: 'Child one', 备注: '父待办：W-1；步骤键：a' }]],
+    ['key with separator', [{ 待办ID: 'X-1', 待办: 'Parent', 备注: '拆分：X-1-S1=a b' }, { 待办ID: 'X-1-S1', 待办: 'Child one', 备注: '父待办：X-1；步骤键：a b' }]]
+  ];
+  cases.forEach(([label, todos]) => {
+    const rows = todos.map((t) => Object.assign({ 状态: '待处理' }, t));
+    const { document } = loadDashboard(latestBootstrap(reportVm('daily', '2026-11-14', { todos: rows }), null), 'daily', {});
+    const names = todoNames(todoSection(document, 'ios-todo-others'));
+    assert.equal(names.length, rows.length, label + ': every row stays on its own');
+    assert.equal(allElements(document.getElementById('ios-tab-content')).filter((n) => n.classList && n.classList.contains('ios-todo-split')).length, 0, label);
+  });
+});
+
+test('Issue #403 split: Unicode 步骤键 nest; Daily and Weekly lists that bind one child ID to different 步骤键 are not folded together', () => {
+  const uni = splitSample('daily', '2026-11-14', { parentNote: '拆分：TSM-32-S1=13周行情、TSM-32-S2=産能·利用；已核验：x', s2Key: '産能·利用' });
+  let { document } = loadDashboard(latestBootstrap(uni, null), 'daily', {});
+  assert.ok(splitBlock(itemNamed(document, 'daily TSM-32 parent')), 'a Unicode key round-trips');
+  const weekly = splitSample('weekly', '2026-11-15', { parentNote: '拆分：TSM-32-S1=13周行情、TSM-32-S2=月报；已核验：x', s2Key: '月报' });
+  ({ document } = loadDashboard(latestBootstrap(splitSample('daily', '2026-11-14'), weekly), 'daily', {}));
+  const asset = todoSection(document, 'ios-todo-blocked').children.filter((c) => c.classList.contains('ios-todo-asset'))[0];
+  const top = asset.children[1].children;
+  assert.equal(top.length, 2, 'both parents shown, never folded into one');
+  top.forEach((li) => assert.match(li.textContent, /拆分清单不一致（子ID与步骤键对不上），两份报告分开显示/));
+  assert.ok(top.every((li) => splitBlock(li)), 'each report still nests its own consistent children');
+});
+
+test('Issue #403 split: the shared 步骤键 grammar (fixtures/todo-split/step-keys.json) decides nesting exactly as the writer spec does', () => {
+  const cases = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', '..', '..', 'fixtures', 'todo-split', 'step-keys.json'), 'utf8')).cases;
+  assert.ok(cases.length >= 30);
+  cases.forEach((c) => {
+    const todos = [
+      { 待办ID: 'K-1', 待办: 'Parent', 状态: '待处理', 备注: '拆分：K-1-S1=' + c.key + '、K-1-S2=wait；已核验：x' },
+      { 待办ID: 'K-1-S1', 待办: 'Now', 状态: '待处理', 跟进类型: '可执行', 备注: '父待办：K-1；步骤键：' + c.key + '；剩余：x' },
+      { 待办ID: 'K-1-S2', 待办: 'Wait', 状态: '待处理', 跟进类型: '等待证据', 备注: '父待办：K-1；步骤键：wait；剩余：y' }
+    ];
+    const { document } = loadDashboard(latestBootstrap(reportVm('daily', '2026-11-14', { todos }), null), 'daily', {});
+    const nested = allElements(document.getElementById('ios-tab-content')).some((n) => n.classList && n.classList.contains('ios-todo-split'));
+    assert.equal(nested, c.valid, c.why + ' ' + JSON.stringify(c.key));
+    assert.equal(todoNames(todoSection(document, 'ios-todo-others')).length, c.valid ? 1 + 2 : 3, c.why + ': no row is hidden');
+  });
+});
+
+test('Issue #403 split: two Now steps and one Wait step nest under one parent, in list order', () => {
+  const daily = reportVm('daily', '2026-11-14', { todos: [
+    { 待办ID: 'P', 待办: 'Parent', 状态: '待处理', 跟进类型: '可执行', 备注: '拆分：P-S1=乙、P-S2=甲、P-S3=等；已核验：x' },
+    { 待办ID: 'P-S1', 待办: 'Now B', 状态: '待处理', 跟进类型: '可执行', 备注: '父待办：P；步骤键：乙；剩余：b' },
+    { 待办ID: 'P-S2', 待办: 'Now A', 状态: '待处理', 跟进类型: '可执行', 备注: '父待办：P；步骤键：甲；剩余：a' },
+    { 待办ID: 'P-S3', 待办: 'Wait', 状态: '待处理', 跟进类型: '等待证据', 备注: '父待办：P；步骤键：等；剩余：w' }
+  ] });
+  const { document } = loadDashboard(latestBootstrap(daily, null), 'daily', {});
+  const split = splitBlock(itemNamed(document, 'Parent'));
+  assert.deepEqual(split.children.map((g) => g.children[0].textContent), ['现在能做（2）', '等待什么（1）', '已核验（1）']);
+  assert.match(split.children[0].textContent, /P-S1[\s\S]*P-S2/);
+});
+
+test('Issue #403 split: writer rows (fixtures/todo-split/continued-rows.json) keep 已核验, 下一验证点 and sources on the parent card', () => {
+  const rows = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', '..', '..', 'fixtures', 'todo-split', 'continued-rows.json'), 'utf8')).rows;
+  const daily = reportVm('weekly', '2026-11-15', { holdings: [blockedRow('CEG', 'CEG-Q3-S2、CEG-Q3-S3')], todos: rows });
+  const { document } = loadDashboard(latestBootstrap(null, daily), 'weekly', {});
+  const asset = todoSection(document, 'ios-todo-blocked').children.filter((c) => c.classList.contains('ios-todo-asset'))[0];
+  const top = asset.children[1].children;
+  assert.equal(top.length, 1);
+  const split = splitBlock(top[0]);
+  assert.deepEqual(split.children.map((g) => g.children[0].textContent), ['现在能做（1）', '等待什么（1）', '已核验（2）']);
+  assert.match(split.children[0].textContent, /CEG-Q3-S3[\s\S]*剩余：RISEC 交割条款核对/);
+  assert.match(split.children[1].textContent, /CEG-Q3-S2[\s\S]*剩余：项目级核燃料\/PPA 现金成本[\s\S]*下一验证点：2026 10-K/);
+  assert.match(split.children[2].textContent, /9M CFO\/CapEx[\s\S]*CEG-Q3-S1[\s\S]*已核验：Q3 10-Q，现金桥 v1/);
+  const fold = top[0].children.find((c) => c.classList && c.classList.contains('ios-todo-split-fold'));
+  assert.match(fold.textContent, /来源：https:\/\/www\.sec\.gov\//, 'the source link is kept in the folded child row');
+});
+
+test('Issue #403 split: a blocker link to a child opens the parent\'s child fold', () => {
+  const daily = splitSample('daily', '2026-11-14', { blockers: 'TSM-32-S2' });
+  const { document } = loadDashboard(latestBootstrap(daily, null), 'daily', {});
+  const parent = itemNamed(document, 'daily TSM-32 parent');
+  assert.ok(parent, 'a single child blocker still shows the parent');
+  assert.equal(splitBlock(parent).children[0].children[0].textContent, '现在能做（1）', 'all children are shown, not only the blocking one');
+});
+
 test('todos: one todo named by two rows of the same report is listed once, the second asset points to it', () => {
   const daily = reportVm('daily', '2026-11-11', {
     holdings: [blockedRow('AAA', 'X-1'), blockedRow('BBB', 'X-1')],

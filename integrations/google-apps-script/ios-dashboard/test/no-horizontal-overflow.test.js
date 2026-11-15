@@ -87,7 +87,16 @@ function stressBootstrap() {
       备注: '已核验：ep-20261113-DEMO-v9 https://example.com/filing；剩余：独立长期估值；下一验证点：2026-11-17 财报'
     }]);
   });
-  return lengthen(boot);
+  // Issue #403 mixed-todo split: a parent with one 现在能做 and one 等待什么 child, a long unbroken URL in a child note.
+  const out = lengthen(boot);
+  // (added after lengthen: the IDs must stay exact; the note text and the URL are long on their own)
+  out.daily.todos = out.daily.todos.concat([
+    { 待办ID: 'DEMO-SPLIT', 待办: 'Demo split parent', 状态: '待处理', 跟进类型: '可执行', 备注: '拆分：DEMO-SPLIT-S1=现金桥、DEMO-SPLIT-S2=项目披露；已核验：Q3 10-Q 现金流' },
+    { 待办ID: 'DEMO-SPLIT-S1', 待办: 'Demo now step', 状态: '待处理', 跟进类型: '可执行', 备注: '父待办：DEMO-SPLIT；步骤键：现金桥；剩余：现金桥' },
+    { 待办ID: 'DEMO-SPLIT-S2', 待办: 'Demo waiting step', 状态: '待处理', 跟进类型: '等待证据',
+      备注: '父待办：DEMO-SPLIT；步骤键：项目披露；剩余：项目级披露；下一验证点：https://example.com/' + 'a'.repeat(160) }
+  ]);
+  return out;
 }
 
 function dashboardHtml(boot, view) {
@@ -156,7 +165,7 @@ function harnessScript() {
           }),
           cardColumns: grid ? win.getComputedStyle(grid).gridTemplateColumns.split(' ').length : 0,
           sections: ['.ios-layering', '.ios-layer-fact', '.ios-layer-verdict', '.ios-inline-fair-value', '.ios-asset-card',
-            '.ios-checklist', '.ios-todo-copy', '.ios-todo-note-part', '.ios-list', '.ios-allocation-cards', '.ios-holding-detail-cards', '.ios-holding-detail-cards .ios-detail-group-ledger']
+            '.ios-checklist', '.ios-todo-copy', '.ios-todo-note-part', '.ios-todo-split', '.ios-list', '.ios-allocation-cards', '.ios-holding-detail-cards', '.ios-holding-detail-cards .ios-detail-group-ledger']
             .filter(function (sel) { return Array.prototype.some.call(doc.querySelectorAll(sel), visible); })
         });
       });
@@ -264,6 +273,7 @@ test('no Daily or Weekly tab scrolls sideways at 320-430px or desktop, and deskt
   });
   assert.ok(at(390, 'daily', 'todos').sections.includes('.ios-todo-copy'), 'the 待办 tab renders the folded cross-report item (Issue #403)');
   assert.ok(at(390, 'daily', 'todos').sections.includes('.ios-todo-note-part'), 'the 待办 tab renders labelled note segments (Issue #403)');
+  assert.ok(at(390, 'daily', 'todos').sections.includes('.ios-todo-split'), 'the 待办 tab renders the split 现在能做 / 等待什么 / 已核验 block (Issue #403)');
   // A Weekly's card grid closes its page (#396 PR A, formerly the 组合 view).
   assert.equal(at(1280, 'weekly', 'report').cardColumns, 2, 'weekly keeps two card columns on desktop');
   assert.equal(at(390, 'weekly', 'report').cardColumns, 1, 'weekly uses one card column on a phone');

@@ -2775,7 +2775,166 @@
     return (status === '' ? '状态未填写' : status) + (kind === '' ? '' : '·' + kind);
   }
 
-  function buildTodoItem(todo, type, vm, copies) {
+  /**
+   * The only trim the split contract uses: ASCII space, U+3000, tab, CR, LF at either end -- exactly
+   * str.strip(" \u3000\t\r\n") in tests/todo_split_spec.py, so both readers see the same text.
+   */
+  function simpleTrim_(value) {
+    return String(value == null ? '' : value).replace(/^[ \u3000\t\r\n]+|[ \u3000\t\r\n]+$/g, '');
+  }
+
+  /** Text of the first 「<label>：…」 segment of a note (split on 「；」), or null. Fixed labels only. */
+  function todoNoteSegment_(note, label) {
+    var segments = String(note == null ? '' : note).split('；');
+    for (var i = 0; i < segments.length; i += 1) {
+      var s = simpleTrim_(segments[i]);
+      if (s.indexOf(label + '：') === 0) { return simpleTrim_(s.slice(label.length + 1)); }
+    }
+    return null;
+  }
+
+  function todoIdOf_(todo) {
+    return simpleTrim_(todo['待办ID']);
+  }
+
+  // fixtures/todo-split/step-keys.json: 1-40 code points; no whitespace, control/format/private/surrogate
+  // character, or ；;=、，, ; never trimmed. Same grammar as valid_step_key in tests/todo_split_spec.py.
+  var TODO_STEP_KEY_FORBIDDEN_ = /[\p{White_Space}\p{Cc}\p{Cf}\p{Co}\p{Cs}\p{Zs}\p{Zl}\p{Zp}；;=、，,]/u;
+
+  function validStepKey_(key) {
+    var length = Array.from(key).length;
+    return length >= 1 && length <= 40 && !TODO_STEP_KEY_FORBIDDEN_.test(key);
+  }
+
+  /**
+   * Issue #403 mixed-todo split (PR #406 review), one report at a time. Identity
+   * lives only in existing columns: the parent's 备注 segment
+   * 「拆分：<P>-S1=<步骤键>、<P>-S2=<步骤键>」, each child's 待办ID <P>-S<n> and its
+   * 备注 segments 「父待办：<P>」「步骤键：<键>」. A parent's children are nested
+   * only when all of it agrees one-to-one: the list parses (every item <P>-S<n>=<键>,
+   * no repeated n or 键, keys without whitespace or ；=、,), the parent and every
+   * listed child occur exactly once, every row naming P as 父待办 or shaped <P>-S<n>
+   * is listed with the same 步骤键, and P is not itself a child. Anything else
+   * leaves every row of that parent on its own -- nothing is nested or hidden.
+   * Returns { childrenOf: {P: [todo...]}, parentOf: {childId: P}, splitMapOf: {P: {childId: 键}}, byId }.
+   */
+  function todoSplitLinks_(todos) {
+    var count = Object.create(null);
+    var byId = Object.create(null);
+    (todos || []).forEach(function (todo) {
+      var id = todoIdOf_(todo);
+      if (id === '') return;
+      count[id] = (count[id] || 0) + 1;
+      byId[id] = todo;
+    });
+    var childrenOf = Object.create(null);
+    var parentOf = Object.create(null);
+    var splitMapOf = Object.create(null);
+    Object.keys(byId).forEach(function (parentId) {
+      var parent = byId[parentId];
+      var listed = todoNoteSegment_(parent['备注'], '拆分');
+      if (listed === null || count[parentId] !== 1 || todoNoteSegment_(parent['备注'], '父待办') !== null) return;
+      var map = Object.create(null);
+      var keys = Object.create(null);
+      var ok = listed !== '';
+      listed.split('、').forEach(function (item) {
+        var eq = item.indexOf('=');
+        var cid = eq === -1 ? '' : item.slice(0, eq);
+        var key = eq === -1 ? '' : item.slice(eq + 1);
+        var m = /^(.+)-S([1-9][0-9]*)$/.exec(cid);
+        if (!m || m[1] !== parentId || !validStepKey_(key) || map[cid] !== undefined || keys[key]) { ok = false; return; }
+        map[cid] = key;
+        keys[key] = true;
+      });
+      if (!ok) return;
+      var prefix = parentId + '-S';
+      var claims = (todos || []).filter(function (todo) {
+        var id = todoIdOf_(todo);
+        return todoNoteSegment_(todo['备注'], '父待办') === parentId || (id.indexOf(prefix) === 0 && /^[1-9][0-9]*$/.test(id.slice(prefix.length)));
+      });
+      var agree = Object.keys(map).every(function (cid) { return count[cid] === 1; }) &&
+        claims.length === Object.keys(map).length &&
+        claims.every(function (todo) {
+          var id = todoIdOf_(todo);
+          return map[id] !== undefined && todoNoteSegment_(todo['备注'], '父待办') === parentId && todoNoteSegment_(todo['备注'], '步骤键') === map[id];
+        });
+      if (!agree) return;
+      childrenOf[parentId] = Object.keys(map).map(function (cid) { return byId[cid]; });
+      Object.keys(map).forEach(function (cid) { parentOf[cid] = parentId; });
+      splitMapOf[parentId] = map;
+    });
+    return { childrenOf: childrenOf, parentOf: parentOf, splitMapOf: splitMapOf, byId: byId };
+  }
+
+  /** Two reports' split lists of one parent contradict: one child ID bound to two 步骤键, or one 键 to two IDs. */
+  function splitConflict_(a, b) {
+    if (!a.splitMap && !b.splitMap) return false;
+    if (!a.splitMap || !b.splitMap) return false;
+    var conflict = false;
+    var byKeyB = Object.create(null);
+    Object.keys(b.splitMap).forEach(function (cid) { byKeyB[b.splitMap[cid]] = cid; });
+    Object.keys(a.splitMap).forEach(function (cid) {
+      var key = a.splitMap[cid];
+      if (b.splitMap[cid] !== undefined && b.splitMap[cid] !== key) conflict = true;
+      if (byKeyB[key] !== undefined && byKeyB[key] !== cid) conflict = true;
+    });
+    return conflict;
+  }
+
+  /** One line of the split summary: the child's 待办 plus its own 剩余 / 下一验证点 / 已核验. */
+  function buildSplitLine_(todo, labels) {
+    var parts = [text('span', 'ios-todo-split-id', todoIdOf_(todo)), text('span', null, todo['待办'] == null ? '' : String(todo['待办']))];
+    labels.forEach(function (label) {
+      var value = todoNoteSegment_(todo['备注'], label);
+      if (value !== null && value !== '') { parts.push(text('span', 'ios-todo-split-detail', label + '：' + value)); }
+    });
+    return el('li', { className: 'ios-todo-split-line' }, parts);
+  }
+
+  /**
+   * First screen of a split parent: 现在能做 / 等待什么 / 已核验, read only from
+   * the children's own 状态 and 跟进类型 (blank or unknown 跟进类型 counts as
+   * 现在能做, as everywhere on this tab). The parent's 已核验 leads 已核验.
+   */
+  function buildTodoSplit_(todo, type, vm, subtasks) {
+    var now = [];
+    var wait = [];
+    var verified = [];
+    subtasks.forEach(function (child) {
+      if (isTodoCompleted(String(child['状态'] == null ? '' : child['状态']).trim())) {
+        verified.push(buildSplitLine_(child, ['已核验']));
+      } else if (classifyTodoKind_(child['跟进类型']) === 'actionable') {
+        now.push(buildSplitLine_(child, ['剩余']));
+      } else {
+        wait.push(buildSplitLine_(child, ['剩余', '下一验证点']));
+      }
+    });
+    var own = todoNoteSegment_(todo['备注'], '已核验');
+    if (own !== null && own !== '') {
+      verified.unshift(el('li', { className: 'ios-todo-split-line' }, [text('span', 'ios-todo-split-detail', own)]));
+    }
+    var section = function (title, items, cls) {
+      if (!items.length) return null;
+      return el('div', { className: 'ios-todo-split-group ' + cls }, [
+        text('p', 'ios-todo-split-title', title + '（' + items.length + '）'),
+        el('ul', { className: 'ios-todo-split-list' }, items)
+      ]);
+    };
+    var childHighlighted = subtasks.some(function (child) { return todoKey_(type, child) === STATE.highlightTodoId; });
+    return [
+      el('div', { className: 'ios-todo-split' }, [
+        section('现在能做', now, 'ios-todo-split-now'),
+        section('等待什么', wait, 'ios-todo-split-wait'),
+        section('已核验', verified, 'ios-todo-split-done')
+      ]),
+      el('details', { className: 'ios-todo-copy-fold ios-todo-split-fold', attrs: childHighlighted ? { open: 'open' } : null }, [
+        text('summary', 'ios-todo-note-summary', '子待办原条目 ' + subtasks.length + ' 条（展开）'),
+        el('ul', { className: 'ios-checklist ios-todo-copies' }, subtasks.map(function (child) { return buildTodoItem(child, type, vm); }))
+      ])
+    ];
+  }
+
+  function buildTodoItem(todo, type, vm, copies, subtasks, splitConflictWith) {
     var rawStatus = String(todo['状态'] == null ? '' : todo['状态']).trim();
     var completed = isTodoCompleted(rawStatus);
     var kind = classifyTodoKind_(todo['跟进类型']);
@@ -2790,6 +2949,13 @@
     if (todo['分类']) { meta.push(text('span', 'ios-badge', todo['分类'])); }
     meta.push(text('span', 'ios-todo-source', reportLabel_(type) + ' ' + shortDate_(todoReportDate_(todo, vm))));
     var children = [head, el('div', { className: 'ios-todo-meta' }, meta)];
+    if (splitConflictWith) {
+      children.push(text('p', 'ios-todo-copy ios-todo-copy-conflict', '与' + reportLabel_(splitConflictWith) +
+        '同一待办的拆分清单不一致（子ID与步骤键对不上），两份报告分开显示，以各自报告为准'));
+    }
+    if (subtasks && subtasks.length) {
+      children = children.concat(buildTodoSplit_(todo, type, vm, subtasks));
+    }
     if (todo['备注']) {
       children = children.concat(buildTodoNote_(todo['备注']));
     }
@@ -2803,7 +2969,7 @@
           (conflict ? '（该报告快照的状态不同，以较新的' + reportLabel_(type) + ' ' + shortDate_(todoReportDate_(todo, vm)) + '为准；它的买入判断以它下一份报告为准）' : '')));
         var copyKey = todoKey_(copy.type, copy.todo);
         if (copyKey !== null && copyKey === STATE.highlightTodoId) { copyHighlighted = true; }
-        copyItems.push(buildTodoItem(copy.todo, copy.type, copy.vm));
+        copyItems.push(buildTodoItem(copy.todo, copy.type, copy.vm, null, copy.subtasks));
       });
       var copyList = el('ul', { className: 'ios-checklist ios-todo-copies' }, copyItems);
       children.push(el('details', { className: 'ios-todo-copy-fold', attrs: copyHighlighted ? { open: 'open' } : null }, [
@@ -2886,6 +3052,10 @@
     entries.forEach(function (entry) {
       if (used.indexOf(entry) !== -1) return;
       var other = partner(entry);
+      if (other && splitConflict_(entry, other)) {
+        out.push(Object.assign({}, entry, { splitConflict: other.type }));
+        return;
+      }
       if (!other) { out.push(entry); return; }
       used.push(other);
       var da = String(todoReportDate_(entry.todo, entry.vm) || '');
@@ -2899,15 +3069,32 @@
   }
 
   function entryKeys_(entry) {
-    return [entry].concat(entry.copies || []).map(function (e) { return e.todo ? todoKey_(e.type, e.todo) : null; });
+    var keys = [];
+    [entry].concat(entry.copies || []).forEach(function (e) {
+      if (!e.todo) return;
+      keys.push(todoKey_(e.type, e.todo));
+      (e.subtasks || []).forEach(function (child) { keys.push(todoKey_(e.type, child)); });
+    });
+    return keys;
   }
 
   function buildTodoGroups_(reports) {
     var assets = [];
     var byCode = {};
     var claimed = {};
+    var linksOf = function (report) {
+      if (!report.splitLinks) { report.splitLinks = todoSplitLinks_(report.vm.todos || []); }
+      return report.splitLinks;
+    };
+    var claimChildren = function (report, parentId, asset) {
+      (linksOf(report).childrenOf[parentId] || []).forEach(function (child) {
+        var childKey = todoKey_(report.type, child);
+        if (childKey !== null) { claimed[childKey] = asset; }
+      });
+    };
     reports.forEach(function (report) {
       var todos = report.vm.todos || [];
+      var links = linksOf(report);
       buyJudgmentRows_(report.vm).forEach(function (row) {
         var ids = blockerIds_(row);
         if (ids.length === 0) { return; }
@@ -2924,23 +3111,31 @@
             asset.entries.push({ type: report.type, vm: report.vm, missingId: id });
             return;
           }
+          // A blocker naming a split child is shown through its parent: one card per parent, children inside.
+          var parentId = links.parentOf[id];
+          if (parentId !== undefined) { todo = links.byId[parentId]; }
           var key = todoKey_(report.type, todo);
           if (claimed[key]) {
             if (claimed[key] !== asset) { asset.entries.push({ type: report.type, vm: report.vm, sharedWith: claimed[key].code, todo: todo }); }
             return;
           }
           claimed[key] = asset;
-          asset.entries.push({ type: report.type, vm: report.vm, todo: todo });
+          var subtasks = links.childrenOf[todoIdOf_(todo)];
+          if (subtasks) { claimChildren(report, todoIdOf_(todo), asset); }
+          asset.entries.push({ type: report.type, vm: report.vm, todo: todo, subtasks: subtasks, splitMap: links.splitMapOf[todoIdOf_(todo)] });
         });
       });
     });
     assets.forEach(function (asset) { asset.entries = mergeSameTodoWork_(asset.entries); });
     var unclaimed = [];
     reports.forEach(function (report) {
+      var links = linksOf(report);
       (report.vm.todos || []).forEach(function (todo, index) {
         var key = todoKey_(report.type, todo);
         if (key !== null && claimed[key]) { return; }
-        unclaimed.push({ type: report.type, vm: report.vm, todo: todo, order: unclaimed.length + index });
+        if (links.parentOf[todoIdOf_(todo)] !== undefined) { return; }
+        unclaimed.push({ type: report.type, vm: report.vm, todo: todo, order: unclaimed.length + index,
+          subtasks: links.childrenOf[todoIdOf_(todo)], splitMap: links.splitMapOf[todoIdOf_(todo)] });
       });
     });
     var others = [];
@@ -2977,7 +3172,7 @@
           text('p', 'ios-muted', reportLabel_(entry.type) + '：与 ' + displayCode_(entry.sharedWith) + ' 共用同一条阻塞待办（见上）')
         ]));
       } else {
-        list.appendChild(buildTodoItem(entry.todo, entry.type, entry.vm, entry.copies));
+        list.appendChild(buildTodoItem(entry.todo, entry.type, entry.vm, entry.copies, entry.subtasks, entry.splitConflict));
       }
     });
     return el('div', { className: 'ios-todo-asset' }, [
@@ -2989,7 +3184,7 @@
 
   function todoList_(entries) {
     var list = el('ul', { className: 'ios-checklist' });
-    entries.forEach(function (entry) { list.appendChild(buildTodoItem(entry.todo, entry.type, entry.vm, entry.copies)); });
+    entries.forEach(function (entry) { list.appendChild(buildTodoItem(entry.todo, entry.type, entry.vm, entry.copies, entry.subtasks, entry.splitConflict)); });
     return list;
   }
 
