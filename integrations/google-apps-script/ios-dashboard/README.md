@@ -200,6 +200,16 @@ describe the topbar, the tab row and the control/card styling are superseded by 
   shows only the change line and 查看本报告快照, which opens its row. A history report's rows read only
   that report's view model; nothing falls back to the latest report.
 
+## 待办与风险 (Issue #409 P4)
+
+- The nav is four views: 今天 / 标的 / 报告 / 待办与风险. 待办与风险 opens with a full-width 待办 / 风险
+  segmented switch (待办 by default; the view keeps the segment it was left on) over the same two lists
+  as before — `buildMergedTodosView_` and `buildMergedRisksView_`, both read from `buildActionModel_` —
+  so 今天's tiles, the report count cards and these lists still count the same items.
+- The old view names `todos` / `risks` (`selectTab`, 今天 tiles and links, report count cards, blocker
+  links) open 待办与风险 on that segment. A blocker link always lands on 待办 with its todo highlighted.
+- Display only: no Sheet field, schema, Task or Agent change.
+
 ## Visual structure (v1.1 parity, Issue #250)
 
 The original `IOS_GAS_Dashboard_v1.1` frontend is the visual source of truth for this Dashboard's

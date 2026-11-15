@@ -49,4 +49,11 @@ function portfolioSection(document, title) {
   return { tagName: 'SECTION', children: parts, get textContent() { return grid.textContent; } };
 }
 
-module.exports = { openReportAssets, reportAssetCards, portfolioSection };
+/** Issue #409 P4: 待办 / 风险 are segments of the 待办与风险 view; true when that view shows the segment. */
+function segmentOpen(document, segment) {
+  if (!document.getElementById('ios-tab-actions').classList.contains('active')) return false;
+  const button = walk(document.getElementById('ios-tab-content'), (n) => n.getAttribute && n.getAttribute('data-segment') === segment, [])[0];
+  return !!button && button.getAttribute('aria-pressed') === 'true';
+}
+
+module.exports = { openReportAssets, reportAssetCards, portfolioSection, segmentOpen };

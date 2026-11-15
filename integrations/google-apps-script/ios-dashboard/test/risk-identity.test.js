@@ -230,7 +230,9 @@ test('#396 PR C: 数据维护 holds 估值需更新 and 延续暂停 (paused and
   assert.doesNotMatch(folds[1].textContent, /BBB|CCC|DDD/, '有变化, blank and 无可比基线 pauses are not continued pauses');
   window.selectTab('daily');
   window.selectTab('risks');
-  assert.equal(document.getElementById('ios-tab-content').children.length, 2);
+  // #409 P4: the 待办 / 风险 switch, then 投资风险 and 数据维护.
+  assert.equal(document.getElementById('ios-tab-content').children.length, 3);
+  assert.ok(document.getElementById('ios-tab-content').children[0].classList.contains('ios-action-segments'));
 });
 
 test('#396 PR C: a history report never changes the 风险 tab', () => {

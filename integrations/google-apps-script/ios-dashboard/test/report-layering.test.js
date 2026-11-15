@@ -626,7 +626,7 @@ function dailyWithWeekly(dailyAssets, weeklyAssets, ids, handlers) {
 function portfolioCards(document) {
   return reportAssetCards(document, 'holding').concat(reportAssetCards(document, 'watchlist'));
 }
-const { reportAssetCards } = require('./report-assets-helper');
+const { reportAssetCards, segmentOpen } = require('./report-assets-helper');
 
 test('PR B: no Daily↔Weekly link exists in the snapshot, so a Daily always keeps its own full plan block', () => {
   // 报告摘要/报告持仓 carry no field naming the Weekly a Daily used, so even a Weekly with identical
@@ -803,7 +803,7 @@ test('#396 PR B: a blocker on the latest report jumps to the 待办 tab and high
   const { document, window } = loadWithWindow(null, weekly, 'weekly');
   window.selectTab('weekly');
   findAll(buyRow(document, 'AAA'), (n) => n.classList.contains('ios-blocker-link'))[0].click();
-  assert.ok(document.getElementById('ios-tab-todos').classList.contains('active'));
+  assert.ok(segmentOpen(document, 'todos'));
   const lit = findAll(document.getElementById('ios-tab-content'), (n) => n.classList.contains('ios-todo-highlight'));
   assert.deepEqual(lit.map((n) => n.getAttribute('data-todo-key')), ['weekly|T-9']);
 });
@@ -822,10 +822,10 @@ test('#396 PR B: on the latest report the count cards add Daily + Weekly, say so
   const cards = summaryChild(document, 'ios-count-cards').children;
   assert.deepEqual(cards.map((c) => c.textContent), ['卡住买入 1 / 其他待办 2 →含日报+周报', '风险 2 项 →数据维护 1 项 · 含日报+周报']);
   cards[1].click();
-  assert.ok(document.getElementById('ios-tab-risks').classList.contains('active'));
+  assert.ok(segmentOpen(document, 'risks'));
   window.selectTab('weekly');
   summaryChild(document, 'ios-count-cards').children[0].click();
-  assert.ok(document.getElementById('ios-tab-todos').classList.contains('active'));
+  assert.ok(segmentOpen(document, 'todos'));
 });
 
 test('#396 PR B: a history report counts only itself, opens its own lists on its page and shows its own 买入判断', () => {
@@ -900,7 +900,7 @@ test('#396 PR B review: a watchlist row the report did not judge still shows 当
   assert.match(buyRow(document, 'WNONE').textContent, /阻塞待办: 无/);
   assert.match(buyRow(document, 'WBLANK').textContent, /阻塞待办: 本报告版本未提供关联/);
   findAll(buyRow(document, 'WOPEN'), (n) => n.classList.contains('ios-blocker-link'))[0].click();
-  assert.ok(document.getElementById('ios-tab-todos').classList.contains('active'));
+  assert.ok(segmentOpen(document, 'todos'));
   const lit = findAll(document.getElementById('ios-tab-content'), (n) => n.classList.contains('ios-todo-highlight'));
   assert.deepEqual(lit.map((n) => n.getAttribute('data-todo-key')), ['weekly|T-1']);
 });
@@ -1806,4 +1806,54 @@ test('#409 P3 prod fix: getReport and getDashboardBootstrap return no native Dat
   const boot = sandbox.getDashboardBootstrap();
   assert.equal(hasDate(boot), false);
   assert.equal(boot.weekly.found, true);
+});
+
+// -- Issue #409 P4: 待办与风险 is one view with a 待办 / 风险 switch over the same shared lists. --
+
+test('#409 P4: 待办与风险 switches between its two lists in place, without a server call, and a blocker link still lands on 待办', () => {
+  let calls = 0;
+  const weekly = weeklyWith([weeklyAsset({ 今日行动: '等待确认', 当前阻碍: '等待官方事件复核', 阻塞待办ID: 'T-9' })], {
+    todos: [{ 待办ID: 'T-9', 待办: '复核官方事件', 状态: '待处理' }],
+    risks: [{ 风险: 'R-1', 风险键: 'R-1', 风险评估: '触发', 严重度: '中' }]
+  });
+  const { document, window } = loadWithWindow(null, weekly, 'weekly', { getReport: () => { calls += 1; return {}; } });
+  window.selectTab('actions');
+  assert.equal(document.getElementById('ios-page-title').textContent, '待办与风险');
+  assert.ok(segmentOpen(document, 'todos'), '待办 is the default segment');
+  const content = document.getElementById('ios-tab-content');
+  const segButtons = () => findAll(content, (n) => n.getAttribute('data-segment'));
+  assert.deepEqual(segButtons().map((b) => b.textContent), ['待办', '风险']);
+  assert.match(content.textContent, /复核官方事件/);
+  segButtons()[1].click();
+  assert.ok(segmentOpen(document, 'risks'));
+  assert.match(content.textContent, /投资风险/);
+  assert.doesNotMatch(content.textContent, /复核官方事件/, 'one list at a time');
+  window.selectTab('today');
+  window.selectTab('actions');
+  assert.ok(segmentOpen(document, 'risks'), 'the view remembers the segment it was left on');
+  window.selectTab('weekly');
+  findAll(buyRow(document, 'AAA'), (n) => n.classList.contains('ios-blocker-link'))[0].click();
+  assert.ok(segmentOpen(document, 'todos'), 'a blocker link opens 待办 even when 风险 was shown');
+  assert.deepEqual(findAll(content, (n) => n.classList.contains('ios-todo-highlight')).map((n) => n.getAttribute('data-todo-key')), ['weekly|T-9']);
+  assert.equal(calls, 0);
+});
+
+test('#409 P4: the 今天 tiles open 待办与风险 on the matching segment, with the same counts', () => {
+  const weekly = weeklyWith([weeklyAsset({ 今日行动: '等待确认', 当前阻碍: '等待官方事件复核', 阻塞待办ID: 'T-9' })], {
+    todos: [{ 待办ID: 'T-9', 待办: '复核官方事件', 状态: '待处理' }, { 待办ID: 'T-2', 待办: '其他事项', 状态: '待处理' }],
+    risks: [{ 风险: 'R-1', 风险键: 'R-1', 风险评估: '触发', 严重度: '中' }]
+  });
+  const { document, window } = loadWithWindow(null, weekly, 'weekly');
+  window.selectTab('today');
+  const tile = (key) => findAll(document.getElementById('ios-tab-content'), (n) => n.getAttribute('data-count') === key)[0];
+  const blocked = tile('blocked').textContent;
+  const invest = tile('invest').textContent;
+  tile('blocked').click();
+  assert.ok(segmentOpen(document, 'todos'));
+  assert.match(blocked, /1/);
+  window.selectTab('today');
+  tile('invest').click();
+  assert.ok(segmentOpen(document, 'risks'));
+  const listed = /投资风险 \((\d+)\)/.exec(document.getElementById('ios-tab-content').textContent)[1];
+  assert.equal(/\d+/.exec(invest)[0], listed, 'the 触发风险 tile and the 风险 list count the same');
 });

@@ -670,6 +670,9 @@ body {
   .ios-report-step { min-height: 44px; }
 }
 
+/* Issue #409 P4: 待办与风险 opens with the same full-width segmented switch as 报告. */
+.ios-action-segments { margin-bottom: 16px; }
+
 /* Issue #409 P1: 今天. Count tiles are buttons into 待办 / 风险 (same model,
    same numbers); every line wraps, nothing sets a fixed width. */
 .ios-today-report { display: grid; gap: 4px; padding: 10px 0; border-top: 1px solid var(--ios-border); min-width: 0; overflow-wrap: anywhere; }

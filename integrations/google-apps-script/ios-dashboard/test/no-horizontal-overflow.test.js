@@ -209,7 +209,7 @@ function harnessScript() {
           sections: ['.ios-layering', '.ios-layer-fact', '.ios-layer-verdict', '.ios-inline-fair-value', '.ios-asset-card',
             '.ios-today-counts', '.ios-today-todo', '.ios-today-report', '.ios-checklist', '.ios-todo-copy', '.ios-todo-note-part', '.ios-todo-split', '.ios-list', '.ios-allocation-cards', '.ios-holding-detail-cards', '.ios-holding-detail-cards .ios-detail-group-ledger',
             '.ios-asset-detail', '.ios-snapshot-panel', '.ios-holding-detail-table .ios-sticky-col',
-            '.ios-report-toolbar', '.ios-report-asset-list', '.ios-report-asset-detail', '.ios-report-technical']
+            '.ios-report-toolbar', '.ios-report-asset-list', '.ios-report-asset-detail', '.ios-report-technical', '.ios-action-segments']
             .filter(function (sel) { return Array.prototype.some.call(doc.querySelectorAll(sel), visible); })
         });
       });
@@ -332,6 +332,8 @@ test('no Daily or Weekly view scrolls sideways at 320-430px or desktop', (t) => 
   });
   ['.ios-today-counts', '.ios-today-todo', '.ios-today-report'].forEach((sel) =>
     assert.ok(at(390, 'daily', 'today').sections.includes(sel), `今天 renders ${sel} (Issue #409 P1)`));
+  ['daily', 'weekly'].forEach((view) => [390, 1280].forEach((width) => ['todos', 'risks'].forEach((tab) =>
+    assert.ok(at(width, view, tab).sections.includes('.ios-action-segments'), `${width}px ${view}/${tab}: 待办与风险 shows its 待办 / 风险 switch (Issue #409 P4)`))));
   assert.ok(at(390, 'daily', 'todos').sections.includes('.ios-todo-copy'), 'the 待办 tab renders the folded cross-report item (Issue #403)');
   assert.ok(at(390, 'daily', 'todos').sections.includes('.ios-todo-note-part'), 'the 待办 tab renders labelled note segments (Issue #403)');
   assert.ok(at(390, 'daily', 'todos').sections.includes('.ios-todo-split'), 'the 待办 tab renders the split 现在能做 / 等待什么 / 已核验 block (Issue #403)');

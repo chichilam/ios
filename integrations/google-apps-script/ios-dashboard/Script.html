@@ -39,14 +39,17 @@
   // Issue #409 P1: 今天 comes first and opens by default. Issue #409 P3: 日报 and
   // 周报 are one 报告 view (STATE.activeView picks the type); selectTab('daily')
   // and selectTab('weekly') still open 报告 on that type.
-  var TABS = ['today', 'holdingDetail', 'report', 'todos', 'risks'];
+  var TABS = ['today', 'holdingDetail', 'report', 'actions'];
   // Issue #409 P0: each view's page title (the large heading above its content).
-  var TAB_TITLES = { today: '今天', holdingDetail: '标的', report: '报告', todos: '待办', risks: '风险' };
+  var TAB_TITLES = { today: '今天', holdingDetail: '标的', report: '报告', actions: '待办与风险' };
+  // Issue #409 P4: 待办 and 风险 are the two segments of one 待办与风险 view; the old names still open it.
+  var ACTION_SEGMENTS = ['todos', 'risks'];
 
   var STATE = {
     bootstrap: IOS_BOOTSTRAP,
     activeView: IOS_ACTIVE_VIEW === 'weekly' ? 'weekly' : 'daily', // the report 日报/周报, history selection reads
     activeTab: 'today',
+    actionSegment: 'todos', // 待办与风险: the shown segment, 'todos' or 'risks' (Issue #409 P4)
     detailTab: 'today', // the view #ios-tab-content renders: activeTab unless that is a report tab
     holdingDetailFilter: 'all', // 标的 filter (Issue #388 PR A, #409 P2)
     assetOpenCode: null, // 标的: the asset whose detail is open (Issue #409 P2)
@@ -407,7 +410,7 @@
 
   /** 今天, 标的, 待办 and 风险 always merge the latest Daily and Weekly, whatever a history selection shows (Issue #396, #409 P1/P2). */
   function isMergedTab_(tab) {
-    return tab === 'today' || tab === 'todos' || tab === 'holdingDetail' || tab === 'risks';
+    return tab === 'today' || tab === 'actions' || tab === 'holdingDetail';
   }
 
   function reportLabel_(type) {
@@ -1552,15 +1555,39 @@
       buildTodayView_().forEach(function (node) { container.appendChild(node); });
       return;
     }
-    if (tab === 'todos') {
-      buildMergedTodosView_().forEach(function (node) { container.appendChild(node); });
-      return;
-    }
-    if (tab === 'risks') {
-      buildMergedRisksView_().forEach(function (node) { container.appendChild(node); });
+    if (tab === 'actions') {
+      buildActionsView_().forEach(function (node) { container.appendChild(node); });
       return;
     }
     buildAssetsView_().forEach(function (node) { container.appendChild(node); });
+  }
+
+  /**
+   * Issue #409 P4: 待办与风险. A full-width 待办 / 风险 segmented switch over the
+   * same lists the two views showed before (buildMergedTodosView_ /
+   * buildMergedRisksView_, both read from buildActionModel_), so every count
+   * still agrees with 今天 and the report count cards.
+   */
+  function buildActionsView_() {
+    var segments = el('div', { className: 'ios-segmented ios-action-segments', attrs: { role: 'group', 'aria-label': '待办与风险' } },
+      ACTION_SEGMENTS.map(function (segment) {
+        var active = STATE.actionSegment === segment;
+        return el('button', {
+          className: 'ios-segment',
+          text: segment === 'todos' ? '待办' : '风险',
+          attrs: { type: 'button', id: 'ios-seg-' + segment, 'data-segment': segment, 'aria-pressed': active ? 'true' : 'false' },
+          onclick: function () { selectActionSegment(segment); }
+        });
+      }));
+    var body = STATE.actionSegment === 'risks' ? buildMergedRisksView_() : buildMergedTodosView_();
+    return [segments].concat(body);
+  }
+
+  function selectActionSegment(segment) {
+    if (ACTION_SEGMENTS.indexOf(segment) === -1 || STATE.actionSegment === segment) return;
+    STATE.actionSegment = segment;
+    STATE.highlightTodoId = null;
+    renderTabContent();
   }
 
   /**
@@ -4421,6 +4448,10 @@
       }
       tab = 'report';
     }
+    if (ACTION_SEGMENTS.indexOf(tab) !== -1) {
+      STATE.actionSegment = tab;
+      tab = 'actions';
+    }
     if (TABS.indexOf(tab) === -1) return;
     STATE.activeTab = tab;
     if (!isReportTab_(tab)) { STATE.detailTab = tab; }
@@ -4502,6 +4533,7 @@
 
   window.switchView = switchView;
   window.selectTab = selectTab;
+  window.selectActionSegment = selectActionSegment;
   window.selectHistoryReport = selectHistoryReport;
   window.onHistorySelectChange = onHistorySelectChange;
   window.refresh = refresh;
