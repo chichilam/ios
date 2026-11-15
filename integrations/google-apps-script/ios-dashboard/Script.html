@@ -15,7 +15,9 @@
 // google.script.run -- no in-page link ever points at a relative
 // ?view=/&report= URL again.
 //
-// Layout ports the v1.1 Dashboard's visual structure (Issue #250 reopen,
+// Issue #409 P0 replaced the v1.1 topbar and tab row with a Notion-style
+// shell (desktop sidebar / phone bottom nav, see Index.html); the views
+// below are otherwise unchanged. Original v1.1 layout (Issue #250 reopen,
 // PR #252 review): a topbar with 日报/周报 controls and a compact history
 // <select>, a 4-metric summary grid (当前持仓/观察名单/核心状态/Review,
 // each with its v1.1 explanatory subtitle -- informational only, not a
@@ -28,13 +30,15 @@
 (function () {
   'use strict';
 
-  // Issue #396: five views in one row at the top, 待办 first and opened by
-  // default. 日报 / 周报 render one report each (#ios-summary-content, with
+  // Issue #396: five views, 待办 first and opened by default (Issue #409 P0:
+  // listed in the desktop sidebar / the phone bottom nav). 日报 / 周报 render one report each (#ios-summary-content, with
   // the history <select>); 待办 / 持仓明细 / 风险 render into #ios-tab-content.
   // 待办 always merges the latest Daily and the latest Weekly, whatever
   // report a history selection shows. The former 组合 view is gone; its
   // cash / allocation facts live in 持仓明细's 配置概况 (Issue #388 PR F).
   var TABS = ['todos', 'daily', 'weekly', 'holdingDetail', 'risks'];
+  // Issue #409 P0: each view's page title (the large heading above its content).
+  var TAB_TITLES = { todos: '待办', daily: '日报', weekly: '周报', holdingDetail: '持仓明细', risks: '风险' };
 
   var STATE = {
     bootstrap: IOS_BOOTSTRAP,
@@ -47,7 +51,8 @@
     loading: false,
     highlightTodoId: null, // '<报告类型>|<待办ID>' a blocker link jumped to (Issue #306, #396)
     highlightTodoNode: null,
-    periodPanel: null // 'todos' / 'risks': a history report's own list opened on its page (Issue #396 PR B)
+    periodPanel: null, // 'todos' / 'risks': a history report's own list opened on its page (Issue #396 PR B)
+    readAt: new Date() // when this page last read the Sheet: page load, then each successful 刷新 (Issue #409 P0)
   };
 
   // -- Small DOM-construction helpers (no innerHTML with Sheet-derived
@@ -381,6 +386,7 @@
   function render() {
     updateNavActive();
     updateTabActive();
+    renderDataTime();
     renderStatusBanner();
     renderHistoryBanner();
     renderHistorySelect();
@@ -416,17 +422,33 @@
       btn.classList.toggle('active', isActive);
       if (isActive) {
         btn.setAttribute('aria-current', 'page');
-        // A narrow screen scrolls the view row sideways; keep the current view fully in sight.
-        if (typeof btn.scrollIntoView === 'function') { btn.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
       } else {
         btn.removeAttribute('aria-current');
       }
     });
+    var title = document.getElementById('ios-page-title');
+    if (title) title.textContent = TAB_TITLES[STATE.activeTab] || '';
     var onReport = isReportTab_(STATE.activeTab);
     document.getElementById('ios-summary-content').hidden = !onReport;
     document.getElementById('ios-tab-content').hidden = onReport;
     var viewBanner = document.getElementById('ios-view-banner');
     viewBanner.hidden = onReport || !viewBanner.firstChild;
+  }
+
+  function pad2_(n) {
+    return (n < 10 ? '0' : '') + n;
+  }
+
+  /** The sidebar's read time: when this page last read the Sheet (the viewer's own clock), not a report time. */
+  function renderDataTime() {
+    var node = document.getElementById('ios-data-time');
+    if (!node) return;
+    if (STATE.bootstrap.error) {
+      node.textContent = '读取失败';
+      return;
+    }
+    var at = STATE.readAt;
+    node.textContent = '读取 ' + (at.getMonth() + 1) + '/' + at.getDate() + ' ' + pad2_(at.getHours()) + ':' + pad2_(at.getMinutes());
   }
 
   function renderStatusBanner() {
@@ -3658,6 +3680,7 @@
       .withSuccessHandler(function (bootstrap) {
         setLoading(false);
         STATE.bootstrap = bootstrap;
+        STATE.readAt = new Date();
         STATE.viewingReportId = null;
         STATE.periodPanel = null;
         STATE.displayedViewModel = null;

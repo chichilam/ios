@@ -61,8 +61,10 @@ credentials anywhere — every value in [`demo/demo-sheet.json`](demo/demo-sheet
   The cap, the distance and every filter are unchanged.
 - `test/no-horizontal-overflow.test.js` — Issue #370: renders the real `Index.html`/`Styles.html`/
   `Script.html` in headless Chrome at 320/375/390/430px and desktop, with every report string made long
-  and unbreakable, and asserts no Daily/Weekly view scrolls sideways (desktop keeps two card columns), the
-  view row sits above the content and the current view's tab is fully visible (#388 PR D).
+  and unbreakable, and asserts no Daily/Weekly view scrolls sideways (desktop keeps two card columns) and
+  the current view's nav item is fully visible (#388 PR D). Since #409 P0 it also checks the shell: the
+  desktop nav sits in the sidebar left of the content; on a phone the nav is fixed to the screen bottom,
+  every item is ≥44px tall with its label shown in full, and the page's bottom padding clears the nav.
   Uses the system Chrome/Chromium (`CHROME_BIN` to point at one); skipped locally without a browser,
   required under CI.
 - `test/fake-dom.js` — a minimal hand-rolled DOM stand-in used only by `dashboard-script.test.js`
@@ -102,6 +104,29 @@ the very first page load only — everything after that is `google.script.run.ge
 (full refresh) or `google.script.run.getReport(reportId)` (history selection), both precomputed
 into the initial bootstrap payload embedded in `Index.html` so the common Daily↔Weekly toggle
 needs zero additional server round-trips.
+
+## Shell and visual tokens (Issue #409 P0)
+
+Issue #409 redesigns the Dashboard in phases (P0–P4). P0 only changes the shell and the visual
+tokens; the five views and their content are unchanged, so parts of the v1.1 section below that
+describe the topbar, the tab row and the control/card styling are superseded by this section:
+
+- **Desktop (≥900px)**: a left sidebar (`.ios-sidebar`, `#F7F7F5`, 240px) holds the brand, the five
+  views (待办 / 日报 / 周报 / 持仓明细 / 风险, each an icon plus a text label, the current one
+  highlighted with `aria-current="page"`), and at its foot the read time plus 刷新. The read time
+  (`#ios-data-time`, “读取 11/16 00:05”) is when this page last read the Sheet, on the viewer's own
+  clock: page load, then every successful 刷新; a blocked read shows 读取失败. It is not a report time.
+  The main column (`.ios-main`, 960px reading width) opens with the view's page title
+  (`#ios-page-title`) and, on 日报 / 周报 only, the history `<select>`.
+- **Phone (<900px)**: the sidebar becomes a slim top bar (brand, read time, 刷新 at 44px); the view
+  nav is fixed to the bottom of the screen above the iPhone home indicator
+  (`env(safe-area-inset-bottom)`); every item is at least 44px tall and keeps its text label, and
+  the page's bottom padding equals the nav's full height so no content sits under it.
+- **Tokens** (`:root` in `Styles.html`): white page, `#37352F` text, `#73726E` muted text, `#EDEDEC`
+  hairlines, 4–6px radii, no shadows. Status tags use low-saturation pairs (red `#FFE2DD/#5D1715`,
+  yellow `#FDECC8/#402C1B`, blue `#D3E5EF/#183347`, green `#DBEDDB/#1C3829`, purple
+  `#E8DEEE/#412454`, gray `#E3E2E0/#32302C`), always with their own text so colour is never the only
+  signal. No web fonts are loaded (system UI fonts, with CJK fallbacks).
 
 ## Visual structure (v1.1 parity, Issue #250)
 

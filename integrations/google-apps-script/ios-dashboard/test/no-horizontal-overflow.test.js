@@ -5,6 +5,9 @@
 // Chrome at 320/375/390/430px and desktop, with every report string made
 // long and unbreakable (IDs, time ranges, source URLs), and asserts that no
 // Daily or Weekly tab is wider than its viewport. Desktop keeps two columns.
+// Issue #409 P0: it also checks the new shell -- a desktop sidebar left of
+// the content, and on a phone a bottom nav fixed to the screen, 44px tall per
+// item, whose height the page padding fully clears.
 //
 // Zero dependencies: it drives the system Chrome/Chromium binary with
 // --dump-dom. Each width is an <iframe srcdoc> inside one desktop-sized page,
@@ -155,11 +158,19 @@ function harnessScript() {
         results.push({
           width: width, view: view, tab: tab,
           clientWidth: root.clientWidth, scrollWidth: root.scrollWidth, offenders: offenders.slice(0, 5), clipped: clipped,
-          activeTabVisible: active.left >= bar.left - 0.5 && active.right <= bar.right + 0.5,
-          barAboveContent: bar.bottom <= Math.min.apply(null, ['ios-summary-content', 'ios-tab-content'].map(function (id) {
-            var box = doc.getElementById(id).getBoundingClientRect();
-            return box.height ? box.top : Infinity;
+          activeTabVisible: active.left >= bar.left - 0.5 && active.right <= bar.right + 0.5 &&
+            active.top >= bar.top - 0.5 && active.bottom <= bar.bottom + 0.5,
+          // Issue #409 P0: desktop sidebar left of the content; phone nav fixed to the screen bottom,
+          // with the page padded by its full height so no content ends up under it.
+          navFixed: win.getComputedStyle(doc.getElementById('ios-tab-bar')).position === 'fixed',
+          navAtBottom: Math.abs(bar.bottom - win.innerHeight) < 1,
+          bottomClearance: parseFloat(win.getComputedStyle(doc.body).paddingBottom) - bar.height,
+          navLeftOfContent: bar.right <= doc.querySelector('.ios-main').getBoundingClientRect().left + 0.5,
+          minTabHeight: Math.min.apply(null, Array.prototype.map.call(doc.querySelectorAll('.ios-tab-bar .ios-tab-btn'), function (b) {
+            return b.getBoundingClientRect().height;
           })),
+          labelsFit: Array.prototype.every.call(doc.querySelectorAll('.ios-tab-label'), function (l) { return l.scrollWidth <= l.clientWidth + 1; }),
+          pageTitle: doc.getElementById('ios-page-title').textContent,
           proseFullRow: Array.prototype.filter.call(doc.querySelectorAll('.ios-metric-card-prose'), visible).map(function (card) {
             return Math.abs(card.getBoundingClientRect().width - card.parentElement.getBoundingClientRect().width) < 1;
           }),
@@ -262,8 +273,16 @@ test('no Daily or Weekly tab scrolls sideways at 320-430px or desktop, and deskt
     // Issue #396 PR A: the summary grid closes the report (the 组合 view is gone).
     assert.equal(r.proseFullRow.length, r.tab === 'report' ? 2 : 0, `${r.width}px ${r.view}/${r.tab}: 核心状态 and 数据检查 render as prose cards`);
     r.proseFullRow.forEach((full) => assert.equal(full, r.width < 600, `${r.width}px ${r.view}: prose cards take a full row only on a phone`));
-    assert.ok(r.activeTabVisible, `${r.width}px ${r.view}/${r.tab}: the current view's tab is fully visible in the view row`);
-    assert.ok(r.barAboveContent, `${r.width}px ${r.view}/${r.tab}: the view row sits above the content`);
+    assert.ok(r.activeTabVisible, `${r.width}px ${r.view}/${r.tab}: the current view's tab is fully visible in the nav`);
+    assert.ok(r.labelsFit, `${r.width}px ${r.view}/${r.tab}: every nav label shows in full`);
+    assert.ok(r.pageTitle.length > 0, `${r.width}px ${r.view}/${r.tab}: the page carries its view title`);
+    if (r.width < 900) {
+      assert.ok(r.navFixed && r.navAtBottom, `${r.width}px ${r.view}/${r.tab}: the phone nav is fixed to the bottom of the screen`);
+      assert.ok(r.bottomClearance >= -0.5, `${r.width}px ${r.view}/${r.tab}: the page bottom padding clears the nav (${r.bottomClearance})`);
+      assert.ok(r.minTabHeight >= 44, `${r.width}px ${r.view}/${r.tab}: every nav item is at least 44px tall (${r.minTabHeight})`);
+    } else {
+      assert.ok(!r.navFixed && r.navLeftOfContent, `${r.width}px ${r.view}/${r.tab}: the desktop nav sits in the sidebar left of the content`);
+    }
   });
   const at = (width, view, tab) => results.find((r) => r.width === width && r.view === view && r.tab === tab);
   ['daily', 'weekly'].forEach((view) => {

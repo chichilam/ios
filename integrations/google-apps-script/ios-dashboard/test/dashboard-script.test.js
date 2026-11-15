@@ -254,7 +254,7 @@ test('Issue #396 PR A: each view replaces the whole page; 日报 / 周报 bring 
 test('Issue #396 PR A: the view row is 待办 / 日报 / 周报 / 持仓明细 / 风险; 组合, 报告 and 资本配置 are gone and ignored', () => {
   const index = fs.readFileSync(path.join(__dirname, '..', 'Index.html'), 'utf8');
   assert.doesNotMatch(index, /资本配置|ios-tab-allocation|ios-tab-portfolio|ios-tab-report|ios-nav-/);
-  const labels = [...index.matchAll(/class="ios-tab-btn"[^>]*>([^<]+)</g)].map((m) => m[1]);
+  const labels = [...index.matchAll(/class="ios-tab-label">([^<]+)</g)].map((m) => m[1]);
   assert.deepEqual(labels, ['待办', '日报', '周报', '持仓明细', '风险']);
   const { document, window } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
   window.selectTab('holdingDetail');
@@ -262,13 +262,55 @@ test('Issue #396 PR A: the view row is 待办 / 日报 / 周报 / 持仓明细 /
   assert.ok(document.getElementById('ios-tab-holdingDetail').classList.contains('active'), 'an unknown view name is ignored');
 });
 
-test('Issue #396 PR A: the top view row comes before every view in Index.html, and the topbar keeps no separate 日报/周报 toggle', () => {
+test('Issue #409 P0: the view nav sits in the sidebar shell before every view in Index.html, with read time + 刷新, and no separate 日报/周报 toggle', () => {
   const index = fs.readFileSync(path.join(__dirname, '..', 'Index.html'), 'utf8');
+  const sidebar = index.indexOf('class="ios-sidebar"');
   const bar = index.indexOf('id="ios-tab-bar"');
-  assert.ok(bar > index.indexOf('</header>'));
-  assert.ok(bar < index.indexOf('id="ios-summary-content"'));
+  const main = index.indexOf('class="ios-main"');
+  assert.ok(sidebar !== -1 && sidebar < bar && bar < main, 'the nav is inside the sidebar, which comes before the main column');
+  assert.ok(index.indexOf('id="ios-refresh-btn"') > bar && index.indexOf('id="ios-refresh-btn"') < main, '刷新 sits in the sidebar foot');
+  assert.ok(index.indexOf('id="ios-data-time"') > bar && index.indexOf('id="ios-data-time"') < main, 'the read time sits next to 刷新');
+  assert.ok(main < index.indexOf('id="ios-page-title"'));
+  assert.ok(index.indexOf('id="ios-history-select"') > main, 'the history entry stays in the main column, next to the page title');
+  assert.ok(index.indexOf('id="ios-history-select"') < index.indexOf('id="ios-summary-content"'));
   assert.ok(index.indexOf('id="ios-tab-todos"') > bar);
-  assert.doesNotMatch(index, /ios-view-toggle/);
+  assert.doesNotMatch(index, /ios-view-toggle|ios-topbar"/);
+  // Every nav item keeps a text label next to its icon: state never relies on an icon or a colour alone.
+  const buttons = [...index.matchAll(/<button type="button" class="ios-tab-btn"[\s\S]*?<\/button>/g)].map((m) => m[0]);
+  assert.equal(buttons.length, 5);
+  buttons.forEach((b) => { assert.match(b, /aria-hidden="true"/); assert.match(b, /class="ios-tab-label">[^<]+</); });
+});
+
+test('Issue #409 P0: the page title follows the current view, and the history entry shows on 日报 / 周报 only', () => {
+  const { document, window } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
+  const title = () => document.getElementById('ios-page-title').textContent;
+  assert.equal(title(), '待办');
+  [['daily', '日报', false], ['weekly', '周报', false], ['holdingDetail', '持仓明细', true], ['risks', '风险', true], ['todos', '待办', true]].forEach(([tab, label, hidden]) => {
+    window.selectTab(tab);
+    assert.equal(title(), label, tab);
+    assert.equal(document.getElementById('ios-history-select').hidden, hidden, tab + ' history entry');
+    assert.equal(document.getElementById('ios-tab-' + tab).getAttribute('aria-current'), 'page');
+  });
+});
+
+test('Issue #409 P0: the sidebar shows when the page read the Sheet, and 刷新 updates it; a blocked read says so', () => {
+  const RealDate = Date;
+  let now = new RealDate(2026, 10, 16, 0, 5);
+  const FakeDate = function () { return new RealDate(now.getTime()); };
+  const document = createFakeDocument();
+  const sandbox = {
+    document, window: {}, console, Date: FakeDate, IOS_BOOTSTRAP: DEMO_BOOTSTRAP, IOS_ACTIVE_VIEW: 'daily',
+    google: createGoogleScriptRunStub({ getDashboardBootstrap: () => DEMO_BOOTSTRAP })
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(SCRIPT_HTML_SRC, sandbox, { filename: 'Script.html' });
+  assert.equal(document.getElementById('ios-data-time').textContent, '读取 11/16 00:05');
+  now = new RealDate(2026, 10, 16, 9, 30);
+  sandbox.window.refresh();
+  assert.equal(document.getElementById('ios-data-time').textContent, '读取 11/16 09:30');
+  assert.equal(document.getElementById('ios-refresh-btn').disabled, false, '刷新 is usable again once the read finished');
+  const blocked = loadDashboard(Object.assign({}, DEMO_BOOTSTRAP, { error: 'Sheet 未配置' }), 'daily', {});
+  assert.equal(blocked.document.getElementById('ios-data-time').textContent, '读取失败');
 });
 
 test('Issue #388 PR D/F, #396: a non-current generation keeps its reader banner above every view built from it; 待办 names which latest report it is', () => {

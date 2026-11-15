@@ -115,7 +115,7 @@ class FakeElement extends FakeNode {
  */
 function createFakeDocument() {
   const STATIC_IDS = [
-    'ios-refresh-btn', 'ios-history-select',
+    'ios-refresh-btn', 'ios-history-select', 'ios-page-title', 'ios-data-time',
     'ios-status-banner', 'ios-history-banner',
     'ios-summary-content', 'ios-tab-todos', 'ios-tab-daily', 'ios-tab-weekly',
     'ios-tab-holdingDetail', 'ios-tab-risks',
