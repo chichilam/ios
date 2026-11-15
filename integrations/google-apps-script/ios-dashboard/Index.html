@@ -9,7 +9,7 @@
   <!-- Issue #409 P0: Notion-style shell. On a desktop the sidebar holds the
        brand, the view nav and the read time + refresh; on a phone the same
        sidebar is a slim top bar and the nav is fixed to the bottom of the
-       screen. The five views and their content are unchanged in P0. -->
+       screen. P1 adds 今天 (default) in front of the five existing views. -->
   <div class="ios-shell">
     <aside class="ios-sidebar">
       <div class="ios-brand">
@@ -17,6 +17,7 @@
         <span class="ios-brand-name">IOS 投资操作台</span>
       </div>
       <nav class="ios-tab-bar" id="ios-tab-bar" aria-label="视图">
+        <button type="button" class="ios-tab-btn" id="ios-tab-today" onclick="selectTab('today')"><svg class="ios-tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10.5L12 3l9 7.5V21H3z"/></svg><span class="ios-tab-label">今天</span></button>
         <button type="button" class="ios-tab-btn" id="ios-tab-todos" onclick="selectTab('todos')"><svg class="ios-tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span class="ios-tab-label">待办</span></button>
         <button type="button" class="ios-tab-btn" id="ios-tab-daily" onclick="selectTab('daily')"><svg class="ios-tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l4 4v14H6zM9 12h7M9 16h5"/></svg><span class="ios-tab-label">日报</span></button>
         <button type="button" class="ios-tab-btn" id="ios-tab-weekly" onclick="selectTab('weekly')"><svg class="ios-tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v15H4zM4 10h16M9 3v4M15 3v4"/></svg><span class="ios-tab-label">周报</span></button>

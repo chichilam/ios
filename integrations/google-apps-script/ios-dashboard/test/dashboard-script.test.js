@@ -208,14 +208,14 @@ function referenceLineChildCount(document) {
   return card.children[3].children.length;
 }
 
-test('Issue #396 PR A: the page opens on 待办; 日报 is rendered (hidden) behind it and the history select is hidden', () => {
+test('Issue #409 P1 (was #396 PR A): the page opens on 今天; 日报 is rendered (hidden) behind it and the history select is hidden', () => {
   const { document } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
-  assert.ok(document.getElementById('ios-tab-todos').classList.contains('active'));
-  assert.equal(document.getElementById('ios-tab-todos').getAttribute('aria-current'), 'page');
-  ['daily', 'weekly', 'holdingDetail', 'risks'].forEach((tab) => assert.equal(document.getElementById('ios-tab-' + tab).getAttribute('aria-current'), null));
+  assert.ok(document.getElementById('ios-tab-today').classList.contains('active'));
+  assert.equal(document.getElementById('ios-tab-today').getAttribute('aria-current'), 'page');
+  ['todos', 'daily', 'weekly', 'holdingDetail', 'risks'].forEach((tab) => assert.equal(document.getElementById('ios-tab-' + tab).getAttribute('aria-current'), null));
   assert.equal(document.getElementById('ios-summary-content').hidden, true);
   assert.equal(document.getElementById('ios-tab-content').hidden, false);
-  assert.match(tabText(document), /^待办/);
+  assert.match(tabText(document), /^最新结论/);
   assert.equal(document.getElementById('ios-history-select').hidden, true, 'the history selector belongs to 日报 / 周报 only');
   assert.match(summaryText(document), /daily-2026-08-15/, 'the Daily report stays rendered (hidden) so switching to it is instant');
 });
@@ -251,11 +251,11 @@ test('Issue #396 PR A: each view replaces the whole page; 日报 / 周报 bring 
   assert.equal(scrolled, 5, 'every switch starts the new view at the top of the page');
 });
 
-test('Issue #396 PR A: the view row is 待办 / 日报 / 周报 / 持仓明细 / 风险; 组合, 报告 and 资本配置 are gone and ignored', () => {
+test('Issue #396 PR A, #409 P1: the views are 今天 / 待办 / 日报 / 周报 / 持仓明细 / 风险; 组合, 报告 and 资本配置 are gone and ignored', () => {
   const index = fs.readFileSync(path.join(__dirname, '..', 'Index.html'), 'utf8');
   assert.doesNotMatch(index, /资本配置|ios-tab-allocation|ios-tab-portfolio|ios-tab-report|ios-nav-/);
   const labels = [...index.matchAll(/class="ios-tab-label">([^<]+)</g)].map((m) => m[1]);
-  assert.deepEqual(labels, ['待办', '日报', '周报', '持仓明细', '风险']);
+  assert.deepEqual(labels, ['今天', '待办', '日报', '周报', '持仓明细', '风险']);
   const { document, window } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
   window.selectTab('holdingDetail');
   ['portfolio', 'report', 'allocation'].forEach((tab) => window.selectTab(tab));
@@ -273,19 +273,19 @@ test('Issue #409 P0: the view nav sits in the sidebar shell before every view in
   assert.ok(main < index.indexOf('id="ios-page-title"'));
   assert.ok(index.indexOf('id="ios-history-select"') > main, 'the history entry stays in the main column, next to the page title');
   assert.ok(index.indexOf('id="ios-history-select"') < index.indexOf('id="ios-summary-content"'));
-  assert.ok(index.indexOf('id="ios-tab-todos"') > bar);
+  assert.ok(index.indexOf('id="ios-tab-today"') > bar && index.indexOf('id="ios-tab-today"') < index.indexOf('id="ios-tab-todos"'));
   assert.doesNotMatch(index, /ios-view-toggle|ios-topbar"/);
   // Every nav item keeps a text label next to its icon: state never relies on an icon or a colour alone.
   const buttons = [...index.matchAll(/<button type="button" class="ios-tab-btn"[\s\S]*?<\/button>/g)].map((m) => m[0]);
-  assert.equal(buttons.length, 5);
+  assert.equal(buttons.length, 6);
   buttons.forEach((b) => { assert.match(b, /aria-hidden="true"/); assert.match(b, /class="ios-tab-label">[^<]+</); });
 });
 
 test('Issue #409 P0: the page title follows the current view, and the history entry shows on 日报 / 周报 only', () => {
   const { document, window } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
   const title = () => document.getElementById('ios-page-title').textContent;
-  assert.equal(title(), '待办');
-  [['daily', '日报', false], ['weekly', '周报', false], ['holdingDetail', '持仓明细', true], ['risks', '风险', true], ['todos', '待办', true]].forEach(([tab, label, hidden]) => {
+  assert.equal(title(), '今天');
+  [['todos', '待办', true], ['daily', '日报', false], ['weekly', '周报', false], ['holdingDetail', '持仓明细', true], ['risks', '风险', true], ['today', '今天', true]].forEach(([tab, label, hidden]) => {
     window.selectTab(tab);
     assert.equal(title(), label, tab);
     assert.equal(document.getElementById('ios-history-select').hidden, hidden, tab + ' history entry');
@@ -317,7 +317,7 @@ test('Issue #388 PR D/F, #396: a non-current generation keeps its reader banner 
   const bootstrap = buildBootstrapWithTodos([]);
   const { document, window } = loadDashboard(bootstrap, 'daily', {});
   const banner = document.getElementById('ios-view-banner');
-  assert.equal(banner.hidden, false, '待办 opens first and carries the banner of the latest Daily');
+  assert.equal(banner.hidden, false, '今天 opens first and carries the banner of the latest Daily');
   assert.match(banner.textContent, /^最新日报：/);
   assert.match(banner.textContent, /不作为当前买入依据/);
   window.selectTab('daily');
@@ -379,7 +379,7 @@ test('summary metric cards are plain informational cards, not tab shortcuts -- n
     assert.notEqual(card.tagName, 'BUTTON');
     card.click(); // must be inert -- no onclick was ever registered
   });
-  assert.ok(document.getElementById('ios-tab-todos').classList.contains('active'), 'clicking a metric card must never change the active tab');
+  assert.ok(document.getElementById('ios-tab-today').classList.contains('active'), 'clicking a metric card must never change the active tab');
 });
 
 test('switchView("weekly") opens the latest 周报 without any google.script.run call (both viewModels already cached from bootstrap)', () => {
@@ -1151,6 +1151,13 @@ function latestBootstrap(daily, weekly) {
     dailyHistory: [], weeklyHistory: [], allocation: [] };
 }
 
+/** Issue #409 P1: 今天 opens first; the 待办 tests open the 待办 view themselves. */
+function loadTodos(bootstrap, activeView, googleHandlers) {
+  const loaded = loadDashboard(bootstrap, activeView, googleHandlers);
+  loaded.window.selectTab('todos');
+  return loaded;
+}
+
 function todoSection(document, cls) {
   return document.getElementById('ios-tab-content').children.find((c) => c.classList.contains(cls));
 }
@@ -1167,14 +1174,14 @@ function itemNamed(document, name) {
   return todoItems(document.getElementById('ios-tab-content')).find((li) => li.textContent.indexOf(name) !== -1);
 }
 
-test('todos: the 待办 tab is the default view; open items list before a folded 已完成 group, 排序 kept within one report', () => {
+test('todos: the 待办 view lists open items before a folded 已完成 group, 排序 kept within one report', () => {
   const todos = [
     { 排序: 1, 分类: 'research', 待办: 'Task A', 状态: 'open', 备注: '' },
     { 排序: 2, 分类: 'follow-up', 待办: 'Task B', 状态: 'done', 备注: 'note B' },
     { 排序: 3, 分类: '', 待办: 'Task C', 状态: '', 备注: '' },
     { 排序: 4, 分类: '', 待办: 'Task D', 状态: 'done', 备注: '' }
   ];
-  const { document } = loadDashboard(buildBootstrapWithTodos(todos), 'daily', {});
+  const { document } = loadTodos(buildBootstrapWithTodos(todos), 'daily', {});
   const overview = todoSection(document, 'ios-todo-overview');
   assert.match(overview.textContent, /卡住买入 0 项 · 其他待办 2 项/);
   assert.match(overview.textContent, /已完成 2/);
@@ -1188,7 +1195,7 @@ test('todos: the 待办 tab is the default view; open items list before a folded
 });
 
 test('todos: a completed item is struck through and marked done; an open one is not', () => {
-  const { document } = loadDashboard(buildBootstrapWithTodos([
+  const { document } = loadTodos(buildBootstrapWithTodos([
     { 排序: 1, 分类: '', 待办: 'Open task', 状态: 'open', 备注: '' },
     { 排序: 2, 分类: '', 待办: 'Done task', 状态: 'done', 备注: '' }
   ]), 'daily', {});
@@ -1211,7 +1218,7 @@ test('todos: only 已完成 / done count as completed (any case, padded); 待处
     { 排序: 7, 待办: 'Blank', 状态: '' },
     { 排序: 8, 待办: 'Custom', 状态: 'in-progress' }
   ];
-  const { document } = loadDashboard(buildBootstrapWithTodos(todos), 'daily', {});
+  const { document } = loadTodos(buildBootstrapWithTodos(todos), 'daily', {});
   assert.deepEqual(todoNames(todoSection(document, 'ios-todo-completed')), ['Mixed case', 'All caps', 'Padded', 'Chinese done']);
   assert.deepEqual(todoNames(todoSection(document, 'ios-todo-others')), ['Pending', 'Unfinished', 'Blank', 'Custom']);
   ['Mixed case', 'All caps', 'Padded', 'Chinese done'].forEach((name) => {
@@ -1240,7 +1247,7 @@ test('todos: 跟进类型 is a display tag only -- it never moves a todo between
     { 排序: 7, 待办: 'Monitoring concluded', 状态: '已完成', 跟进类型: '持续观察' }
   ];
   let document;
-  assert.doesNotThrow(() => { ({ document } = loadDashboard(buildBootstrapWithTodos(todos), 'daily', {})); });
+  assert.doesNotThrow(() => { ({ document } = loadTodos(buildBootstrapWithTodos(todos), 'daily', {})); });
   assert.deepEqual(todoNames(todoSection(document, 'ios-todo-others')), ['Monitor', 'Wait', 'Act', 'Legacy', 'Numeric kind', 'False kind']);
   const kind = (name) => itemNamed(document, name).children[1].children.find((c) => c.classList.contains('ios-todo-kind'));
   assert.ok(kind('Monitor').classList.contains('ios-badge-monitoring'));
@@ -1257,7 +1264,7 @@ test('todos: 跟进类型 is a display tag only -- it never moves a todo between
 });
 
 test('todos: 分类, 状态 and the source report render as badges; 备注 only when present', () => {
-  const { document } = loadDashboard(buildBootstrapWithTodos([
+  const { document } = loadTodos(buildBootstrapWithTodos([
     { 排序: 1, 分类: 'ops', 待办: 'Has a note', 状态: 'open', 备注: 'secondary detail' },
     { 排序: 2, 分类: '', 待办: 'No note', 状态: 'open', 备注: '' }
   ]), 'daily', {});
@@ -1269,12 +1276,12 @@ test('todos: 分类, 状态 and the source report render as badges; 备注 only 
 });
 
 test('todos: no open todo anywhere reads 本期无需操作; with no report at all the tab says so', () => {
-  const none = loadDashboard(buildBootstrapWithTodos([]), 'daily', {});
+  const none = loadTodos(buildBootstrapWithTodos([]), 'daily', {});
   assert.match(todoSection(none.document, 'ios-todo-overview').textContent, /本期无需操作/);
   assert.equal(todoSection(none.document, 'ios-todo-completed'), undefined, 'no 已完成 fold when nothing is completed');
-  const allDone = loadDashboard(buildBootstrapWithTodos([{ 排序: 1, 待办: 'x', 状态: '已完成' }]), 'daily', {});
+  const allDone = loadTodos(buildBootstrapWithTodos([{ 排序: 1, 待办: 'x', 状态: '已完成' }]), 'daily', {});
   assert.match(todoSection(allDone.document, 'ios-todo-overview').textContent, /本期无需操作/);
-  const empty = loadDashboard(latestBootstrap(null, null), 'daily', {});
+  const empty = loadTodos(latestBootstrap(null, null), 'daily', {});
   assert.match(tabText(empty.document), /暂无报告/);
 });
 
@@ -1284,7 +1291,7 @@ test('todos: the latest Daily and Weekly are merged; other todos run newest repo
     { 排序: 1, 待办: 'Weekly first', 状态: '待处理', 报告日期: '2026-11-09' },
     { 排序: 2, 待办: 'Weekly second', 状态: '待处理' }
   ] });
-  const { document } = loadDashboard(latestBootstrap(daily, weekly), 'daily', {});
+  const { document } = loadTodos(latestBootstrap(daily, weekly), 'daily', {});
   const others = todoSection(document, 'ios-todo-others');
   assert.deepEqual(todoNames(others), ['Daily item', 'Weekly first', 'Weekly second']);
   assert.match(itemNamed(document, 'Daily item').textContent, /日报 11\/11/);
@@ -1316,7 +1323,7 @@ test('todos: 卡住买入 is decided by 阻塞待办ID only -- Daily ref, Weekly
     ]
   });
   let document;
-  assert.doesNotThrow(() => { ({ document } = loadDashboard(latestBootstrap(daily, weekly), 'daily', {})); });
+  assert.doesNotThrow(() => { ({ document } = loadTodos(latestBootstrap(daily, weekly), 'daily', {})); });
   const blocked = todoSection(document, 'ios-todo-blocked');
   const assets = blocked.children.filter((c) => c.classList.contains('ios-todo-asset'));
   assert.deepEqual(assets.map((a) => a.children[0].children[0].textContent), ['AAA', 'BBB', 'CCC', 'WWW'], 'AAA appears once although both reports name it');
@@ -1346,7 +1353,7 @@ test('Issue #403: an older Daily still open and a newer Weekly 已完成 for the
       { 待办ID: 'WP-MSFT', 待办: 'Weekly MSFT plan range', 状态: '待处理', 跟进类型: '可执行', 备注: '已核验：11/09–11/13 OHLCV；剩余：4/13周背景与目标周事件复核' }
     ]
   });
-  const { document } = loadDashboard(latestBootstrap(daily, weekly), 'daily', {});
+  const { document } = loadTodos(latestBootstrap(daily, weekly), 'daily', {});
   const blocked = todoSection(document, 'ios-todo-blocked');
   const asset = blocked.children.filter((c) => c.classList.contains('ios-todo-asset'))[0];
   const top = asset.children[1].children;
@@ -1384,7 +1391,7 @@ test('Issue #403: 复核键 decides when both rows have one; otherwise only an e
       { 待办ID: 'U-1', 待办: 'Weekly U-1 blocker', 状态: '待处理' }
     ]
   });
-  const { document } = loadDashboard(latestBootstrap(daily, weekly), 'daily', {});
+  const { document } = loadTodos(latestBootstrap(daily, weekly), 'daily', {});
   const others = todoSection(document, 'ios-todo-others');
   const top = others.children.find((c) => c.tagName === 'UL').children.map((li) => li.children[0].children[1].textContent);
   assert.deepEqual(top, ['Weekly A-1 unclaimed', 'Weekly K-9', 'Weekly S-1 other key', 'Daily S-1', 'Daily D-1 same key', 'Daily D-2 same key', 'Daily U-1 unclaimed']);
@@ -1402,7 +1409,7 @@ test('PR #405 review: only a one-to-one pair merges; one-to-many, many-to-one an
   const run = (dailyTodos, weeklyTodos) => {
     const daily = reportVm('daily', '2026-11-14', { todos: dailyTodos });
     const weekly = reportVm('weekly', '2026-11-15', { todos: weeklyTodos });
-    const { document } = loadDashboard(latestBootstrap(daily, weekly), 'daily', {});
+    const { document } = loadTodos(latestBootstrap(daily, weekly), 'daily', {});
     const others = todoSection(document, 'ios-todo-others');
     return { text: others.textContent, names: others.children.find((c) => c.tagName === 'UL').children.map((li) => li.children[0].children[1].textContent), document };
   };
@@ -1424,12 +1431,12 @@ test('PR #405 review: only a one-to-one pair merges; one-to-many, many-to-one an
 test('PR #405 review: two open rows that differ only in 跟进类型 are marked as a status difference', () => {
   const daily = reportVm('daily', '2026-11-14', { todos: [{ 待办ID: 'V-1', 待办: 'Daily V-1', 状态: '待处理', 跟进类型: '可执行' }] });
   const weekly = reportVm('weekly', '2026-11-15', { todos: [{ 待办ID: 'V-1', 待办: 'Weekly V-1', 状态: '待处理', 跟进类型: '等待证据' }] });
-  const { document } = loadDashboard(latestBootstrap(daily, weekly), 'daily', {});
+  const { document } = loadTodos(latestBootstrap(daily, weekly), 'daily', {});
   const item = itemNamed(document, 'Weekly V-1');
   const copy = item.children.find((c) => c.classList && c.classList.contains('ios-todo-copy'));
   assert.ok(copy.classList.contains('ios-todo-copy-conflict'));
   assert.match(copy.textContent, /日报 11\/14：待处理·可执行（该报告快照的状态不同，以较新的周报 11\/15为准/);
-  const same = loadDashboard(latestBootstrap(
+  const same = loadTodos(latestBootstrap(
     reportVm('daily', '2026-11-14', { todos: [{ 待办ID: 'S-1', 待办: 'Daily S-1', 状态: '待处理', 跟进类型: '等待证据' }] }),
     reportVm('weekly', '2026-11-15', { todos: [{ 待办ID: 'S-1', 待办: 'Weekly S-1', 状态: '待处理', 跟进类型: '等待证据' }] })), 'daily', {});
   const sameCopy = itemNamed(same.document, 'Weekly S-1').children.find((c) => c.classList && c.classList.contains('ios-todo-copy'));
@@ -1437,7 +1444,7 @@ test('PR #405 review: two open rows that differ only in 跟进类型 are marked 
 });
 
 test('Issue #403: a note shows 已核验 / 剩余 / 下一验证点 first and folds the full text; a long or linked note folds; a short one stays inline', () => {
-  const { document } = loadDashboard(buildBootstrapWithTodos([
+  const { document } = loadTodos(buildBootstrapWithTodos([
     { 排序: 1, 待办: 'Labelled', 状态: '待处理', 备注: '审计：原生成ID x；剩余：独立估值；已核验：ep-1 https://example.com/a；下一验证点：11/17 财报' },
     { 排序: 2, 待办: 'Linked', 状态: '待处理', 备注: '见 https://example.com/b' },
     { 排序: 3, 待办: 'Long', 状态: '待处理', 备注: '长'.repeat(121) },
@@ -1476,7 +1483,7 @@ function splitBlock(li) {
 }
 
 test('Issue #403 split: a blocker naming split children shows the parent once, first screen 现在能做 / 等待什么 / 已核验, children folded', () => {
-  const { document } = loadDashboard(latestBootstrap(splitSample('daily', '2026-11-14'), null), 'daily', {});
+  const { document } = loadTodos(latestBootstrap(splitSample('daily', '2026-11-14'), null), 'daily', {});
   const blocked = todoSection(document, 'ios-todo-blocked');
   const asset = blocked.children.filter((c) => c.classList.contains('ios-todo-asset'))[0];
   const top = asset.children[1].children;
@@ -1496,7 +1503,7 @@ test('Issue #403 split: a blocker naming split children shows the parent once, f
 });
 
 test('Issue #403 split: a half-done parent lists the finished child under 已核验 and stays open', () => {
-  const { document } = loadDashboard(latestBootstrap(splitSample('daily', '2026-11-14', { s1Status: '已完成' }), null), 'daily', {});
+  const { document } = loadTodos(latestBootstrap(splitSample('daily', '2026-11-14', { s1Status: '已完成' }), null), 'daily', {});
   const parent = itemNamed(document, 'daily TSM-32 parent');
   assert.ok(parent.classList.contains('ios-todo-open'));
   const groups = splitBlock(parent).children.map((g) => g.children[0].textContent);
@@ -1505,7 +1512,7 @@ test('Issue #403 split: a half-done parent lists the finished child under 已核
 });
 
 test('Issue #403 split: the same parent in Daily and Weekly is one item; the other report keeps its own children in the fold', () => {
-  const { document } = loadDashboard(latestBootstrap(splitSample('daily', '2026-11-14'), splitSample('weekly', '2026-11-15')), 'daily', {});
+  const { document } = loadTodos(latestBootstrap(splitSample('daily', '2026-11-14'), splitSample('weekly', '2026-11-15')), 'daily', {});
   const asset = todoSection(document, 'ios-todo-blocked').children.filter((c) => c.classList.contains('ios-todo-asset'))[0];
   const top = asset.children[1].children;
   assert.equal(top.length, 1);
@@ -1533,7 +1540,7 @@ test('Issue #403 split: an unknown parent, a one-sided link, a duplicated child 
   ];
   cases.forEach(([label, todos]) => {
     const rows = todos.map((t) => Object.assign({ 状态: '待处理' }, t));
-    const { document } = loadDashboard(latestBootstrap(reportVm('daily', '2026-11-14', { todos: rows }), null), 'daily', {});
+    const { document } = loadTodos(latestBootstrap(reportVm('daily', '2026-11-14', { todos: rows }), null), 'daily', {});
     const names = todoNames(todoSection(document, 'ios-todo-others'));
     assert.equal(names.length, rows.length, label + ': every row stays on its own');
     assert.equal(allElements(document.getElementById('ios-tab-content')).filter((n) => n.classList && n.classList.contains('ios-todo-split')).length, 0, label);
@@ -1542,10 +1549,10 @@ test('Issue #403 split: an unknown parent, a one-sided link, a duplicated child 
 
 test('Issue #403 split: Unicode 步骤键 nest; Daily and Weekly lists that bind one child ID to different 步骤键 are not folded together', () => {
   const uni = splitSample('daily', '2026-11-14', { parentNote: '拆分：TSM-32-S1=13周行情、TSM-32-S2=産能·利用；已核验：x', s2Key: '産能·利用' });
-  let { document } = loadDashboard(latestBootstrap(uni, null), 'daily', {});
+  let { document } = loadTodos(latestBootstrap(uni, null), 'daily', {});
   assert.ok(splitBlock(itemNamed(document, 'daily TSM-32 parent')), 'a Unicode key round-trips');
   const weekly = splitSample('weekly', '2026-11-15', { parentNote: '拆分：TSM-32-S1=13周行情、TSM-32-S2=月报；已核验：x', s2Key: '月报' });
-  ({ document } = loadDashboard(latestBootstrap(splitSample('daily', '2026-11-14'), weekly), 'daily', {}));
+  ({ document } = loadTodos(latestBootstrap(splitSample('daily', '2026-11-14'), weekly), 'daily', {}));
   const asset = todoSection(document, 'ios-todo-blocked').children.filter((c) => c.classList.contains('ios-todo-asset'))[0];
   const top = asset.children[1].children;
   assert.equal(top.length, 2, 'both parents shown, never folded into one');
@@ -1562,7 +1569,7 @@ test('Issue #403 split: the shared 步骤键 grammar (fixtures/todo-split/step-k
       { 待办ID: 'K-1-S1', 待办: 'Now', 状态: '待处理', 跟进类型: '可执行', 备注: '父待办：K-1；步骤键：' + c.key + '；剩余：x' },
       { 待办ID: 'K-1-S2', 待办: 'Wait', 状态: '待处理', 跟进类型: '等待证据', 备注: '父待办：K-1；步骤键：wait；剩余：y' }
     ];
-    const { document } = loadDashboard(latestBootstrap(reportVm('daily', '2026-11-14', { todos }), null), 'daily', {});
+    const { document } = loadTodos(latestBootstrap(reportVm('daily', '2026-11-14', { todos }), null), 'daily', {});
     const nested = allElements(document.getElementById('ios-tab-content')).some((n) => n.classList && n.classList.contains('ios-todo-split'));
     assert.equal(nested, c.valid, c.why + ' ' + JSON.stringify(c.key));
     assert.equal(todoNames(todoSection(document, 'ios-todo-others')).length, c.valid ? 1 + 2 : 3, c.why + ': no row is hidden');
@@ -1576,7 +1583,7 @@ test('Issue #403 split: two Now steps and one Wait step nest under one parent, i
     { 待办ID: 'P-S2', 待办: 'Now A', 状态: '待处理', 跟进类型: '可执行', 备注: '父待办：P；步骤键：甲；剩余：a' },
     { 待办ID: 'P-S3', 待办: 'Wait', 状态: '待处理', 跟进类型: '等待证据', 备注: '父待办：P；步骤键：等；剩余：w' }
   ] });
-  const { document } = loadDashboard(latestBootstrap(daily, null), 'daily', {});
+  const { document } = loadTodos(latestBootstrap(daily, null), 'daily', {});
   const split = splitBlock(itemNamed(document, 'Parent'));
   assert.deepEqual(split.children.map((g) => g.children[0].textContent), ['现在能做（2）', '等待什么（1）', '已核验（1）']);
   assert.match(split.children[0].textContent, /P-S1[\s\S]*P-S2/);
@@ -1585,7 +1592,7 @@ test('Issue #403 split: two Now steps and one Wait step nest under one parent, i
 test('Issue #403 split: writer rows (fixtures/todo-split/continued-rows.json) keep 已核验, 下一验证点 and sources on the parent card', () => {
   const rows = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', '..', '..', 'fixtures', 'todo-split', 'continued-rows.json'), 'utf8')).rows;
   const daily = reportVm('weekly', '2026-11-15', { holdings: [blockedRow('CEG', 'CEG-Q3-S2、CEG-Q3-S3')], todos: rows });
-  const { document } = loadDashboard(latestBootstrap(null, daily), 'weekly', {});
+  const { document } = loadTodos(latestBootstrap(null, daily), 'weekly', {});
   const asset = todoSection(document, 'ios-todo-blocked').children.filter((c) => c.classList.contains('ios-todo-asset'))[0];
   const top = asset.children[1].children;
   assert.equal(top.length, 1);
@@ -1600,7 +1607,7 @@ test('Issue #403 split: writer rows (fixtures/todo-split/continued-rows.json) ke
 
 test('Issue #403 split: a blocker link to a child opens the parent\'s child fold', () => {
   const daily = splitSample('daily', '2026-11-14', { blockers: 'TSM-32-S2' });
-  const { document } = loadDashboard(latestBootstrap(daily, null), 'daily', {});
+  const { document } = loadTodos(latestBootstrap(daily, null), 'daily', {});
   const parent = itemNamed(document, 'daily TSM-32 parent');
   assert.ok(parent, 'a single child blocker still shows the parent');
   assert.equal(splitBlock(parent).children[0].children[0].textContent, '现在能做（1）', 'all children are shown, not only the blocking one');
@@ -1611,7 +1618,7 @@ test('todos: one todo named by two rows of the same report is listed once, the s
     holdings: [blockedRow('AAA', 'X-1'), blockedRow('BBB', 'X-1')],
     todos: [{ 待办ID: 'X-1', 待办: 'Shared blocker', 状态: '待处理' }]
   });
-  const { document } = loadDashboard(latestBootstrap(daily, null), 'daily', {});
+  const { document } = loadTodos(latestBootstrap(daily, null), 'daily', {});
   const blocked = todoSection(document, 'ios-todo-blocked');
   assert.equal(todoNames(blocked).length, 1);
   assert.match(blocked.textContent, /BBB[\s\S]*与 AAA 共用同一条阻塞待办/);
@@ -1674,7 +1681,7 @@ test('todos: when a report was written twice, only the generation its 报告摘�
     报告ID: 'weekly-2026-08-15', 生成ID: 'gen-weekly-0815-a', 报告类型: 'weekly', 报告日期: '2026-08-15', 排序: 1, 分类: '',
     待办: 'Current weekly write', 状态: '待处理', 跟进类型: '可执行', 备注: ''
   });
-  const { document } = loadDashboard(logic.buildDashboardBootstrap_(sheet), 'daily', {});
+  const { document } = loadTodos(logic.buildDashboardBootstrap_(sheet), 'daily', {});
   const page = tabText(document);
   assert.doesNotMatch(page, /Orphaned/);
   assert.match(page, /Current weekly write/);
@@ -2265,3 +2272,175 @@ function findAllNodes(node, pred, out = []) {
   }
   return out;
 }
+
+// -- Issue #409 P1: 今天 and the shared action model --
+
+function todayFixture() {
+  const daily = reportVm('daily', '2026-11-15', {
+    summary: { 报告ID: 'daily-2026-11-15', 报告日期: '2026-11-15', 一句话结论: 'Daily headline' },
+    holdings: [blockedRow('AAA', 'AAA-1', { 变化标记: '有变化' }), { 代码: 'EEE', 名称: 'EEE Co.', 资产类型: 'holding', 今日行动: '等待价格', 变化标记: '无变化' }],
+    risks: [{ 风险: '集中度', 风险键: 'portfolio|K1', 风险评估: '触发', 严重度: '高' }],
+    todos: [
+      { 待办ID: 'AAA-1', 待办: 'Check guidance', 状态: '待处理', 跟进类型: '可执行' },
+      { 待办ID: 'X-1', 待办: 'Fund debit check', 状态: '待处理', 跟进类型: '可执行' },
+      { 待办ID: 'DONE-1', 待办: 'Finished', 状态: '已完成' }
+    ]
+  });
+  const weekly = reportVm('weekly', '2026-11-14', {
+    summary: { 报告ID: 'weekly-2026-11-14', 报告日期: '2026-11-14', 一句话结论: 'Weekly headline' },
+    holdings: [blockedRow('AAA', 'AAA-1')],
+    risks: [{ 风险: '集中度', 风险键: 'portfolio|K1', 风险评估: '触发', 严重度: '高' }, { 风险: 'No key risk', 风险评估: '触发', 严重度: '中' }],
+    todos: [
+      { 待办ID: 'AAA-1', 待办: 'Check guidance', 状态: '待处理', 跟进类型: '等待证据' },
+      { 待办ID: 'X-1', 待办: 'Fund debit check', 状态: '待处理', 跟进类型: '可执行' },
+      { 待办ID: 'W-2', 待办: 'Wait for filing', 状态: '待处理', 跟进类型: '等待证据' }
+    ]
+  });
+  return latestBootstrap(daily, weekly);
+}
+
+function todayCount(document, key) {
+  const node = allElements(document.getElementById('ios-tab-content')).find((n) => n.getAttribute && n.getAttribute('data-count') === key);
+  return Number(node.children[0].textContent);
+}
+
+test('Issue #409 P1: 今天 counts equal the 待办 and 风险 views; the same work in Daily and Weekly and the same 风险键 count once', () => {
+  const { document, window } = loadDashboard(todayFixture(), 'daily', {});
+  const counts = { blocked: todayCount(document, 'blocked'), others: todayCount(document, 'others'),
+    invest: todayCount(document, 'invest'), maintenance: todayCount(document, 'maintenance') };
+  assert.deepEqual(counts, { blocked: 1, others: 2, invest: 2, maintenance: 0 },
+    'AAA-1 is one item (Daily + Weekly fold), X-1 is one item, K1 is one risk; the keyless risk stands alone');
+  window.selectTab('todos');
+  assert.match(todoSection(document, 'ios-todo-overview').textContent, new RegExp('卡住买入 ' + counts.blocked + ' 项 · 其他待办 ' + counts.others + ' 项'));
+  window.selectTab('risks');
+  assert.match(tabText(document), new RegExp('投资风险 \\(' + counts.invest + '\\)'));
+  assert.match(tabText(document), new RegExp('数据维护 \\(' + counts.maintenance + '\\)'));
+  window.selectTab('daily');
+  const cards = document.getElementById('ios-summary-content').children.find((c) => c.classList.contains('ios-count-cards'));
+  assert.match(cards.textContent, new RegExp('卡住买入 ' + counts.blocked + ' / 其他待办 ' + counts.others));
+  assert.match(cards.textContent, new RegExp('风险 ' + counts.invest + ' 项'));
+});
+
+test('Issue #409 P1: 今天 shows each latest report\'s own headline, the open work with its source, triggered risks, buy groups and changes', () => {
+  const { document } = loadDashboard(todayFixture(), 'daily', {});
+  const content = document.getElementById('ios-tab-content');
+  const section = (cls) => content.children.find((c) => c.classList.contains(cls));
+  assert.deepEqual(content.children.map((c) => c.className), ['ios-card ios-today-conclusions', 'ios-today-counts-section',
+    'ios-card ios-today-actions', 'ios-card ios-today-buy', 'ios-card ios-today-changes']);
+  assert.match(section('ios-today-conclusions').textContent, /最新周报 11\/14[\s\S]*Weekly headline[\s\S]*最新日报 11\/15[\s\S]*Daily headline/);
+  const actions = section('ios-today-actions').textContent;
+  assert.match(actions, /卡住买入 \(1\)[\s\S]*AAA[\s\S]*Check guidance日报 11\/15 \+ 周报 11\/14/, 'the folded blocker names both reports');
+  assert.match(actions, /其他待办 \(2\)[\s\S]*Fund debit check[\s\S]*Wait for filing/);
+  assert.doesNotMatch(actions, /Finished/, 'a completed todo is not work to do');
+  assert.match(actions, /触发风险 \(2\)[\s\S]*集中度[\s\S]*来源：周报 11\/14、日报 11\/15/);
+  assert.match(section('ios-today-buy').textContent, /最新日报 11\/15[\s\S]*等待 1：EEE/);
+  assert.match(section('ios-today-changes').textContent, /最新日报 11\/15[\s\S]*有变化 1：AAA[\s\S]*无变化 1 · 未比较 0/);
+});
+
+test('Issue #409 P1: every 今天 count and link opens its own view; a history report never changes 今天', () => {
+  const { document, window } = loadDashboard(todayFixture(), 'daily', {});
+  const targets = allElements(document.getElementById('ios-tab-content')).filter((n) => n.getAttribute && n.getAttribute('data-target'));
+  assert.ok(targets.length >= 8);
+  targets.forEach((node) => {
+    window.selectTab('today');
+    const target = node.getAttribute('data-target');
+    const fresh = allElements(document.getElementById('ios-tab-content')).find((n) => n.getAttribute && n.getAttribute('data-target') === target);
+    fresh.click();
+    assert.ok(document.getElementById('ios-tab-' + target).classList.contains('active'), target);
+  });
+  assert.equal(document.getElementById('ios-view-banner').hidden, true, 'the fixture reports are current: no reader banner');
+});
+
+test('Issue #409 P1: with nothing open 今天 says 本期无需操作, and with no report at all it says so', () => {
+  const quiet = latestBootstrap(reportVm('daily', '2026-11-15', { todos: [{ 待办ID: 'D', 待办: 'Done', 状态: '已完成' }] }), null);
+  let { document } = loadDashboard(quiet, 'daily', {});
+  assert.match(tabText(document), /需要你处理本期无需操作/);
+  ({ document } = loadDashboard(latestBootstrap(null, null), 'daily', {}));
+  assert.match(tabText(document), /暂无报告[\s\S]*「今天」的内容来自报告/);
+});
+
+// -- PR #411 review: 今天 never shows 本期无需操作 while anything it counts or a mapping fault is open --
+
+function todayActionsText(document) {
+  return document.getElementById('ios-tab-content').children.find((c) => c.classList.contains('ios-today-actions')).textContent;
+}
+
+function todayCounts(document) {
+  return ['blocked', 'others', 'invest', 'maintenance'].reduce((out, key) => Object.assign(out, { [key]: todayCount(document, key) }), {});
+}
+
+test('PR #411 review: maintenance only (a pause carried over) is not 本期无需操作; the tile and the listed entries agree with 风险', () => {
+  const paused = { 代码: 'PPP', 名称: 'PPP Co.', 资产类型: 'holding', 今日行动: '暂停新增待复核', 变化标记: '无变化', 当前阻碍: '等待复核' };
+  const { document, window } = loadDashboard(latestBootstrap(reportVm('daily', '2026-11-15', { holdings: [paused] }), null), 'daily', {});
+  assert.deepEqual(todayCounts(document), { blocked: 0, others: 0, invest: 0, maintenance: 1 });
+  const text = todayActionsText(document);
+  assert.doesNotMatch(text, /本期无需操作/);
+  assert.match(text, /数据维护 \(1\)[\s\S]*延续暂停PPP[\s\S]*日报 11\/15：暂停新增待复核，本期无变化（等待复核）/);
+  window.selectTab('risks');
+  assert.match(tabText(document), /数据维护 \(1\)/);
+});
+
+test('PR #411 review: a 阻塞待办ID the report does not list is shown as a mapping fault on 今天, never as 本期无需操作', () => {
+  const daily = reportVm('daily', '2026-11-15', { holdings: [blockedRow('AAA', 'GONE-1')] });
+  const { document, window } = loadDashboard(latestBootstrap(daily, null), 'daily', {});
+  assert.deepEqual(todayCounts(document), { blocked: 0, others: 0, invest: 0, maintenance: 0 }, 'a missing todo is not an open todo');
+  const text = todayActionsText(document);
+  assert.doesNotMatch(text, /本期无需操作/);
+  assert.match(text, /阻塞待办未找到 \(1\)[\s\S]*AAA：日报 11\/15 的买入判断引用了待办ID GONE-1，该报告中没有这条待办/);
+  assert.match(tabText(document), /另有 1 条阻塞待办未找到/);
+  window.selectTab('todos');
+  assert.match(tabText(document), /阻塞待办未找到：日报 11\/15 的买入判断引用了待办ID GONE-1/, 'the 待办 page shows the same fault');
+});
+
+test('PR #411 review: missing mappings in both reports are both listed; one never hides the other', () => {
+  const daily = reportVm('daily', '2026-11-15', { holdings: [blockedRow('AAA', 'D-GONE')] });
+  const weekly = reportVm('weekly', '2026-11-14', { holdings: [blockedRow('AAA', 'W-GONE'), blockedRow('BBB', 'B-GONE')] });
+  const { document } = loadDashboard(latestBootstrap(daily, weekly), 'daily', {});
+  const text = todayActionsText(document);
+  assert.match(text, /阻塞待办未找到 \(3\)/);
+  ['D-GONE', 'W-GONE', 'B-GONE'].forEach((id) => assert.match(text, new RegExp('待办ID ' + id)));
+});
+
+test('PR #411 review: a one-to-many key is not folded on 今天 either; its count matches the 待办 page', () => {
+  const daily = reportVm('daily', '2026-11-15', { todos: [{ 待办ID: 'D-1', 待办: 'Daily one', 状态: '待处理', 复核键: 'K' }] });
+  const weekly = reportVm('weekly', '2026-11-14', { todos: [
+    { 待办ID: 'W-1', 待办: 'Weekly one', 状态: '待处理', 复核键: 'K' },
+    { 待办ID: 'W-2', 待办: 'Weekly two', 状态: '待处理', 复核键: 'K' }
+  ] });
+  const { document, window } = loadDashboard(latestBootstrap(daily, weekly), 'daily', {});
+  assert.equal(todayCount(document, 'others'), 3, 'an ambiguous key merges nothing');
+  ['Daily one', 'Weekly one', 'Weekly two'].forEach((name) => assert.match(todayActionsText(document), new RegExp(name)));
+  window.selectTab('todos');
+  assert.match(todoSection(document, 'ios-todo-overview').textContent, /其他待办 3 项/);
+});
+
+test('PR #411 review: a Daily open / newer Weekly 已完成 conflict is led by the Weekly on 今天 and the 待办 page alike', () => {
+  const daily = reportVm('daily', '2026-11-13', { todos: [{ 待办ID: 'T-1', 待办: 'Check filing', 状态: '待处理' }] });
+  const weekly = reportVm('weekly', '2026-11-14', { todos: [{ 待办ID: 'T-1', 待办: 'Check filing', 状态: '已完成' }] });
+  const { document, window } = loadDashboard(latestBootstrap(daily, weekly), 'daily', {});
+  assert.equal(todayCount(document, 'others'), 0, 'the newer report says done; the older open snapshot is not work to do now');
+  assert.match(todayActionsText(document), /本期无需操作/);
+  window.selectTab('todos');
+  assert.match(tabText(document), /已完成 1 项/);
+  assert.match(tabText(document), /同一工作也见于日报 11\/13：待处理/, 'the other source and its differing status stay visible on the 待办 page');
+});
+
+test('PR #411 review: 今天 degrades with only a Daily or only a Weekly, and a history selection never changes it', () => {
+  const daily = reportVm('daily', '2026-11-15', { summary: { 报告ID: 'daily-2026-11-15', 报告日期: '2026-11-15', 一句话结论: 'Only daily' },
+    todos: [{ 待办ID: 'N-1', 待办: 'Latest todo', 状态: '待处理' }] });
+  const history = Object.assign(reportVm('daily', '2026-11-01', { todos: [{ 待办ID: 'H-1', 待办: 'History todo', 状态: '待处理' },
+    { 待办ID: 'H-2', 待办: 'History two', 状态: '待处理' }] }), { error: null });
+  const { document, window } = loadDashboard(latestBootstrap(daily, null), 'daily', { getReport: () => history });
+  const conclusions = () => document.getElementById('ios-tab-content').children[0].textContent;
+  assert.match(conclusions(), /最新日报 11\/15[\s\S]*Only daily/);
+  assert.doesNotMatch(conclusions(), /周报/);
+  const before = todayCounts(document);
+  window.selectHistoryReport('daily-2026-11-01');
+  window.selectTab('today');
+  assert.deepEqual(todayCounts(document), before);
+  assert.match(todayActionsText(document), /Latest todo/);
+  assert.doesNotMatch(todayActionsText(document), /History/);
+  assert.equal(document.getElementById('ios-history-banner').hidden, true, '今天 is not a history page');
+  const weeklyOnly = loadDashboard(latestBootstrap(null, reportVm('weekly', '2026-11-14')), 'daily', {}).document;
+  assert.match(weeklyOnly.getElementById('ios-tab-content').children[0].textContent, /最新周报 11\/14/);
+});

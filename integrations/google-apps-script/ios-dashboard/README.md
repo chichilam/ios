@@ -128,6 +128,24 @@ describe the topbar, the tab row and the control/card styling are superseded by 
   `#E8DEEE/#412454`, gray `#E3E2E0/#32302C`), always with their own text so colour is never the only
   signal. No web fonts are loaded (system UI fonts, with CJK fallbacks).
 
+## 今天 and the shared action model (Issue #409 P1)
+
+- **今天** is a sixth view, first in the nav and opened by default (`?view=` still only picks which
+  report 日报 / 周报 open on). Like 待办 / 风险 it always reads the latest Daily and the latest Weekly,
+  whatever a history selection shows, and repeats their reader banners. Top to bottom: 最新结论 (each
+  latest report's own 一句话结论, with a link to read it), four count tiles (卡住买入 / 其他待办 /
+  触发风险 / 数据维护, each opening 待办 or 风险), 需要你处理 (卡住买入 per asset, the first five
+  其他待办 newest report first, every triggered risk), 买入判断摘要 (each report's own 适合买入 / 等待 /
+  无法判断 groups with codes) and 本期变化 (each report's own 变化标记 counts). It adds no judgment, tier
+  or ranking of its own. 需要你处理 also lists 数据维护 (估值需更新 / 延续暂停, marked as not affecting
+  the period's trades) and every 阻塞待办ID a report names but does not list (阻塞待办未找到); it reads
+  本期无需操作 only when all of these are empty (PR #411 review).
+- **One action model** (`buildActionModel_` in `Script.html`): the todo groups (`buildTodoGroups_`,
+  with the #403 Daily↔Weekly fold and split steps) and the risk model (`buildRiskModel_`, merged by
+  风险键 per #396) for a set of reports, plus their counts. 今天, the report pages' count cards, 待办
+  and 风险 all read it, so the same work counts once and every view shows the same numbers.
+  `buyJudgmentGroups_` and `periodChangeGroups_` are likewise shared between 今天 and the report page.
+
 ## Visual structure (v1.1 parity, Issue #250)
 
 The original `IOS_GAS_Dashboard_v1.1` frontend is the visual source of truth for this Dashboard's

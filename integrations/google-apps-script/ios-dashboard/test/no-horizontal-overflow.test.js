@@ -126,7 +126,7 @@ function harnessScript() {
     ['daily', 'weekly'].forEach(function (view) {
       win.switchView(view);
       // Issue #396: 日报 / 周报 are views of their own; 持仓明细 and 风险 read the report chosen there.
-      ['report', 'holdingDetail', 'risks', 'todos'].forEach(function (tab) {
+      ['report', 'holdingDetail', 'risks', 'todos', 'today'].forEach(function (tab) {
         win.selectTab(tab === 'report' ? view : tab);
         Array.prototype.forEach.call(doc.querySelectorAll('details'), function (d) { d.open = true; });
         var root = doc.documentElement;
@@ -176,7 +176,7 @@ function harnessScript() {
           }),
           cardColumns: grid ? win.getComputedStyle(grid).gridTemplateColumns.split(' ').length : 0,
           sections: ['.ios-layering', '.ios-layer-fact', '.ios-layer-verdict', '.ios-inline-fair-value', '.ios-asset-card',
-            '.ios-checklist', '.ios-todo-copy', '.ios-todo-note-part', '.ios-todo-split', '.ios-list', '.ios-allocation-cards', '.ios-holding-detail-cards', '.ios-holding-detail-cards .ios-detail-group-ledger']
+            '.ios-today-counts', '.ios-today-todo', '.ios-today-report', '.ios-checklist', '.ios-todo-copy', '.ios-todo-note-part', '.ios-todo-split', '.ios-list', '.ios-allocation-cards', '.ios-holding-detail-cards', '.ios-holding-detail-cards .ios-detail-group-ledger']
             .filter(function (sel) { return Array.prototype.some.call(doc.querySelectorAll(sel), visible); })
         });
       });
@@ -263,7 +263,7 @@ test('no Daily or Weekly tab scrolls sideways at 320-430px or desktop, and deskt
   }
   const boot = stressBootstrap();
   const results = runInChrome(chrome, harnessHtml(dashboardHtml(boot, 'daily')));
-  assert.equal(results.length, WIDTHS.length * 8, JSON.stringify(results.filter((r) => r.error)));
+  assert.equal(results.length, WIDTHS.length * 10, JSON.stringify(results.filter((r) => r.error)));
   results.forEach((r) => {
     assert.ok(r.scrollWidth <= r.clientWidth,
       `${r.width}px ${r.view}/${r.tab}: scrollWidth ${r.scrollWidth} > clientWidth ${r.clientWidth}; widest: ${r.offenders.join(', ')}`);
@@ -290,6 +290,8 @@ test('no Daily or Weekly tab scrolls sideways at 320-430px or desktop, and deskt
     assert.ok(at(390, view, 'report').sections.includes('.ios-layer-fact'), `${view} renders the layering facts`);
     assert.ok(!at(390, view, 'todos').sections.includes('.ios-layering'), `${view}: 待办 replaces the report on the page`);
   });
+  ['.ios-today-counts', '.ios-today-todo', '.ios-today-report'].forEach((sel) =>
+    assert.ok(at(390, 'daily', 'today').sections.includes(sel), `今天 renders ${sel} (Issue #409 P1)`));
   assert.ok(at(390, 'daily', 'todos').sections.includes('.ios-todo-copy'), 'the 待办 tab renders the folded cross-report item (Issue #403)');
   assert.ok(at(390, 'daily', 'todos').sections.includes('.ios-todo-note-part'), 'the 待办 tab renders labelled note segments (Issue #403)');
   assert.ok(at(390, 'daily', 'todos').sections.includes('.ios-todo-split'), 'the 待办 tab renders the split 现在能做 / 等待什么 / 已核验 block (Issue #403)');

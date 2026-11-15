@@ -117,7 +117,7 @@ function createFakeDocument() {
   const STATIC_IDS = [
     'ios-refresh-btn', 'ios-history-select', 'ios-page-title', 'ios-data-time',
     'ios-status-banner', 'ios-history-banner',
-    'ios-summary-content', 'ios-tab-todos', 'ios-tab-daily', 'ios-tab-weekly',
+    'ios-summary-content', 'ios-tab-today', 'ios-tab-todos', 'ios-tab-daily', 'ios-tab-weekly',
     'ios-tab-holdingDetail', 'ios-tab-risks',
     'ios-view-banner', 'ios-tab-content'
   ];

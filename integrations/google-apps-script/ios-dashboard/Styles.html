@@ -598,6 +598,31 @@ body {
 .ios-detail-group-ledger { background: #f9f5f1; }
 .ios-holding-detail-table th.ios-detail-group-ledger, .ios-holding-detail-table td.ios-detail-group-ledger { background: #f9f5f1; }
 
+/* Issue #409 P1: 今天. Count tiles are buttons into 待办 / 风险 (same model,
+   same numbers); every line wraps, nothing sets a fixed width. */
+.ios-today-report { display: grid; gap: 4px; padding: 10px 0; border-top: 1px solid var(--ios-border); min-width: 0; overflow-wrap: anywhere; }
+.ios-today-report:first-of-type { border-top: none; padding-top: 0; }
+.ios-today-report > * { min-width: 0; }
+.ios-today-report-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.ios-today-report-head .ios-eyebrow { margin: 0; }
+.ios-today-headline { margin: 0; font-size: 1.1rem; font-weight: 600; overflow-wrap: anywhere; }
+.ios-today-link { min-height: 32px; }
+.ios-today-counts-section { margin-bottom: 16px; }
+.ios-today-counts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 6px; }
+.ios-today-count {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; min-height: 44px;
+  padding: 14px 16px; border: 1px solid var(--ios-border); border-radius: var(--ios-radius);
+  background: var(--ios-card-bg); color: var(--ios-text); font: inherit; text-align: left; cursor: pointer;
+}
+.ios-today-count:hover { background: var(--ios-hover); }
+.ios-today-count-value { font-size: 1.75rem; font-weight: 700; line-height: 1.2; }
+.ios-today-count-label { font-size: 0.85rem; overflow-wrap: anywhere; }
+.ios-today-group-title { margin: 14px 0 4px; font-size: 0.95rem; }
+.ios-today-todo { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; min-width: 0; overflow-wrap: anywhere; margin-top: 4px; }
+.ios-today-todo > * { min-width: 0; }
+.ios-today-todo-text { flex: 1 1 12em; }
+.ios-today-buy-line, .ios-today-change-line { margin: 0; }
+
 @media (max-width: 900px) {
   .ios-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
@@ -643,6 +668,7 @@ body {
 @media (max-width: 720px) {
   .ios-card-grid { grid-template-columns: minmax(0, 1fr); }
   .ios-layer-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ios-today-counts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ios-allocation-table { display: none; }
   .ios-allocation-cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
   .ios-holding-detail-table { display: none; }

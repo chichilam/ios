@@ -36,15 +36,16 @@
   // 待办 always merges the latest Daily and the latest Weekly, whatever
   // report a history selection shows. The former 组合 view is gone; its
   // cash / allocation facts live in 持仓明细's 配置概况 (Issue #388 PR F).
-  var TABS = ['todos', 'daily', 'weekly', 'holdingDetail', 'risks'];
+  // Issue #409 P1: 今天 comes first and opens by default.
+  var TABS = ['today', 'todos', 'daily', 'weekly', 'holdingDetail', 'risks'];
   // Issue #409 P0: each view's page title (the large heading above its content).
-  var TAB_TITLES = { todos: '待办', daily: '日报', weekly: '周报', holdingDetail: '持仓明细', risks: '风险' };
+  var TAB_TITLES = { today: '今天', todos: '待办', daily: '日报', weekly: '周报', holdingDetail: '持仓明细', risks: '风险' };
 
   var STATE = {
     bootstrap: IOS_BOOTSTRAP,
     activeView: IOS_ACTIVE_VIEW === 'weekly' ? 'weekly' : 'daily', // the report 日报/周报, 持仓明细 and 风险 read
-    activeTab: 'todos',
-    detailTab: 'todos', // the view #ios-tab-content renders: activeTab unless that is a report tab
+    activeTab: 'today',
+    detailTab: 'today', // the view #ios-tab-content renders: activeTab unless that is a report tab
     holdingDetailFilter: 'all', // 持仓明细 filter (Issue #388 PR A)
     viewingReportId: null, // non-null while pinned to a specific history entry
     displayedViewModel: null, // the viewModel for viewingReportId, once fetched
@@ -398,9 +399,9 @@
     return tab === 'daily' || tab === 'weekly';
   }
 
-  /** 待办 and 风险 always merge the latest Daily and Weekly, whatever a history selection shows (Issue #396). */
+  /** 今天, 待办 and 风险 always merge the latest Daily and Weekly, whatever a history selection shows (Issue #396, #409 P1). */
   function isMergedTab_(tab) {
-    return tab === 'todos' || tab === 'risks';
+    return tab === 'today' || tab === 'todos' || tab === 'risks';
   }
 
   function reportLabel_(type) {
@@ -829,8 +830,8 @@
     return el('div', { className: 'ios-buy-row' + (watch ? ' ios-buy-row-watch' : ''), attrs: { 'data-code': cellText_(row['代码']) } }, children);
   }
 
-  function buildBuyJudgment_(vm) {
-    var label = vm.reportType === 'weekly' ? '本周买入判断' : '今日买入判断';
+  /** The report's rows in the three 买入判断 groups, plus watchlist rows the report did not judge (shared by 今天, #409 P1). */
+  function buyJudgmentGroups_(vm) {
     var groups = { '适合买入': [], '等待': [], '无法判断': [] };
     var unjudged = [];
     buyJudgmentRows_(vm).forEach(function (row) {
@@ -838,6 +839,14 @@
       var verdict = todayVerdict_(row);
       (groups[verdict] || groups['无法判断']).push({ row: row, verdict: groups[verdict] ? verdict : '无法判断' });
     });
+    return { groups: groups, unjudged: unjudged };
+  }
+
+  function buildBuyJudgment_(vm) {
+    var label = vm.reportType === 'weekly' ? '本周买入判断' : '今日买入判断';
+    var judged = buyJudgmentGroups_(vm);
+    var groups = judged.groups;
+    var unjudged = judged.unjudged;
     var children = [text('h2', null, label),
       text('p', 'ios-hint', '结论取自报告的今日行动，页面不自行判断；价格为报告时价格；要不要买由你决定。')];
     BUY_GROUPS_.forEach(function (pair) {
@@ -863,8 +872,7 @@
   function buildCountCards_(vm) {
     var historical = !!STATE.viewingReportId;
     var reports = historical ? [{ type: vm.reportType, vm: vm }] : latestReports_();
-    var todos = buildTodoGroups_(reports);
-    var risks = riskCounts_(reports);
+    var counts = buildActionModel_(reports).counts;
     var scope = historical ? '仅这一期' : '含日报+周报';
     var card = function (panel, main, sub) {
       return el('button', {
@@ -874,8 +882,8 @@
       }, [text('span', 'ios-count-main', main + ' →'), text('span', 'ios-count-sub', sub)]);
     };
     return el('section', { className: 'ios-count-cards' }, [
-      card('todos', '卡住买入 ' + todos.blockedOpen + ' / 其他待办 ' + todos.others.length, scope),
-      card('risks', '风险 ' + risks.invest + ' 项', '数据维护 ' + risks.maintenance + ' 项 · ' + scope)
+      card('todos', '卡住买入 ' + counts.blocked + ' / 其他待办 ' + counts.others, scope),
+      card('risks', '风险 ' + counts.invest + ' 项', '数据维护 ' + counts.maintenance + ' 项 · ' + scope)
     ]);
   }
 
@@ -887,12 +895,18 @@
   // -- Issue #396 PR B: 本期变化, grouped by each row's own 变化标记 (无可比基线,
   // blank or unknown read 未比较). No cross-report comparison. --
 
-  function buildPeriodChanges_(vm) {
+  /** Rows by their own 变化标记 (blank or unknown: 未比较); shared by 今天 (#409 P1). */
+  function periodChangeGroups_(vm) {
     var groups = { changed: [], same: [], uncompared: [] };
     (vm.holdings || []).concat(vm.watchlistCandidates || []).forEach(function (row) {
       var flag = cellText_(row['变化标记']);
       (flag === '有变化' ? groups.changed : flag === '无变化' ? groups.same : groups.uncompared).push(row);
     });
+    return groups;
+  }
+
+  function buildPeriodChanges_(vm) {
+    var groups = periodChangeGroups_(vm);
     var item = function (row, label) {
       var said = cellText_(row['较上次变化说明']) || cellText_(row['今日行动说明']);
       return el('li', null, [
@@ -1327,6 +1341,10 @@
     if (STATE.bootstrap.error) return;
 
     var tab = STATE.detailTab;
+    if (tab === 'today') {
+      buildTodayView_().forEach(function (node) { container.appendChild(node); });
+      return;
+    }
     if (tab === 'todos') {
       buildMergedTodosView_().forEach(function (node) { container.appendChild(node); });
       return;
@@ -2574,12 +2592,6 @@
     };
   }
 
-  /** 风险 N (投资风险 only) and 数据维护 M for a set of reports; the same counts the 风险 tab shows. */
-  function riskCounts_(reports) {
-    var model = buildRiskModel_(reports);
-    return { invest: model.invest.length, maintenance: model.stale.length + model.paused.length };
-  }
-
   function maintenanceFold_(title, entries) {
     var list = el('ul', { className: 'ios-list' });
     entries.forEach(function (entry) {
@@ -2602,7 +2614,7 @@
         text('p', null, '日报和周报都还没有生成，风险来自报告，暂时没有内容。这是全新安装的正常状态，不是错误。')
       ])];
     }
-    var model = buildRiskModel_(reports);
+    var model = buildActionModel_(reports).risks;
     var invest = [text('h2', null, '投资风险 (' + model.invest.length + ')'),
       text('p', 'ios-hint', (periodReports ? '只显示' + reportShortLabel_(reports[0]) + '这一期自己的风险；风险 tab 仍是最新日报 + 最新周报的合并结果' :
         '合并' + reports.map(function (r) { return '最新' + reportShortLabel_(r); }).join(' 与 ')) +
@@ -3219,7 +3231,7 @@
         text('p', null, '日报和周报都还没有生成，待办来自报告，暂时没有内容。这是全新安装的正常状态，不是错误。')
       ])];
     }
-    var groups = buildTodoGroups_(reports);
+    var groups = buildActionModel_(reports).todos;
     var open = groups.blockedOpen + groups.others.length;
     var sources = reports.map(function (r) { return (periodReports ? '' : '最新') + reportShortLabel_(r); });
     var overview = [text('h2', null, '待办')];
@@ -3257,6 +3269,226 @@
       ]));
     }
     return nodes;
+  }
+
+  // -- Issue #409 P1: one action model per set of reports. 今天, the report
+  // count cards, 待办 and 风险 all read it, so a count can never differ
+  // between views: the same work in the latest Daily and Weekly is one item
+  // (#403 fold), and risks are merged by 风险键 (#396). --
+
+  function buildActionModel_(reports) {
+    var todos = buildTodoGroups_(reports);
+    var risks = buildRiskModel_(reports);
+    // A 阻塞待办ID the report names but does not list is a mapping fault, not
+    // "nothing to do": it is counted and shown, never folded into a 0 (PR #411 review).
+    var missing = [];
+    todos.assets.forEach(function (asset) {
+      asset.entries.forEach(function (entry) {
+        if (entry.missingId) { missing.push({ code: asset.code, name: asset.name, type: entry.type, vm: entry.vm, id: entry.missingId }); }
+      });
+    });
+    var counts = {
+      blocked: todos.blockedOpen,
+      others: todos.others.length,
+      done: todos.done.length,
+      invest: risks.invest.length,
+      maintenance: risks.stale.length + risks.paused.length,
+      missing: missing.length
+    };
+    // Everything 需要你处理 lists; 本期无需操作 only when all of it is 0.
+    counts.attention = counts.blocked + counts.others + counts.invest + counts.maintenance + counts.missing;
+    return { reports: reports, todos: todos, risks: risks, missing: missing, counts: counts };
+  }
+
+  // -- Issue #409 P1: 今天. Everything here is read from the latest Daily and
+  // Weekly through the shared action model and the report's own groupings
+  // (buyJudgmentGroups_, periodChangeGroups_); the page adds no judgment, no
+  // ranking and no tier of its own. Each block links to the view that holds
+  // the full detail. --
+
+  var TODAY_OTHER_TODO_LIMIT_ = 5;
+
+  function todaySourceLabel_(entry) {
+    var labels = [reportShortLabel_({ type: entry.type, vm: entry.vm })];
+    (entry.copies || []).forEach(function (copy) {
+      var label = reportShortLabel_({ type: copy.type, vm: copy.vm });
+      if (labels.indexOf(label) === -1) { labels.push(label); }
+    });
+    return labels.join(' + ');
+  }
+
+  function todayLink_(label, tab) {
+    return el('button', { className: 'ios-view-link ios-today-link', text: label, attrs: { type: 'button', 'data-target': tab },
+      onclick: function () { selectTab(tab); } });
+  }
+
+  function todayTodoLine_(entry) {
+    var rawKind = String(entry.todo['跟进类型'] == null ? '' : entry.todo['跟进类型']).trim();
+    var steps = entry.subtasks && entry.subtasks.length ? '（拆分为 ' + entry.subtasks.length + ' 个步骤）' : '';
+    return el('div', { className: 'ios-today-todo' }, [
+      rawKind === '' ? null : text('span', TODO_KIND_BADGE_CLASS_[classifyTodoKind_(rawKind)] + ' ios-todo-kind', rawKind),
+      text('span', 'ios-today-todo-text', cellText_(entry.todo['待办']) + steps),
+      text('span', 'ios-todo-source', todaySourceLabel_(entry))
+    ]);
+  }
+
+  function buildTodayConclusions_(reports) {
+    var children = [text('h2', null, '最新结论')];
+    reports.forEach(function (entry) {
+      var summary = entry.vm.summary || {};
+      children.push(el('div', { className: 'ios-today-report', attrs: { 'data-report': entry.type } }, [
+        el('div', { className: 'ios-today-report-head' }, [
+          text('span', 'ios-eyebrow', '最新' + reportShortLabel_(entry)),
+          todayLink_('阅读' + reportLabel_(entry.type), entry.type)
+        ]),
+        text('p', 'ios-today-headline', isBlank(summary['一句话结论']) ? '未提供' : summary['一句话结论'])
+      ]));
+    });
+    return el('section', { className: 'ios-card ios-today-conclusions' }, children);
+  }
+
+  function buildTodayCounts_(model) {
+    var tile = function (key, label, value, tab) {
+      return el('button', { className: 'ios-today-count', attrs: { type: 'button', 'data-count': key, 'data-target': tab },
+        onclick: function () { selectTab(tab); } }, [
+        text('span', 'ios-today-count-value', String(value)),
+        text('span', 'ios-today-count-label', label)
+      ]);
+    };
+    return el('section', { className: 'ios-today-counts-section' }, [
+      el('div', { className: 'ios-today-counts' }, [
+        tile('blocked', '卡住买入', model.counts.blocked, 'todos'),
+        tile('others', '其他待办', model.counts.others, 'todos'),
+        tile('invest', '触发风险', model.counts.invest, 'risks'),
+        tile('maintenance', '数据维护', model.counts.maintenance, 'risks')
+      ]),
+      model.counts.missing ? text('p', 'ios-entry-plan-incomplete ios-today-missing-note', '另有 ' + model.counts.missing +
+        ' 条阻塞待办未找到：报告引用了待办ID，但报告中没有这条待办（见下方）。') : null,
+      text('p', 'ios-hint', '计数与「待办」「风险」页用同一份合并结果：同一件事在日报和周报中只算一次，风险按风险键合并。')
+    ]);
+  }
+
+  function buildTodayActions_(model) {
+    var children = [text('h2', null, '需要你处理')];
+    if (model.counts.attention === 0) {
+      children.push(text('p', 'ios-status-line ios-todo-none', '本期无需操作'));
+      return el('section', { className: 'ios-card ios-today-actions' }, children);
+    }
+    if (model.missing.length) {
+      children.push(text('h3', 'ios-today-group-title ios-today-missing-title', '阻塞待办未找到 (' + model.counts.missing + ')'));
+      var missing = el('ul', { className: 'ios-list ios-today-missing' });
+      model.missing.forEach(function (item) {
+        missing.appendChild(el('li', { attrs: { 'data-code': cellText_(item.code) } }, [
+          text('p', 'ios-entry-plan-incomplete', displayCode_(item.code) + '：' + reportShortLabel_({ type: item.type, vm: item.vm }) +
+            ' 的买入判断引用了待办ID ' + item.id + '，该报告中没有这条待办')
+        ]));
+      });
+      children.push(missing);
+    }
+    var blockedRows = [];
+    model.todos.assets.forEach(function (asset) {
+      var lines = [];
+      asset.entries.forEach(function (entry) {
+        if (entry.todo && !entry.sharedWith && !isTodoCompleted(entry.todo['状态'])) { lines.push(todayTodoLine_(entry)); }
+      });
+      if (!lines.length) { return; }
+      blockedRows.push(el('li', { attrs: { 'data-code': cellText_(asset.code) } }, [
+        el('div', { className: 'ios-todo-asset-head' }, [text('strong', null, displayCode_(asset.code)),
+          isBlank(asset.name) ? null : text('span', 'ios-muted', asset.name)])
+      ].concat(lines)));
+    });
+    if (blockedRows.length) {
+      children.push(text('h3', 'ios-today-group-title', '卡住买入 (' + model.counts.blocked + ')'));
+      children.push(el('ul', { className: 'ios-list ios-today-blocked' }, blockedRows));
+    }
+    if (model.todos.others.length) {
+      children.push(text('h3', 'ios-today-group-title', '其他待办 (' + model.counts.others + ')'));
+      var others = el('ul', { className: 'ios-list ios-today-others' });
+      model.todos.others.slice(0, TODAY_OTHER_TODO_LIMIT_).forEach(function (entry) {
+        others.appendChild(el('li', null, [todayTodoLine_(entry)]));
+      });
+      children.push(others);
+      if (model.todos.others.length > TODAY_OTHER_TODO_LIMIT_) {
+        children.push(text('p', 'ios-hint', '按报告日期从新到旧，只列前 ' + TODAY_OTHER_TODO_LIMIT_ + ' 条。'));
+      }
+    }
+    if (model.risks.invest.length) {
+      children.push(text('h3', 'ios-today-group-title', '触发风险 (' + model.counts.invest + ')'));
+      children.push(mergedRiskList_(model.risks.invest));
+    }
+    if (model.counts.maintenance) {
+      children.push(text('h3', 'ios-today-group-title', '数据维护 (' + model.counts.maintenance + ')'));
+      children.push(text('p', 'ios-hint', '不影响当期交易决策；明细见「风险」页。'));
+      var upkeep = el('ul', { className: 'ios-list ios-today-maintenance' });
+      [['估值需更新', model.risks.stale], ['延续暂停', model.risks.paused]].forEach(function (pair) {
+        pair[1].forEach(function (entry) {
+          upkeep.appendChild(el('li', { attrs: { 'data-code': cellText_(entry.code) } }, [
+            el('div', { className: 'ios-todo-asset-head' }, [text('span', 'ios-badge ios-severity-medium', pair[0]),
+              text('strong', null, displayCode_(entry.code)), isBlank(entry.name) ? null : text('span', 'ios-muted', entry.name)])
+          ].concat(entry.lines.map(function (line) { return text('p', 'ios-asset-line', line); }))));
+        });
+      });
+      children.push(upkeep);
+    }
+    children.push(el('div', { className: 'ios-view-links' }, [todayLink_('全部待办 →', 'todos'), todayLink_('全部风险 →', 'risks')]));
+    return el('section', { className: 'ios-card ios-today-actions' }, children);
+  }
+
+  function todayCodeList_(rows) {
+    return rows.map(function (row) { return displayCode_(row['代码']); }).join('、');
+  }
+
+  function buildTodayBuy_(reports) {
+    var children = [text('h2', null, '买入判断摘要'),
+      text('p', 'ios-hint', '取自各报告自己的今日行动，页面不自行判断；明细在报告页。')];
+    reports.forEach(function (entry) {
+      var judged = buyJudgmentGroups_(entry.vm);
+      var lines = BUY_GROUPS_.map(function (pair) {
+        var rows = judged.groups[pair[0]].map(function (item) { return item.row; });
+        return text('p', 'ios-asset-line ios-today-buy-line', pair[0] + ' ' + rows.length + (rows.length ? '：' + todayCodeList_(rows) : ''));
+      });
+      if (judged.unjudged.length) {
+        lines.push(text('p', 'ios-asset-line ios-today-buy-line', '观察（报告未判断） ' + judged.unjudged.length));
+      }
+      children.push(el('div', { className: 'ios-today-report', attrs: { 'data-report': entry.type } }, [
+        el('div', { className: 'ios-today-report-head' }, [text('strong', null, '最新' + reportShortLabel_(entry)),
+          todayLink_('查看' + reportLabel_(entry.type), entry.type)])
+      ].concat(lines)));
+    });
+    return el('section', { className: 'ios-card ios-today-buy' }, children);
+  }
+
+  function buildTodayChanges_(reports) {
+    var children = [text('h2', null, '本期变化'),
+      text('p', 'ios-hint', '按各报告每一行自己的变化标记；无可比基线算未比较。')];
+    reports.forEach(function (entry) {
+      var groups = periodChangeGroups_(entry.vm);
+      children.push(el('div', { className: 'ios-today-report', attrs: { 'data-report': entry.type } }, [
+        el('div', { className: 'ios-today-report-head' }, [text('strong', null, '最新' + reportShortLabel_(entry)),
+          todayLink_('查看' + reportLabel_(entry.type), entry.type)]),
+        text('p', 'ios-asset-line ios-today-change-line', '有变化 ' + groups.changed.length + (groups.changed.length ? '：' + todayCodeList_(groups.changed) : '')),
+        text('p', 'ios-asset-line ios-today-change-line ios-muted', '无变化 ' + groups.same.length + ' · 未比较 ' + groups.uncompared.length)
+      ]));
+    });
+    return el('section', { className: 'ios-card ios-today-changes' }, children);
+  }
+
+  function buildTodayView_() {
+    var reports = latestReports_();
+    if (reports.length === 0) {
+      return [el('section', { className: 'ios-card ios-empty-state' }, [
+        text('h2', null, '暂无报告'),
+        text('p', null, '日报和周报都还没有生成，「今天」的内容来自报告，暂时没有内容。这是全新安装的正常状态，不是错误。')
+      ])];
+    }
+    var model = buildActionModel_(reports);
+    return [
+      buildTodayConclusions_(reports),
+      buildTodayCounts_(model),
+      buildTodayActions_(model),
+      buildTodayBuy_(reports),
+      buildTodayChanges_(reports)
+    ];
   }
 
   // -- 持仓明细 (Issue #388 PR A): one row per holding/watchlist entry of the
