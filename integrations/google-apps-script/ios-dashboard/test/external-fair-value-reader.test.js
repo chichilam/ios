@@ -18,6 +18,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const { createFakeDocument, createGoogleScriptRunStub } = require('./fake-dom');
+const { openReportAssets } = require('./report-assets-helper');
 
 const logic = require(path.join(__dirname, '..', 'Code.gs'));
 const ROOT = path.join(__dirname, '..', '..', '..', '..');
@@ -284,6 +285,9 @@ function render(viewModelExtra) {
   };
   vm.createContext(sandbox);
   vm.runInContext(SCRIPT_HTML_SRC, sandbox, { filename: 'Script.html' });
+  // #409 P3: the full cards open from their rows in 本报告涉及标的.
+  openReportAssets(document, 'holding');
+  openReportAssets(document, 'watchlist');
   return document.getElementById('ios-summary-content');
 }
 
@@ -439,10 +443,16 @@ function legacy(row) {
 }
 
 function cardLines(content) {
-  // #388 PR D: the 组合 view opens with its 组合概况 card; the first card grid is 当前持仓.
-  const section = content.children.find((child) => child.children.some((c) => c.classList && c.classList.contains('ios-card-grid')));
-  const card = section.children.find((child) => child.classList && child.classList.contains('ios-card-grid')).children[0];
-  return card.children.map((line) => line.textContent);
+  // #409 P3: the first full card, opened from its row in 本报告涉及标的.
+  const find = (node) => {
+    for (const child of node.children || []) {
+      if (child.classList && child.classList.contains('ios-asset-card')) return child;
+      const hit = find(child);
+      if (hit) return hit;
+    }
+    return null;
+  };
+  return find(content).children.map((line) => line.textContent);
 }
 
 function fairLine(content) {

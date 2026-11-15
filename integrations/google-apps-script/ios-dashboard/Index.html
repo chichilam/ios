@@ -9,7 +9,7 @@
   <!-- Issue #409 P0: Notion-style shell. On a desktop the sidebar holds the
        brand, the view nav and the read time + refresh; on a phone the same
        sidebar is a slim top bar and the nav is fixed to the bottom of the
-       screen. P1 adds 今天 (default) in front of the five existing views. -->
+       screen. P1 adds 今天 (default); P3 joins 日报 and 周报 into one 报告 view. -->
   <div class="ios-shell">
     <aside class="ios-sidebar">
       <div class="ios-brand">
@@ -18,10 +18,9 @@
       </div>
       <nav class="ios-tab-bar" id="ios-tab-bar" aria-label="视图">
         <button type="button" class="ios-tab-btn" id="ios-tab-today" onclick="selectTab('today')"><svg class="ios-tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10.5L12 3l9 7.5V21H3z"/></svg><span class="ios-tab-label">今天</span></button>
-        <button type="button" class="ios-tab-btn" id="ios-tab-todos" onclick="selectTab('todos')"><svg class="ios-tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span class="ios-tab-label">待办</span></button>
-        <button type="button" class="ios-tab-btn" id="ios-tab-daily" onclick="selectTab('daily')"><svg class="ios-tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l4 4v14H6zM9 12h7M9 16h5"/></svg><span class="ios-tab-label">日报</span></button>
-        <button type="button" class="ios-tab-btn" id="ios-tab-weekly" onclick="selectTab('weekly')"><svg class="ios-tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v15H4zM4 10h16M9 3v4M15 3v4"/></svg><span class="ios-tab-label">周报</span></button>
         <button type="button" class="ios-tab-btn" id="ios-tab-holdingDetail" onclick="selectTab('holdingDetail')"><svg class="ios-tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg><span class="ios-tab-label">标的</span></button>
+        <button type="button" class="ios-tab-btn" id="ios-tab-report" onclick="selectTab('report')"><svg class="ios-tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l4 4v14H6zM9 12h7M9 16h5"/></svg><span class="ios-tab-label">报告</span></button>
+        <button type="button" class="ios-tab-btn" id="ios-tab-todos" onclick="selectTab('todos')"><svg class="ios-tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span class="ios-tab-label">待办</span></button>
         <button type="button" class="ios-tab-btn" id="ios-tab-risks" onclick="selectTab('risks')"><svg class="ios-tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 17H3zM12 10v4M12 17v.5"/></svg><span class="ios-tab-label">风险</span></button>
       </nav>
       <div class="ios-sidebar-foot">
@@ -33,10 +32,23 @@
     <div class="ios-main">
       <header class="ios-page-head">
         <h1 class="ios-page-title" id="ios-page-title"></h1>
-        <div class="ios-topbar-controls">
-          <select class="ios-history-select" id="ios-history-select" onchange="onHistorySelectChange(this.value)" title="跳转到历史报告" aria-label="历史报告"></select>
-        </div>
       </header>
+
+      <!-- Issue #409 P3: 报告 reads one report at a time. 周报 / 日报 is a full-width
+           segmented switch; the report picker lists that type only, newest first,
+           with 上一份 / 下一份 and 刷新 on the same row. -->
+      <div class="ios-report-toolbar" id="ios-report-toolbar" hidden>
+        <div class="ios-segmented" role="group" aria-label="报告类型">
+          <button type="button" class="ios-segment" id="ios-seg-weekly" onclick="switchView('weekly')">周报</button>
+          <button type="button" class="ios-segment" id="ios-seg-daily" onclick="switchView('daily')">日报</button>
+        </div>
+        <div class="ios-report-picker">
+          <select class="ios-history-select" id="ios-history-select" onchange="onHistorySelectChange(this.value)" title="选择报告" aria-label="选择报告"></select>
+          <button type="button" class="ios-report-step" id="ios-report-prev" onclick="stepReport(1)">上一份</button>
+          <button type="button" class="ios-report-step" id="ios-report-next" onclick="stepReport(-1)">下一份</button>
+          <button type="button" class="ios-report-step" id="ios-report-refresh" onclick="refresh()">刷新</button>
+        </div>
+      </div>
 
       <div id="ios-status-banner" class="ios-status-banner" hidden></div>
       <div id="ios-history-banner" class="ios-history-banner" hidden></div>

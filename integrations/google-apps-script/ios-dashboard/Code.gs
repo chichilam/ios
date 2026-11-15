@@ -713,7 +713,11 @@ function buildWeeklyLayering_(summary, research, summaries) {
       return row['报告ID'] === summary['基线报告ID'] && row['生成ID'] === summary['基线生成ID'];
     });
     baseline.researchCutoff = pointed.length === 1 ? layerText_(pointed[0]['研究截至']) : '';
-    baseline.text = '较上周基线：' + baseline.reportId + '（研究截至 ' + (baseline.researchCutoff || '未知') + '）';
+    // #409 P3: the reading text names the baseline by type and date; its ID stays in baseline.reportId.
+    var idDate = /^weekly-(\d{4}-\d{2}-\d{2})$/.exec(baseline.reportId);
+    var baselineDate = pointed.length === 1 && layerText_(pointed[0]['报告日期']) !== '' ? layerText_(pointed[0]['报告日期']) : (idDate ? idDate[1] : '');
+    baseline.text = '较上周基线：' + (baselineDate ? '周报 ' + baselineDate : '上一份周报（日期未提供）') +
+      '（研究截至 ' + (baseline.researchCutoff || '未知') + '）';
   } else {
     baseline.text = LAYER_TEXT_.baseline[state] || (LAYER_TEXT_.shapeError + '：基线状态无法识别');
   }

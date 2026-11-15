@@ -173,6 +173,27 @@ describe the topbar, the tab row and the control/card styling are superseded by 
   A report that does not list the asset, a failed read and a missing report each say so; none falls
   back to the latest report. Report IDs stay out of the reading text.
 
+## 报告 (Issue #409 P3)
+
+- **One view, two types.** 日报 and 周报 are no longer separate nav items: 报告 holds a full-width
+  周报 / 日报 segmented switch, then one row with the report picker (that type only, newest first; the
+  latest entry is labelled （最新）), 上一份 / 下一份 (disabled at either end) and 刷新. Stepping onto the
+  newest report returns to the bootstrap copy without a server call. The old view names `daily` /
+  `weekly` still work (`selectTab`, 今天 links) and open 报告 on that type.
+- **Page order**: 结论卡 (`<类型> <日期>（最新|历史报告） · 一句话结论`, then 覆盖 period) → 计数卡 → 买入判断 →
+  本期变化 → the report's own layering (周报 ①–④ folded; 日报 本期有变化 / 跟进 / 无变化 / 无可比基线) →
+  本报告涉及标的（报告时快照） → 技术信息与报告概况 (folded: report ID, period, generated time and the
+  4-metric summary grid). Report IDs appear only in 技术信息 (and `data-*` attributes): the history banner,
+  the 较上周基线 line and every read error name a report by type and date (`周报 2026-10-31`), or 所选报告
+  when the ID is unknown. A report that cannot be read or does not exist leaves the shown report in place.
+- **No full asset cards in the body.** 本报告涉及标的 lists every holding and watchlist row of this
+  report once (本周执行区间 with its 适用周 / 周计划状态 / 币种, and 长期买入上限（非本周区间） with its 来源 /
+  估值研究日期 (需更新 past 90 days), on separate lines, each 未提供 when blank; or 本报告版本无三层快照). A row
+  opens this report's own P2 snapshot (结论 / 证据 / 条件 / 风险 / 阻塞待办) and, folded, the full card
+  (完整卡片（本报告）). Several rows may be open; another report starts with all closed. A 日报 change item
+  shows only the change line and 查看本报告快照, which opens its row. A history report's rows read only
+  that report's view model; nothing falls back to the latest report.
+
 ## Visual structure (v1.1 parity, Issue #250)
 
 The original `IOS_GAS_Dashboard_v1.1` frontend is the visual source of truth for this Dashboard's

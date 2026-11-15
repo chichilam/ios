@@ -28,10 +28,7 @@ const SCRIPT_HTML_SRC = fs.readFileSync(path.join(__dirname, '..', 'Script.html'
 
 const DEMO_BOOTSTRAP = logic.buildDashboardBootstrap_(demoSheet);
 
-/** Issue #396 PR A: the former 组合 view's asset sections close the 日报 / 周报 page; finds one by its heading. */
-function portfolioSection(document, title) {
-  return document.getElementById('ios-summary-content').children.find((c) => c.children[0] && c.children[0].tagName === 'H2' && c.children[0].textContent.indexOf(title + ' (') === 0);
-}
+const { portfolioSection, openReportAssets } = require('./report-assets-helper');
 
 /**
  * Runs Script.html fresh in an isolated sandbox (a real browser re-parses
@@ -58,7 +55,8 @@ function loadDashboard(bootstrap, activeView, googleHandlers) {
 
 /** Issue #396 PR A: the 4-metric summary grid moved from the removed 组合 view into the report's 报告概况 card. */
 function portfolioOverview(document) {
-  return document.getElementById('ios-summary-content').children.find((c) => c.classList.contains('ios-report-overview'));
+  // #409 P3: the summary grid sits inside the 技术信息与报告概况 fold at the end of the report.
+  return findAllNodes(document.getElementById('ios-summary-content'), (c) => c.classList.contains('ios-report-overview'))[0];
 }
 
 function summaryText(document) {
@@ -208,30 +206,30 @@ function referenceLineChildCount(document) {
   return card.children[3].children.length;
 }
 
-test('Issue #409 P1 (was #396 PR A): the page opens on 今天; 日报 is rendered (hidden) behind it and the history select is hidden', () => {
+test('Issue #409 P1 (was #396 PR A): the page opens on 今天; the report is rendered (hidden) behind it and the report toolbar is hidden', () => {
   const { document } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
   assert.ok(document.getElementById('ios-tab-today').classList.contains('active'));
   assert.equal(document.getElementById('ios-tab-today').getAttribute('aria-current'), 'page');
-  ['todos', 'daily', 'weekly', 'holdingDetail', 'risks'].forEach((tab) => assert.equal(document.getElementById('ios-tab-' + tab).getAttribute('aria-current'), null));
+  ['todos', 'report', 'holdingDetail', 'risks'].forEach((tab) => assert.equal(document.getElementById('ios-tab-' + tab).getAttribute('aria-current'), null));
   assert.equal(document.getElementById('ios-summary-content').hidden, true);
   assert.equal(document.getElementById('ios-tab-content').hidden, false);
   assert.match(tabText(document), /^最新结论/);
-  assert.equal(document.getElementById('ios-history-select').hidden, true, 'the history selector belongs to 日报 / 周报 only');
+  assert.equal(document.getElementById('ios-report-toolbar').hidden, true, 'the report toolbar belongs to 报告 only');
   assert.match(summaryText(document), /daily-2026-08-15/, 'the Daily report stays rendered (hidden) so switching to it is instant');
 });
-
-test('Issue #396 PR A/B: 日报 shows the report in its order, closing with the former 组合 summary grid and cards', () => {
+test('Issue #409 P3: 报告 · 日报 shows the report in its order, ending with 本报告涉及标的 and 技术信息', () => {
   const { document, window } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
   window.selectTab('daily');
+  assert.ok(document.getElementById('ios-tab-report').classList.contains('active'), 'the old 日报 name opens 报告');
+  assert.equal(document.getElementById('ios-seg-daily').getAttribute('aria-pressed'), 'true');
   assert.equal(document.getElementById('ios-summary-content').hidden, false);
   assert.equal(document.getElementById('ios-tab-content').hidden, true);
-  assert.equal(document.getElementById('ios-history-select').hidden, false);
+  assert.equal(document.getElementById('ios-report-toolbar').hidden, false);
   const classes = document.getElementById('ios-summary-content').children.map((c) => c.className);
-  assert.deepEqual(classes, ['ios-headline-card', 'ios-report-caption', 'ios-card ios-buy-judgment', 'ios-count-cards', 'ios-card ios-period-changes',
-    'ios-report-detail-head', 'ios-layering', 'ios-card ios-report-overview', 'ios-card', 'ios-card']);
-  assert.ok(portfolioSection(document, '当前持仓'), 'the demo Daily has no change layering, so its cards close the page');
+  assert.deepEqual(classes, ['ios-headline-card', 'ios-count-cards', 'ios-card ios-buy-judgment', 'ios-card ios-period-changes',
+    'ios-layering', 'ios-card ios-report-assets', 'ios-card ios-report-technical']);
+  assert.ok(portfolioSection(document, '当前持仓'), 'every card opens from its row');
 });
-
 test('Issue #396 PR A: each view replaces the whole page; 日报 / 周报 bring a report back', () => {
   let scrolled = 0;
   const { document, window } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
@@ -251,18 +249,20 @@ test('Issue #396 PR A: each view replaces the whole page; 日报 / 周报 bring 
   assert.equal(scrolled, 5, 'every switch starts the new view at the top of the page');
 });
 
-test('Issue #396 PR A, #409 P1: the views are 今天 / 待办 / 日报 / 周报 / 标的 / 风险 (#409 P2 renames 持仓明细); 组合, 报告 and 资本配置 are gone and ignored', () => {
+test('Issue #409 P3: the views are 今天 / 标的 / 报告 / 待办 / 风险; 日报 / 周报 open 报告; 组合 and 资本配置 are gone and ignored', () => {
   const index = fs.readFileSync(path.join(__dirname, '..', 'Index.html'), 'utf8');
-  assert.doesNotMatch(index, /资本配置|ios-tab-allocation|ios-tab-portfolio|ios-tab-report|ios-nav-/);
+  assert.doesNotMatch(index, /资本配置|ios-tab-allocation|ios-tab-portfolio|ios-tab-daily|ios-tab-weekly|ios-nav-/);
   const labels = [...index.matchAll(/class="ios-tab-label">([^<]+)</g)].map((m) => m[1]);
-  assert.deepEqual(labels, ['今天', '待办', '日报', '周报', '标的', '风险']);
+  assert.deepEqual(labels, ['今天', '标的', '报告', '待办', '风险']);
   const { document, window } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
   window.selectTab('holdingDetail');
-  ['portfolio', 'report', 'allocation'].forEach((tab) => window.selectTab(tab));
+  ['portfolio', 'allocation'].forEach((tab) => window.selectTab(tab));
   assert.ok(document.getElementById('ios-tab-holdingDetail').classList.contains('active'), 'an unknown view name is ignored');
+  window.selectTab('weekly');
+  assert.ok(document.getElementById('ios-tab-report').classList.contains('active'));
+  assert.equal(document.getElementById('ios-seg-weekly').getAttribute('aria-pressed'), 'true');
 });
-
-test('Issue #409 P0: the view nav sits in the sidebar shell before every view in Index.html, with read time + 刷新, and no separate 日报/周报 toggle', () => {
+test('Issue #409 P0/P3: the view nav sits in the sidebar shell before every view, with read time + 刷新; 周报/日报 and the picker share one toolbar row', () => {
   const index = fs.readFileSync(path.join(__dirname, '..', 'Index.html'), 'utf8');
   const sidebar = index.indexOf('class="ios-sidebar"');
   const bar = index.indexOf('id="ios-tab-bar"');
@@ -271,28 +271,28 @@ test('Issue #409 P0: the view nav sits in the sidebar shell before every view in
   assert.ok(index.indexOf('id="ios-refresh-btn"') > bar && index.indexOf('id="ios-refresh-btn"') < main, '刷新 sits in the sidebar foot');
   assert.ok(index.indexOf('id="ios-data-time"') > bar && index.indexOf('id="ios-data-time"') < main, 'the read time sits next to 刷新');
   assert.ok(main < index.indexOf('id="ios-page-title"'));
-  assert.ok(index.indexOf('id="ios-history-select"') > main, 'the history entry stays in the main column, next to the page title');
-  assert.ok(index.indexOf('id="ios-history-select"') < index.indexOf('id="ios-summary-content"'));
+  const toolbar = index.indexOf('id="ios-report-toolbar"');
+  assert.ok(toolbar > index.indexOf('id="ios-page-title"') && toolbar < index.indexOf('id="ios-summary-content"'));
+  const order = ['ios-seg-weekly', 'ios-seg-daily', 'ios-history-select', 'ios-report-prev', 'ios-report-next', 'ios-report-refresh'].map((id) => index.indexOf('id="' + id + '"'));
+  assert.ok(order.every((pos, i) => pos > toolbar && (i === 0 || pos > order[i - 1])), '周报 · 日报 · picker · 上一份 · 下一份 · 刷新, in that order');
   assert.ok(index.indexOf('id="ios-tab-today"') > bar && index.indexOf('id="ios-tab-today"') < index.indexOf('id="ios-tab-todos"'));
   assert.doesNotMatch(index, /ios-view-toggle|ios-topbar"/);
   // Every nav item keeps a text label next to its icon: state never relies on an icon or a colour alone.
   const buttons = [...index.matchAll(/<button type="button" class="ios-tab-btn"[\s\S]*?<\/button>/g)].map((m) => m[0]);
-  assert.equal(buttons.length, 6);
+  assert.equal(buttons.length, 5);
   buttons.forEach((b) => { assert.match(b, /aria-hidden="true"/); assert.match(b, /class="ios-tab-label">[^<]+</); });
 });
-
-test('Issue #409 P0: the page title follows the current view, and the history entry shows on 日报 / 周报 only', () => {
+test('Issue #409 P0/P3: the page title follows the current view, and the report toolbar shows on 报告 only', () => {
   const { document, window } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
   const title = () => document.getElementById('ios-page-title').textContent;
   assert.equal(title(), '今天');
-  [['todos', '待办', true], ['daily', '日报', false], ['weekly', '周报', false], ['holdingDetail', '标的', true], ['risks', '风险', true], ['today', '今天', true]].forEach(([tab, label, hidden]) => {
+  [['todos', '待办', true], ['report', '报告', false], ['holdingDetail', '标的', true], ['risks', '风险', true], ['today', '今天', true]].forEach(([tab, label, hidden]) => {
     window.selectTab(tab);
     assert.equal(title(), label, tab);
-    assert.equal(document.getElementById('ios-history-select').hidden, hidden, tab + ' history entry');
+    assert.equal(document.getElementById('ios-report-toolbar').hidden, hidden, tab + ' report toolbar');
     assert.equal(document.getElementById('ios-tab-' + tab).getAttribute('aria-current'), 'page');
   });
 });
-
 test('Issue #409 P0: the sidebar shows when the page read the Sheet, and 刷新 updates it; a blocked read says so', () => {
   const RealDate = Date;
   let now = new RealDate(2026, 10, 16, 0, 5);
@@ -390,8 +390,8 @@ test('switchView("weekly") opens the latest 周报 without any google.script.run
   });
   window.switchView('weekly');
   assert.match(summaryText(document), /weekly-2026-08-15/);
-  assert.ok(document.getElementById('ios-tab-weekly').classList.contains('active'));
-  assert.ok(!document.getElementById('ios-tab-daily').classList.contains('active'));
+  assert.ok((document.getElementById('ios-tab-report').classList.contains('active') && document.getElementById('ios-seg-weekly').getAttribute('aria-pressed') === 'true'));
+  assert.equal(document.getElementById('ios-seg-daily').getAttribute('aria-pressed'), 'false');
   assert.equal(runCalls, 0, 'toggling between the two already-fetched latest reports must never hit the server');
 });
 
@@ -404,9 +404,13 @@ test('switchView back and forth is idempotent and always reflects the latest rep
 
 test('switchView repopulates the history <select> with that view\'s own history entries', () => {
   const { document, window } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
-  assert.deepEqual(historySelectOptionValues(document), ['', 'daily-2026-08-15']);
+  // #409 P3: the latest entry is the option labelled （最新）, so it is not listed twice.
+  const labels = () => document.getElementById('ios-history-select').children.map((opt) => opt.textContent);
+  assert.deepEqual(historySelectOptionValues(document), ['']);
+  assert.match(labels()[0], /2026-08-15.*（最新）/);
   window.switchView('weekly');
-  assert.deepEqual(historySelectOptionValues(document), ['', 'weekly-2026-08-15']);
+  assert.deepEqual(historySelectOptionValues(document), ['']);
+  assert.match(labels()[0], /2026-08-15.*（最新）/);
 });
 
 test('selectTab switches between the five views without any google.script.run call, and updates aria-current', () => {
@@ -430,7 +434,7 @@ test('selectTab switches between the five views without any google.script.run ca
   assert.match(tabText(document), /卡住买入/);
 
   window.selectTab('weekly');
-  assert.ok(document.getElementById('ios-tab-weekly').classList.contains('active'));
+  assert.ok((document.getElementById('ios-tab-report').classList.contains('active') && document.getElementById('ios-seg-weekly').getAttribute('aria-pressed') === 'true'));
 
   assert.equal(runCalls, 0, 'tab switching only re-renders already-cached data, never hits the server');
 });
@@ -530,7 +534,9 @@ test('onHistorySelectChange(reportId) fetches via google.script.run.getReport, s
   window.onHistorySelectChange('daily-2026-08-15');
   const banner = document.getElementById('ios-history-banner');
   assert.equal(banner.hidden, false);
-  assert.match(banner.textContent, /daily-2026-08-15/);
+  // PR #413 review: the banner names the report by type and date; the ID stays in 技术信息.
+  assert.match(banner.textContent, /^正在查看历史日报（2026-08-15）/);
+  assert.doesNotMatch(banner.textContent, /daily-2026-08-15/);
   assert.match(summaryText(document), /daily-2026-08-15/);
 });
 
@@ -545,7 +551,9 @@ test('selectHistoryReport fetches via google.script.run.getReport and pins that 
   window.selectHistoryReport('daily-2026-08-15');
   const banner = document.getElementById('ios-history-banner');
   assert.equal(banner.hidden, false);
-  assert.match(banner.textContent, /daily-2026-08-15/);
+  // PR #413 review: the banner names the report by type and date; the ID stays in 技术信息.
+  assert.match(banner.textContent, /^正在查看历史日报（2026-08-15）/);
+  assert.doesNotMatch(banner.textContent, /daily-2026-08-15/);
   assert.match(summaryText(document), /daily-2026-08-15/);
 });
 
@@ -634,6 +642,8 @@ test('the "no report yet" empty state points to the onboarding prompt as a next 
 
 test('reference-price/price-position mapping renders explicit missing-value text, never a blank or shifted column, on the asset cards', () => {
   const { document } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
+  openReportAssets(document, 'holding');
+  openReportAssets(document, 'watchlist');
   const portfolioText = summaryText(document);
   // DEMO1 has an active 入场计划 (since Issue #298), so its primary display
   // is the plan's snapshotted anchor + 执行状态, not its legacy 参考买入价/
@@ -651,7 +661,10 @@ test('reference-price/price-position mapping renders explicit missing-value text
 
 test('holding cards render the v1.1 content order -- 价格/参考(+价格位置)/变化/逻辑/验证 -- not a Thesis line', () => {
   const { document } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
-  const portfolioText = summaryText(document);
+  openReportAssets(document, 'holding');
+  openReportAssets(document, 'watchlist');
+  // #409 P3: the snapshot body beside the card may name the report's Thesis状态 column; the card itself has no Thesis line.
+  const portfolioText = portfolioSection(document, '当前持仓').textContent;
   assert.match(portfolioText, /价格: 41\.2/);
   // DEMO1 has an active plan, so its second line is the plan anchor, not
   // the legacy 参考 line -- see the dedicated Entry Plan tests below for
@@ -1652,13 +1665,13 @@ test('todos: a history report never changes the 待办 tab; its own blocker link
   }), { error: null });
   const { document, window } = loadDashboard(latestBootstrap(latest, null), 'daily', { getReport: () => history });
   window.selectHistoryReport('daily-2026-11-01');
-  assert.ok(document.getElementById('ios-tab-daily').classList.contains('active'));
+  assert.ok((document.getElementById('ios-tab-report').classList.contains('active') && document.getElementById('ios-seg-daily').getAttribute('aria-pressed') === 'true'));
   assert.match(document.getElementById('ios-history-banner').textContent, /待办与风险 tab 仍是最新日报 \+ 最新周报的合并结果/);
   const panel = () => document.getElementById('ios-summary-content').children.find((c) => c.classList.contains('ios-period-panel'));
   assert.equal(panel(), undefined, 'the period list stays closed until asked for (#396 PR B)');
   const link = allElements(document.getElementById('ios-summary-content')).find((n) => n.classList && n.classList.contains('ios-blocker-link'));
   link.click();
-  assert.ok(document.getElementById('ios-tab-daily').classList.contains('active'), 'a history link stays on the history page');
+  assert.ok((document.getElementById('ios-tab-report').classList.contains('active') && document.getElementById('ios-seg-daily').getAttribute('aria-pressed') === 'true'), 'a history link stays on the history page');
   assert.equal(panel().getAttribute('data-panel'), 'todos');
   assert.match(panel().textContent, /只显示日报 11\/01这一期自己的待办/);
   assert.deepEqual(todoItems(panel()).filter((li) => li.classList.contains('ios-todo-highlight')).map((li) => li.getAttribute('data-todo-id')), ['H-1']);
@@ -2347,7 +2360,9 @@ test('Issue #409 P1: every 今天 count and link opens its own view; a history r
     const target = node.getAttribute('data-target');
     const fresh = allElements(document.getElementById('ios-tab-content')).find((n) => n.getAttribute && n.getAttribute('data-target') === target);
     fresh.click();
-    assert.ok(document.getElementById('ios-tab-' + target).classList.contains('active'), target);
+    const view = target === 'daily' || target === 'weekly' ? 'report' : target;
+    assert.ok(document.getElementById('ios-tab-' + view).classList.contains('active'), target);
+    if (view === 'report') assert.equal(document.getElementById('ios-seg-' + target).getAttribute('aria-pressed'), 'true', target);
   });
   assert.equal(document.getElementById('ios-view-banner').hidden, true, 'the fixture reports are current: no reader banner');
 });

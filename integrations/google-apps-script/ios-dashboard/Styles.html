@@ -627,6 +627,44 @@ body {
 .ios-history-links { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 6px; }
 .ios-history-more { max-width: 100%; min-height: 32px; }
 
+/* Issue #409 P3: 报告. 周报 / 日报 is a full-width segmented switch; the
+   picker, 上一份 / 下一份 and 刷新 share the next row and wrap on a phone.
+   Each asset of the report is one row that opens its own snapshot + card. */
+.ios-report-toolbar { display: grid; gap: 10px; margin-bottom: 16px; min-width: 0; }
+.ios-report-toolbar[hidden] { display: none; }
+.ios-segmented { display: grid; grid-template-columns: 1fr 1fr; padding: 3px; gap: 3px; border-radius: var(--ios-radius); background: var(--ios-callout-bg); border: 1px solid var(--ios-border); }
+.ios-segment { min-height: 36px; border: 0; border-radius: var(--ios-control-radius); background: transparent; color: var(--ios-muted); font: inherit; font-weight: 600; cursor: pointer; }
+.ios-segment[aria-pressed="true"] { background: var(--ios-card-bg); color: var(--ios-text); box-shadow: 0 0 0 1px var(--ios-border-strong); }
+.ios-report-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.ios-report-picker .ios-history-select { flex: 1 1 14em; width: auto; min-width: 0; }
+.ios-report-step {
+  min-height: 36px; padding: 4px 12px; border: 1px solid var(--ios-border); border-radius: var(--ios-control-radius);
+  background: var(--ios-card-bg); color: inherit; font: inherit; cursor: pointer;
+}
+.ios-report-step:hover:not(:disabled) { background: var(--ios-hover); }
+.ios-report-step:disabled { opacity: 0.45; cursor: default; }
+.ios-report-asset-list { list-style: none; margin: 8px 0 0; padding: 0; }
+.ios-report-asset { border-top: 1px solid var(--ios-border); padding: 6px 0; min-width: 0; overflow-wrap: anywhere; }
+.ios-report-asset:first-child { border-top: none; }
+.ios-report-asset-head {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px; width: 100%; min-height: 44px; padding: 4px 6px;
+  border: 0; border-radius: var(--ios-control-radius); background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.ios-report-asset-head:hover, .ios-report-asset.active > .ios-report-asset-head { background: var(--ios-hover); }
+.ios-report-asset-toggle { margin-left: auto; color: var(--ios-muted); font-size: 0.85rem; }
+.ios-report-asset > .ios-asset-line { margin: 2px 6px; }
+.ios-report-asset-detail { display: grid; gap: 4px; margin: 6px 0 4px; padding: 8px 10px; border: 1px solid var(--ios-border); border-radius: var(--ios-radius); min-width: 0; }
+.ios-report-asset-detail > * { min-width: 0; }
+.ios-report-asset-card .ios-asset-card { margin-top: 8px; }
+.ios-layer-asset { display: grid; gap: 2px; padding: 6px 0; border-top: 1px solid var(--ios-border); min-width: 0; overflow-wrap: anywhere; }
+.ios-layer-asset .ios-blocker-link { justify-self: start; }
+@media (max-width: 600px) {
+  /* The picker takes its own row; 上一份 / 下一份 / 刷新 share the next one evenly. */
+  .ios-report-picker { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .ios-report-picker .ios-history-select { grid-column: 1 / -1; }
+  .ios-report-step { min-height: 44px; }
+}
+
 /* Issue #409 P1: 今天. Count tiles are buttons into 待办 / 风险 (same model,
    same numbers); every line wraps, nothing sets a fixed width. */
 .ios-today-report { display: grid; gap: 4px; padding: 10px 0; border-top: 1px solid var(--ios-border); min-width: 0; overflow-wrap: anywhere; }

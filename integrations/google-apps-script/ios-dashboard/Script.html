@@ -36,10 +36,12 @@
   // 待办 always merges the latest Daily and the latest Weekly, whatever
   // report a history selection shows. The former 组合 view is gone; its
   // cash / allocation facts live in 持仓明细's 配置概况 (Issue #388 PR F).
-  // Issue #409 P1: 今天 comes first and opens by default.
-  var TABS = ['today', 'todos', 'daily', 'weekly', 'holdingDetail', 'risks'];
+  // Issue #409 P1: 今天 comes first and opens by default. Issue #409 P3: 日报 and
+  // 周报 are one 报告 view (STATE.activeView picks the type); selectTab('daily')
+  // and selectTab('weekly') still open 报告 on that type.
+  var TABS = ['today', 'holdingDetail', 'report', 'todos', 'risks'];
   // Issue #409 P0: each view's page title (the large heading above its content).
-  var TAB_TITLES = { today: '今天', todos: '待办', daily: '日报', weekly: '周报', holdingDetail: '标的', risks: '风险' };
+  var TAB_TITLES = { today: '今天', holdingDetail: '标的', report: '报告', todos: '待办', risks: '风险' };
 
   var STATE = {
     bootstrap: IOS_BOOTSTRAP,
@@ -50,6 +52,7 @@
     assetOpenCode: null, // 标的: the asset whose detail is open (Issue #409 P2)
     assetSnapshot: null, // 标的详情 › 判断历史: { code, reportId, state, vm, error } of the open report snapshot
     reportCache: {}, // report view models fetched by ID for 判断历史, keyed by 报告ID
+    reportAssetOpen: null, // 报告 › 本报告涉及标的: { reportId, code } of the open row (Issue #409 P3)
     viewingReportId: null, // non-null while pinned to a specific history entry
     displayedViewModel: null, // the viewModel for viewingReportId, once fetched
     loading: false,
@@ -399,7 +402,7 @@
   }
 
   function isReportTab_(tab) {
-    return tab === 'daily' || tab === 'weekly';
+    return tab === 'report';
   }
 
   /** 今天, 标的, 待办 and 风险 always merge the latest Daily and Weekly, whatever a history selection shows (Issue #396, #409 P1/P2). */
@@ -411,11 +414,39 @@
     return type === 'weekly' ? '周报' : '日报';
   }
 
+  /**
+   * Issue #409 P3: a report as the reader names it -- type and date, never its
+   * internal ID (which stays in 技术信息 and data-* attributes). Reads the history
+   * lists only; an unknown ID reads 所选报告.
+   */
+  function readableReportName_(reportId) {
+    var lists = [['weekly', STATE.bootstrap.weeklyHistory], ['daily', STATE.bootstrap.dailyHistory]];
+    for (var i = 0; i < lists.length; i++) {
+      var entries = lists[i][1] || [];
+      for (var j = 0; j < entries.length; j++) {
+        if (entries[j].reportId === reportId) {
+          return reportLabel_(lists[i][0]) + ' ' + (entries[j].reportDate || '日期未提供');
+        }
+      }
+    }
+    return '所选报告';
+  }
+
+  /** A server or network message with any report ID in it replaced by its readable name. */
+  function withoutReportId_(message, reportId) {
+    var textValue = String(message == null ? '' : message);
+    if (reportId) { textValue = textValue.split(reportId).join(readableReportName_(reportId)); }
+    return textValue;
+  }
+
   function updateNavActive() {
     var refreshBtn = document.getElementById('ios-refresh-btn');
     if (refreshBtn) refreshBtn.disabled = STATE.loading;
     var historySelect = document.getElementById('ios-history-select');
     if (historySelect) historySelect.disabled = STATE.loading;
+    var reportRefresh = document.getElementById('ios-report-refresh');
+    if (reportRefresh) reportRefresh.disabled = STATE.loading;
+    renderReportSteps_();
   }
 
   function updateTabActive() {
@@ -490,8 +521,10 @@
     }
     banner.hidden = false;
     clear(banner);
-    banner.appendChild(document.createTextNode('正在查看历史' + reportLabel_(STATE.activeView) + '（' + STATE.viewingReportId +
-      '）。只显示这一期自己的内容；待办与风险 tab 仍是最新日报 + 最新周报的合并结果。'));
+    var shown = STATE.displayedViewModel && STATE.displayedViewModel.summary;
+    var date = (shown && cellText_(shown['报告日期'])) || '';
+    banner.appendChild(document.createTextNode('正在查看历史' + reportLabel_(STATE.activeView) + '（' +
+      (date || readableReportName_(STATE.viewingReportId)) + '）。只显示这一期自己的内容；待办与风险 tab 仍是最新日报 + 最新周报的合并结果。'));
     banner.appendChild(el('button', {
       className: 'ios-back-to-latest-btn',
       text: '返回最新报告',
@@ -502,20 +535,76 @@
   // -- Compact history control (topbar <select>, replacing the old
   // bottom-of-page two-column link list -- Issue #250 v1.1 visual parity) --
 
+  /** The 报告ID of the latest report of the current type, or null. */
+  function latestReportId_() {
+    var vm = STATE.activeView === 'weekly' ? STATE.bootstrap.weekly : STATE.bootstrap.daily;
+    return vm && vm.found && vm.summary ? vm.summary['报告ID'] : null;
+  }
+
+  /**
+   * Issue #409 P3: the 报告 toolbar -- 周报 / 日报 segments, then one picker
+   * listing that type only, newest first (the latest reads （最新） and its
+   * value is '' so choosing it returns to the latest), 上一份 / 下一份 and 刷新.
+   */
   function renderHistorySelect() {
+    var toolbar = document.getElementById('ios-report-toolbar');
+    var onReport = isReportTab_(STATE.activeTab);
+    if (toolbar) { toolbar.hidden = !onReport; }
+    ['weekly', 'daily'].forEach(function (type) {
+      var seg = document.getElementById('ios-seg-' + type);
+      if (!seg) { return; }
+      var active = type === STATE.activeView;
+      seg.classList.toggle('active', active);
+      seg.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
     var select = document.getElementById('ios-history-select');
     if (!select) return;
-    // The history selector belongs to 日报 / 周报 only (Issue #396).
-    select.hidden = !isReportTab_(STATE.activeTab);
+    select.hidden = !onReport;
     clear(select);
-    select.appendChild(el('option', { text: '最新', attrs: { value: '' } }));
-    activeViewHistory().forEach(function (entry) {
+    var latestId = latestReportId_();
+    var history = activeViewHistory();
+    var latestListed = history.some(function (entry) { return entry.reportId === latestId; });
+    if (!latestListed) { select.appendChild(el('option', { text: '最新', attrs: { value: '' } })); }
+    history.forEach(function (entry) {
+      var latest = entry.reportId === latestId;
       select.appendChild(el('option', {
-        text: entry.reportDate + ' — ' + entry.headline,
-        attrs: { value: entry.reportId }
+        text: entry.reportDate + ' — ' + entry.headline + (latest ? '（最新）' : ''),
+        attrs: { value: latest ? '' : entry.reportId }
       }));
     });
     select.value = STATE.viewingReportId || '';
+    renderReportSteps_();
+  }
+
+  /** Position of the shown report in this type's history (newest first), or -1. */
+  function reportStepIndex_() {
+    var current = STATE.viewingReportId || latestReportId_();
+    var history = activeViewHistory();
+    for (var i = 0; i < history.length; i++) { if (history[i].reportId === current) { return i; } }
+    return -1;
+  }
+
+  function renderReportSteps_() {
+    var history = activeViewHistory();
+    var index = reportStepIndex_();
+    var prev = document.getElementById('ios-report-prev');
+    var next = document.getElementById('ios-report-next');
+    if (prev) { prev.disabled = STATE.loading || index === -1 || index >= history.length - 1; }
+    if (next) { next.disabled = STATE.loading || index <= 0; }
+  }
+
+  /** 上一份 (older, +1) / 下一份 (newer, -1) inside the current type; the newest is the latest report. */
+  function stepReport(direction) {
+    if (STATE.loading) return;
+    var history = activeViewHistory();
+    var index = reportStepIndex_();
+    var target = index === -1 ? null : history[index + direction];
+    if (!target) return;
+    if (target.reportId === latestReportId_()) {
+      backToLatest_();
+      return;
+    }
+    selectHistoryReport(target.reportId);
   }
 
   // -- Summary area: a 4-metric grid tied to the tab bar, plus a headline
@@ -538,25 +627,130 @@
       return;
     }
 
-    // Issue #396 PR B: 结论 → 买入判断 → 计数卡 → 本期变化, all from this
-    // report's own snapshot; the report's detail (layering, cards) follows.
+    // Issue #409 P3: 结论卡 → 计数 → 买入判断 → 本期变化 → the report's own
+    // layering (周报 ①–④, 日报 changes and follow-ups) → 本报告涉及标的（报告时快照）
+    // → 技术信息, all from this report's own view model. The full asset cards
+    // are no longer repeated in the body; each one stays reachable from its
+    // row in 本报告涉及标的.
     var readerBanner = buildReaderBanner_(vm);
     if (readerBanner) { container.appendChild(readerBanner); }
     container.appendChild(buildHeadlineCard(vm));
-    container.appendChild(buildReportCaption(vm));
-    container.appendChild(buildBuyJudgment_(vm));
     container.appendChild(buildCountCards_(vm));
     if (STATE.viewingReportId && STATE.periodPanel) {
       var period = [{ type: vm.reportType, vm: vm }];
       var nodes = STATE.periodPanel === 'todos' ? buildMergedTodosView_(period) : buildMergedRisksView_(period);
       container.appendChild(el('div', { className: 'ios-period-panel', attrs: { 'data-panel': STATE.periodPanel } }, nodes));
     }
+    container.appendChild(buildBuyJudgment_(vm));
     container.appendChild(buildPeriodChanges_(vm));
-    container.appendChild(el('section', { className: 'ios-report-detail-head' }, [text('h2', null, '报告明细'),
-      text('p', 'ios-hint', '以下为本报告的分层、概况与完整卡片，内容与上面相同来源。')]));
     var layering = buildLayeringSection(vm);
     if (layering) { container.appendChild(layering); }
-    buildReportAssetSections_(vm).forEach(function (node) { container.appendChild(node); });
+    container.appendChild(buildReportAssetsSection_(vm));
+    container.appendChild(buildReportTechnical_(vm));
+  }
+
+  // -- Issue #409 P3: 本报告涉及标的（报告时快照）. One compact row per asset of
+  // THIS report (its own holdingDetail and assetSnapshots); a row opens this
+  // report's own snapshot and, folded, the full card the body used to repeat.
+  // Never the latest report's data. --
+
+  function reportIdOf_(vm) {
+    return vm && vm.summary ? String(vm.summary['报告ID'] || '') : '';
+  }
+
+  function isReportAssetOpen_(vm, code) {
+    var open = STATE.reportAssetOpen;
+    return !!(open && open.reportId === reportIdOf_(vm) && open.codes[code]);
+  }
+
+  /** Opens or closes one row; several rows may be open. Another report starts with every row closed. */
+  function toggleReportAsset_(vm, code) {
+    var open = STATE.reportAssetOpen;
+    if (!open || open.reportId !== reportIdOf_(vm)) {
+      open = { reportId: reportIdOf_(vm), codes: {} };
+      STATE.reportAssetOpen = open;
+    }
+    if (open.codes[code]) { delete open.codes[code]; } else { open.codes[code] = true; }
+    renderSummarySection();
+  }
+
+  /** Opens one row of 本报告涉及标的 (keeping others as they are) and scrolls it into view. */
+  function openReportAsset_(vm, code) {
+    if (!isReportAssetOpen_(vm, code)) { toggleReportAsset_(vm, code); }
+    var rows = document.querySelectorAll ? document.querySelectorAll('.ios-report-asset[data-code="' + code + '"]') : [];
+    if (rows && rows[0] && rows[0].scrollIntoView) { rows[0].scrollIntoView({ block: 'start' }); }
+  }
+
+  function buildReportAssetsSection_(vm) {
+    var raws = (vm.holdings || []).map(function (r) { return { raw: r, watch: false }; })
+      .concat((vm.watchlistCandidates || []).map(function (r) { return { raw: r, watch: true }; }));
+    var children = [text('h2', null, '本报告涉及标的（报告时快照） (' + raws.length + ')'),
+      text('p', 'ios-hint', '这是本报告当时的内容，不是最新状态。点一行查看本报告对此标的的结论、证据、条件与风险，以及完整卡片。')];
+    if (raws.length === 0) {
+      children.push(text('p', 'ios-empty-note', '本报告没有持仓或观察行——这是合法的空结果，不是错误。'));
+      return el('section', { className: 'ios-card ios-report-assets' }, children);
+    }
+    var list = el('ul', { className: 'ios-report-asset-list' });
+    raws.forEach(function (entry) {
+      var raw = entry.raw;
+      var watch = entry.watch;
+      var code = ledgerCode_(raw['代码']);
+      var row = (vm.holdingDetail || []).filter(function (r) { return ledgerCode_(r.code) === code; })[0] || null;
+      var verdict = todayVerdict_(raw);
+      var isOpen = isReportAssetOpen_(vm, code);
+      var lines;
+      if (!row) {
+        lines = [];
+      } else if (!row.threeLayer) {
+        // An open row's snapshot already says so; say it once.
+        lines = isOpen && vm.assetSnapshots ? [] : [text('p', 'ios-asset-line ios-muted', ASSET_NO_LAYER_TEXT_)];
+      } else {
+        // #409 price contract: each price carries its own week / plan status / currency or
+        // source / research date, read from this report's row only; a blank says 未提供.
+        var currency = cellText_(raw['报价币种']) || '币种未提供';
+        lines = [text('p', 'ios-asset-line ios-report-asset-weekly', '本周执行区间: ' + holdingDetailRangeText_(row) +
+            '（适用周 ' + row.weekly.week + ' · 周计划状态 ' + row.weekly.status + ' · 币种 ' + currency + '）'),
+          text('p', 'ios-asset-line ios-report-asset-cap', '长期买入上限（非本周区间）: ' + row.valuation.cap +
+            '（来源 ' + row.valuation.source + ' · 估值研究日期 ' + row.valuation.researchDate + '）')];
+      }
+      var head = el('button', {
+        className: 'ios-report-asset-head',
+        attrs: { type: 'button', 'aria-expanded': isOpen ? 'true' : 'false', 'data-code': code },
+        onclick: function () { toggleReportAsset_(vm, code); }
+      }, [
+        text('strong', null, displayCode_(code)),
+        isBlank(raw['名称']) ? null : text('span', 'ios-muted', cellText_(raw['名称'])),
+        text('span', 'ios-badge ios-badge-muted', watch ? '观察' : '持仓'),
+        verdict ? text('span', 'ios-badge', verdict) : null,
+        isBlank(raw['变化标记']) ? null : text('span', 'ios-badge ios-badge-muted', cellText_(raw['变化标记'])),
+        text('span', 'ios-report-asset-toggle', isOpen ? '收起' : '展开')
+      ]);
+      var item = [head].concat(lines);
+      if (isOpen) {
+        // An older server's view model has no assetSnapshots: show the card alone, never another report's snapshot.
+        var body = el('div', { className: 'ios-report-asset-detail' }, vm.assetSnapshots ? buildSnapshotBody_(vm, code, false) : []);
+        body.appendChild(el('details', { className: 'ios-layer-fold ios-report-asset-card' }, [
+          text('summary', 'ios-layer-fold-title', '完整卡片（本报告）'),
+          buildAssetCard(raw, watch, vm.todos)
+        ]));
+        item.push(body);
+      }
+      list.appendChild(el('li', { className: 'ios-report-asset' + (isOpen ? ' active' : ''),
+        attrs: { 'data-code': code, 'data-kind': watch ? 'watchlist' : 'holding' } }, item));
+    });
+    children.push(list);
+    return el('section', { className: 'ios-card ios-report-assets' }, children);
+  }
+
+  /** 技术信息: the report's ID, period and generation time, and its 报告概况 grid -- folded, at the end. */
+  function buildReportTechnical_(vm) {
+    return el('section', { className: 'ios-card ios-report-technical' }, [
+      el('details', { className: 'ios-layer-fold' }, [
+        text('summary', 'ios-layer-fold-title', '技术信息与报告概况'),
+        buildReportCaption(vm),
+        el('div', { className: 'ios-report-overview' }, [buildSummaryGrid(vm)])
+      ])
+    ]);
   }
 
   // -- Issue #396 PR B: 买入判断. Every group comes from the writer's own
@@ -943,13 +1137,7 @@
    * report itself -- the 4-metric summary grid, and (unless a Daily change
    * layering already shows every asset) the holding / candidate cards.
    */
-  function buildReportAssetSections_(vm) {
-    var nodes = [el('section', { className: 'ios-card ios-report-overview' }, [text('h2', null, '报告概况'), buildSummaryGrid(vm)])];
-    if (vm.layering && vm.layering.daily) { return nodes; }
-    nodes.push(buildAssetSection('当前持仓', vm.holdings, false, vm.todos));
-    nodes.push(buildAssetSection('本期观察候选', vm.watchlistCandidates, true, vm.todos));
-    return nodes;
-  }
+
 
   /**
    * Issue #316 P4 reader gate, generation half: a generation whose 模式纪元
@@ -1019,9 +1207,13 @@
    */
   function buildHeadlineCard(vm) {
     var summary = vm.summary;
+    var start = summary['周期开始'] || summary['报告日期'];
+    var end = summary['周期结束'] || summary['报告日期'];
     return el('section', { className: 'ios-headline-card' }, [
-      text('p', 'ios-eyebrow', '一句话结论'),
-      text('p', 'ios-headline', summary['一句话结论'])
+      text('p', 'ios-eyebrow', reportLabel_(vm.reportType) + ' ' + (isBlank(summary['报告日期']) ? '日期未知' : summary['报告日期']) +
+        (STATE.viewingReportId ? '（历史报告）' : '（最新）') + ' · 一句话结论'),
+      text('p', 'ios-headline', summary['一句话结论']),
+      isBlank(start) ? null : text('p', 'ios-muted ios-headline-period', '覆盖 ' + start + (end && end !== start ? ' – ' + end : ''))
     ]);
   }
 
@@ -1202,7 +1394,7 @@
       sections.push(el('section', { className: 'ios-card ios-layer-section' },
         [text('h2', null, vmText_().shapeError)].concat(weekly.unplaced.map(buildResearchRow_))));
     }
-    sections.push(text('p', 'ios-muted ios-layer-next', '⑤ 全部持仓与观察候选的完整卡片见下方；标的、风险与待办见对应视图。'));
+    sections.push(text('p', 'ios-muted ios-layer-next', '⑤ 全部持仓与观察候选见下方「本报告涉及标的（报告时快照）」；标的、风险与待办见对应视图。'));
     return sections;
   }
 
@@ -1269,7 +1461,19 @@
     if (item.kind === 'risk') {
       node = el('ul', { className: 'ios-list' }, [buildRiskItem_(item.row)]);
     } else {
-      node = buildAssetCard(item.row, item.kind === 'watchlist', vm.todos);
+      // Issue #409 P3: no full card in the body; the row names the change and opens
+      // this report's own snapshot (and its full card) in 本报告涉及标的.
+      var row = item.row;
+      var code = ledgerCode_(row['代码']);
+      var said = cellText_(row['较上次变化说明']) || cellText_(row['关键变化']) || cellText_(row['今日行动说明']);
+      node = el('div', { className: 'ios-layer-asset', attrs: { 'data-code': code } }, [
+        el('div', { className: 'ios-buy-head' }, [text('strong', null, assetTitle_(row)),
+          item.kind === 'watchlist' ? text('span', 'ios-badge ios-badge-muted ios-watch-tag', '观察') : null,
+          todayVerdict_(row) ? text('span', 'ios-badge', todayVerdict_(row)) : null]),
+        text('p', 'ios-asset-line', said === '' ? '未提供' : said),
+        el('button', { className: 'ios-blocker-link', text: '查看本报告快照', attrs: { type: 'button' },
+          onclick: function () { openReportAsset_(vm, code); } })
+      ]);
     }
     if (!item.unmarked) { return node; }
     return el('div', { className: 'ios-layer-unmarked' }, [text('span', 'ios-badge ios-severity-medium', vmText_().unmarked), node]);
@@ -4015,7 +4219,7 @@
     if (current.state === 'loading') {
       children.push(text('p', 'ios-muted', '正在读取该报告…'));
     } else if (current.state === 'error') {
-      children.push(text('p', 'ios-entry-plan-incomplete', '读取该报告失败：' + current.error));
+      children.push(text('p', 'ios-entry-plan-incomplete', '读取该报告失败：' + withoutReportId_(current.error, current.reportId)));
     } else if (!current.vm || !current.vm.found) {
       children.push(text('p', 'ios-empty-note', '找不到该报告。'));
     } else {
@@ -4187,7 +4391,7 @@
   function switchView(view) {
     if (STATE.loading) return;
     STATE.activeView = view === 'weekly' ? 'weekly' : 'daily';
-    STATE.activeTab = STATE.activeView;
+    STATE.activeTab = 'report';
     STATE.viewingReportId = null;
     STATE.periodPanel = null;
     STATE.displayedViewModel = null;
@@ -4207,14 +4411,17 @@
 
   function selectTab(tab) {
     if (STATE.loading) return;
-    if (TABS.indexOf(tab) === -1) return;
-    if (isReportTab_(tab) && tab !== STATE.activeView) {
-      // The other report type opens at its latest report.
-      STATE.activeView = tab;
-      STATE.viewingReportId = null;
-      STATE.periodPanel = null;
-      STATE.displayedViewModel = null;
+    if (tab === 'daily' || tab === 'weekly') {
+      if (tab !== STATE.activeView) {
+        // The other report type opens at its latest report.
+        STATE.activeView = tab;
+        STATE.viewingReportId = null;
+        STATE.periodPanel = null;
+        STATE.displayedViewModel = null;
+      }
+      tab = 'report';
     }
+    if (TABS.indexOf(tab) === -1) return;
     STATE.activeTab = tab;
     if (!isReportTab_(tab)) { STATE.detailTab = tab; }
     render();
@@ -4234,13 +4441,20 @@
       .withSuccessHandler(function (result) {
         setLoading(false);
         if (result && result.error) {
-          showTransientError('加载报告失败 (' + reportId + '): ' + result.error);
+          showTransientError('加载报告失败（' + readableReportName_(reportId) + '）：' + withoutReportId_(result.error, reportId));
+          renderHistorySelect();
+          return;
+        }
+        if (!result || !result.found) {
+          // Never fall back to the latest report: stay on the report already shown.
+          showTransientError('所选报告不存在或已无法读取（' + readableReportName_(reportId) + '），仍显示原来的报告。');
+          renderHistorySelect();
           return;
         }
         if (result && result.reportType) {
           STATE.activeView = result.reportType;
-          // A history report is read on its own 日报 / 周报 page.
-          STATE.activeTab = result.reportType;
+          // A history report is read on the 报告 page, on its own type.
+          STATE.activeTab = 'report';
         }
         STATE.viewingReportId = reportId;
         STATE.periodPanel = null;
@@ -4249,7 +4463,8 @@
       })
       .withFailureHandler(function (err) {
         setLoading(false);
-        showTransientError('加载报告失败 (' + reportId + '): ' + (err && err.message ? err.message : err));
+        showTransientError('加载报告失败（' + readableReportName_(reportId) + '）：' + withoutReportId_(err && err.message ? err.message : err, reportId));
+        renderHistorySelect();
       })
       .getReport(reportId);
   }
@@ -4290,6 +4505,7 @@
   window.selectHistoryReport = selectHistoryReport;
   window.onHistorySelectChange = onHistorySelectChange;
   window.refresh = refresh;
+  window.stepReport = stepReport;
 
   render();
 })();

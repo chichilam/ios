@@ -130,6 +130,14 @@ function harnessScript() {
       // card's 查看详情 on a phone).
       ['report', 'holdingDetail', 'assetOpen', 'risks', 'todos', 'today'].forEach(function (tab) {
         win.selectTab(tab === 'report' ? view : (tab === 'assetOpen' ? 'holdingDetail' : tab));
+        if (tab === 'report') {
+          // Issue #409 P3: open every row of 本报告涉及标的, so each full card is measured in place.
+          for (var guard = 0; guard < 200; guard += 1) {
+            var closed = doc.querySelector('.ios-report-asset:not(.active) > .ios-report-asset-head');
+            if (!closed) { break; }
+            closed.click();
+          }
+        }
         if (tab === 'assetOpen') {
           var opener = Array.prototype.filter.call(doc.querySelectorAll('.ios-asset-detail-toggle, tr.ios-asset-row'), function (n) {
             return n.getBoundingClientRect().width > 0;
@@ -192,7 +200,8 @@ function harnessScript() {
           cardColumns: grid ? win.getComputedStyle(grid).gridTemplateColumns.split(' ').length : 0,
           sections: ['.ios-layering', '.ios-layer-fact', '.ios-layer-verdict', '.ios-inline-fair-value', '.ios-asset-card',
             '.ios-today-counts', '.ios-today-todo', '.ios-today-report', '.ios-checklist', '.ios-todo-copy', '.ios-todo-note-part', '.ios-todo-split', '.ios-list', '.ios-allocation-cards', '.ios-holding-detail-cards', '.ios-holding-detail-cards .ios-detail-group-ledger',
-            '.ios-asset-detail', '.ios-snapshot-panel', '.ios-holding-detail-table .ios-sticky-col']
+            '.ios-asset-detail', '.ios-snapshot-panel', '.ios-holding-detail-table .ios-sticky-col',
+            '.ios-report-toolbar', '.ios-report-asset-list', '.ios-report-asset-detail', '.ios-report-technical']
             .filter(function (sel) { return Array.prototype.some.call(doc.querySelectorAll(sel), visible); })
         });
       });
@@ -270,7 +279,7 @@ test('free-text summary metrics wrap as prose and take a full row on a phone (Is
   assert.match(STYLES_SRC, /@media \(max-width: 600px\) \{[^@]*\.ios-metric-card-prose \{ grid-column: 1 \/ -1; \}/);
 });
 
-test('no Daily or Weekly tab scrolls sideways at 320-430px or desktop, and desktop keeps two columns', (t) => {
+test('no Daily or Weekly view scrolls sideways at 320-430px or desktop', (t) => {
   const chrome = findChrome();
   if (!chrome) {
     if (process.env.CI) assert.fail('no Chrome/Chromium found; set CHROME_BIN');
@@ -311,10 +320,16 @@ test('no Daily or Weekly tab scrolls sideways at 320-430px or desktop, and deskt
   assert.ok(at(390, 'daily', 'todos').sections.includes('.ios-todo-copy'), 'the 待办 tab renders the folded cross-report item (Issue #403)');
   assert.ok(at(390, 'daily', 'todos').sections.includes('.ios-todo-note-part'), 'the 待办 tab renders labelled note segments (Issue #403)');
   assert.ok(at(390, 'daily', 'todos').sections.includes('.ios-todo-split'), 'the 待办 tab renders the split 现在能做 / 等待什么 / 已核验 block (Issue #403)');
-  // A Weekly's card grid closes its page (#396 PR A, formerly the 组合 view).
-  assert.equal(at(1280, 'weekly', 'report').cardColumns, 2, 'weekly keeps two card columns on desktop');
-  assert.equal(at(390, 'weekly', 'report').cardColumns, 1, 'weekly uses one card column on a phone');
+  // Issue #409 P3: the report has no card grid any more; each card opens inside its own row.
+  ['daily', 'weekly'].forEach((view) => [390, 1280].forEach((width) =>
+    assert.equal(at(width, view, 'report').cardColumns, 0, `${width}px ${view}: no card grid in the report body`)));
   assert.ok(at(390, 'daily', 'report').sections.includes('.ios-asset-card'), 'the Daily report carries its asset cards');
+  ['daily', 'weekly'].forEach((view) => [390, 1280].forEach((width) => {
+    const r = at(width, view, 'report');
+    ['.ios-report-toolbar', '.ios-report-asset-list', '.ios-report-asset-detail', '.ios-report-technical'].forEach((sel) =>
+      assert.ok(r.sections.includes(sel), `${width}px ${view}: 报告 renders ${sel} (Issue #409 P3)`));
+    assert.ok(!at(width, view, 'today').sections.includes('.ios-report-toolbar'), `${width}px ${view}: the report toolbar is 报告 only`);
+  }));
   assert.ok(at(390, 'daily', 'report').sections.includes('.ios-inline-fair-value'), 'the inline fair value line is covered');
   assert.ok(at(390, 'weekly', 'report').sections.includes('.ios-layer-verdict'), 'the Weekly verdict rows are covered');
   ['daily', 'weekly'].forEach((view) => {

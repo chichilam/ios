@@ -9,10 +9,7 @@
 
 'use strict';
 
-/** Issue #388 PR D: the 组合 view opens with a 组合概况 card (and a reader banner on a non-current generation); finds a report-asset section by its heading. */
-function portfolioSection(document, title) {
-  return document.getElementById('ios-summary-content').children.find((c) => c.children[0] && c.children[0].tagName === 'H2' && c.children[0].textContent.indexOf(title + ' (') === 0);
-}
+const { portfolioSection } = require('./report-assets-helper');
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
