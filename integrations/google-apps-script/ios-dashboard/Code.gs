@@ -2746,8 +2746,20 @@ function buildBootstrapSafe_() {
  * this, since both viewModels are already cached client-side after the
  * first load.
  */
+/**
+ * A value as the client may receive it over google.script.run. Sheet date cells are
+ * native Dates (getValues), and google.script.run hands the success handler null for a
+ * return value that contains one. The first paint never hit this: doGet embeds
+ * JSON.stringify(...), which turns a Date into its ISO string. This gives the
+ * google.script.run calls the exact same shape (Issue #409 P3 prod fix: 上一份 read
+ * null and showed 所选报告不存在或已无法读取).
+ */
+function toClientValue_(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
 function getDashboardBootstrap() {
-  return buildBootstrapSafe_();
+  return toClientValue_(buildBootstrapSafe_());
 }
 
 /**
@@ -2764,7 +2776,7 @@ function getReport(reportId) {
     var tabs = readAllTabs_(spreadsheet);
     var result = getReport_(tabs, reportId, readReaderInputs_(spreadsheet, tabs));
     result.error = null;
-    return result;
+    return toClientValue_(result);
   } catch (err) {
     return { error: String(err && err.message ? err.message : err), found: false, reportType: null };
   }
@@ -2897,6 +2909,7 @@ if (typeof module !== 'undefined') {
     buildHoldingDetailRow_: buildHoldingDetailRow_,
     buildAssetSnapshot_: buildAssetSnapshot_,
     buildAssetSnapshots_: buildAssetSnapshots_,
+    toClientValue_: toClientValue_,
     ASSET_SNAPSHOT_NO_LAYER_: ASSET_SNAPSHOT_NO_LAYER_,
     HOLDING_DETAIL_TEXT_: HOLDING_DETAIL_TEXT_,
     VALUATION_RESEARCH_STALE_DAYS: VALUATION_RESEARCH_STALE_DAYS,

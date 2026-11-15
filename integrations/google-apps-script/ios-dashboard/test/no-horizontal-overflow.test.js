@@ -99,6 +99,14 @@ function stressBootstrap() {
     { 待办ID: 'DEMO-SPLIT-S2', 待办: 'Demo waiting step', 状态: '待处理', 跟进类型: '等待证据',
       备注: '父待办：DEMO-SPLIT；步骤键：项目披露；剩余：项目级披露；下一验证点：https://example.com/' + 'a'.repeat(160) }
   ]);
+  // Prod regression (2026-11-16): a real 一句话结论 is a long sentence; the report picker's options
+  // carry it, and a select sized to its widest option pushed the page sideways on a phone.
+  const long = '所列明的BLS 10月PPI已发布，新增一条事件暂停记录；持仓今日行动均为暂停新增待复核，基金定投沿用，无可准备订单，不构成买卖指令';
+  ['daily', 'weekly'].forEach((type) => {
+    const id = out[type].summary['报告ID'];
+    out[type + 'History'] = [{ reportId: id, reportDate: '2026-11-14', headline: long },
+      { reportId: type + '-2026-11-13', reportDate: '2026-11-13', headline: long + long }];
+  });
   return out;
 }
 
@@ -277,6 +285,13 @@ test('free-text summary metrics wrap as prose and take a full row on a phone (Is
   assert.match(STYLES_SRC, /\.ios-metric-value \{[^}]*overflow-wrap: anywhere;/);
   assert.match(STYLES_SRC, /\.ios-metric-card-prose \{ align-items: stretch; \}/);
   assert.match(STYLES_SRC, /@media \(max-width: 600px\) \{[^@]*\.ios-metric-card-prose \{ grid-column: 1 \/ -1; \}/);
+});
+
+test('Issue #409 P3 prod fix: the report toolbar and picker never size to the longest option (WebKit)', () => {
+  assert.match(STYLES_SRC, /\.ios-report-toolbar \{[^}]*grid-template-columns: minmax\(0, 1fr\)[^}]*\}/);
+  assert.match(STYLES_SRC, /\.ios-report-toolbar > \* \{ min-width: 0; \}/);
+  assert.match(STYLES_SRC, /\.ios-report-picker \.ios-history-select \{[^}]*width: 100%[^}]*min-width: 0[^}]*max-width: 100%/);
+  assert.match(STYLES_SRC, /@media \(max-width: 600px\) \{[^@]*\.ios-report-picker > \* \{ min-width: 0; \}/);
 });
 
 test('no Daily or Weekly view scrolls sideways at 320-430px or desktop', (t) => {

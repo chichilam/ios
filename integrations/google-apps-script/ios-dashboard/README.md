@@ -186,6 +186,12 @@ describe the topbar, the tab row and the control/card styling are superseded by 
   4-metric summary grid). Report IDs appear only in 技术信息 (and `data-*` attributes): the history banner,
   the 较上周基线 line and every read error name a report by type and date (`周报 2026-10-31`), or 所选报告
   when the ID is unknown. A report that cannot be read or does not exist leaves the shown report in place.
+- **google.script.run returns JSON-shaped values.** `getReport` and `getDashboardBootstrap` pass their
+  result through `toClientValue_` (a JSON round trip), so a Sheet date cell (a native `Date` from
+  `getValues`) reaches the client as the same ISO string the first paint embeds. google.script.run gives
+  the success handler `null` for a return value holding a `Date`, which made 上一份 read as 所选报告不存在.
+- **The toolbar never sizes to an option.** A WebKit `<select>` is as wide as its longest option (a whole
+  一句话结论); the toolbar track is `minmax(0, 1fr)` and the select is held to `width: 100%`.
 - **No full asset cards in the body.** 本报告涉及标的 lists every holding and watchlist row of this
   report once (本周执行区间 with its 适用周 / 周计划状态 / 币种, and 长期买入上限（非本周区间） with its 来源 /
   估值研究日期 (需更新 past 90 days), on separate lines, each 未提供 when blank; or 本报告版本无三层快照). A row

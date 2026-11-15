@@ -1767,3 +1767,43 @@ test('PR #413 review: a Daily and a Weekly listing the same code each show only 
   portfolioCards(document);
   assert.doesNotMatch(document.getElementById('ios-summary-content').textContent, /daily note/);
 });
+
+// -- #409 P3 prod fix: google.script.run hands the success handler null for a return value
+// that holds a native Date (Sheet date cells read through getValues), so 上一份 read null and
+// said 所选报告不存在. getReport / getDashboardBootstrap now return the same JSON shape doGet embeds. --
+
+function hasDate(value) {
+  if (Object.prototype.toString.call(value) === '[object Date]') return true;
+  if (value && typeof value === 'object') return Object.keys(value).some((k) => hasDate(value[k]));
+  return false;
+}
+
+function serverWithDates() {
+  const sandbox = { console };
+  vm.createContext(sandbox);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'Code.gs'), 'utf8'), sandbox, { filename: 'Code.gs' });
+  const dated = tabs((t) => {
+    t['报告摘要'].forEach((r) => { r['报告日期'] = new Date(String(r['报告ID']).replace(/^\w+-/, '') + 'T00:00:00+09:00'); });
+    t['报告持仓'].forEach((r) => { r['报告日期'] = new Date('2026-11-07T00:00:00+09:00'); });
+  });
+  sandbox.getConfiguredSpreadsheet_ = () => ({});
+  sandbox.readAllTabs_ = () => dated;
+  sandbox.readReaderInputs_ = () => undefined;
+  return { sandbox, dated };
+}
+
+test('#409 P3 prod fix: getReport and getDashboardBootstrap return no native Date, with the same content as doGet', () => {
+  const { sandbox, dated } = serverWithDates();
+  const id = 'weekly-2026-10-31';
+  const raw = sandbox.getReport_(dated, id);
+  assert.ok(hasDate(raw), 'the fixture really carries Date cells (the prod shape)');
+  const result = sandbox.getReport(id);
+  assert.equal(result.found, true);
+  assert.equal(result.error, null);
+  assert.equal(hasDate(result), false, 'nothing google.script.run would null out');
+  assert.equal(result.summary['报告ID'], id);
+  assert.equal(JSON.stringify(result), JSON.stringify(Object.assign(raw, { error: null })), 'the doGet JSON shape, nothing else');
+  const boot = sandbox.getDashboardBootstrap();
+  assert.equal(hasDate(boot), false);
+  assert.equal(boot.weekly.found, true);
+});
