@@ -3417,7 +3417,7 @@
   function buildHoldingDetailTable(rows, byCode, excluded) {
     var groups = [
       ['标的', ['代码', '名称', '类型'], ''],
-      ['估值约束（台账）', ['长期买入上限', '现价距上限', '长期合理价值', '来源', '估值研究日期'], 'ios-detail-group-valuation'],
+      ['估值约束（台账）', ['长期买入上限', '上限口径', '现价距上限', '长期合理价值', '危机机会价', '来源', '估值研究日期'], 'ios-detail-group-valuation'],
       ['本周执行', ['适用周', '计划状态', '本周区间'], 'ios-detail-group-weekly'],
       ['第三方公允值（仅供参考）', ['公允值', '来源', '获取日期'], 'ios-detail-group-efv'],
       ['当前台账（实时，' + LEDGER_NOTE_ + '）', ['持有数量', '平均成本', '参考买入价（台账）'], 'ios-detail-group-ledger']
@@ -3438,7 +3438,8 @@
       var ledger = ledgerParts_(row, byCode, excluded);
       var values = [
         [displayCode_(row.code), row.name, holdingDetailKindLabel_(row)],
-        [row.valuation.cap, row.valuation.distance.text, row.valuation.fairValue, row.valuation.source, row.valuation.researchDate],
+        [row.valuation.cap, row.valuation.tier, row.valuation.distance.text, row.valuation.fairValue, row.valuation.crisis,
+          row.valuation.source, row.valuation.researchDate],
         [row.weekly.week, row.weekly.status, holdingDetailRangeText_(row)],
         [efv.value, efv.source || '—', efv.fetched || '—'],
         [ledger.quantity, ledger.avgCost, ledger.reference]
@@ -3471,8 +3472,10 @@
         el('div', { className: 'ios-detail-group ios-detail-group-valuation' }, [
           text('h3', 'ios-detail-heading', '估值约束（台账）'),
           text('p', 'ios-asset-line', '长期买入上限: ' + row.valuation.cap),
+          text('p', 'ios-asset-line ios-muted', '上限口径: ' + row.valuation.tier),
           text('p', 'ios-asset-line', '现价距上限: ' + row.valuation.distance.text),
           text('p', 'ios-asset-line', '长期合理价值: ' + row.valuation.fairValue),
+          text('p', 'ios-asset-line ios-muted', '危机机会价: ' + row.valuation.crisis),
           text('p', 'ios-asset-line ios-muted', '来源: ' + row.valuation.source + ' · 估值研究日期: ' + row.valuation.researchDate)
         ]),
         el('div', { className: 'ios-detail-group ios-detail-group-weekly' }, [

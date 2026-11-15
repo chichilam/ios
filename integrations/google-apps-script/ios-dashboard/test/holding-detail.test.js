@@ -498,3 +498,63 @@ test('PR F review 2: a 持有 row with a blank/0/invalid quantity is not counted
   assert.doesNotMatch(extra, /ZERO|BAD/, 'excluded rows are never listed as ledger-only current holdings');
   assert.doesNotMatch(content.textContent, /NaN|持有数量: 0/);
 });
+
+// -- Issue #407: 上限口径 and 危机机会价 are shown as stored; the cap stays the only constraint.
+
+test('#407: a regular-tier row shows the tier and the crisis reference, the cap and range are unchanged', () => {
+  const row = detail({ 上限口径快照: '常规安全边际买价', 危机机会价快照: 320 });
+  assert.equal(row.valuation.tier, '常规安全边际买价');
+  assert.equal(row.valuation.crisis, '320 USD（仅参考，不约束周计划）');
+  assert.equal(row.valuation.cap, '400 USD');
+  assert.deepEqual(row.valuation.distance, detail({}).valuation.distance, 'distance is still measured against the cap');
+  assert.deepEqual(row.filters, detail({}).filters);
+  assert.equal(row.weekly.range, detail({}).weekly.range);
+});
+
+test('#407: a pre-#407 row (no tier columns) keeps its cap and labels the tier as not labelled', () => {
+  const row = detail({});
+  assert.equal(row.valuation.tier, T.tierUnlabelled);
+  assert.equal(row.valuation.crisis, T.missing);
+  assert.equal(row.valuation.cap, '400 USD');
+  assert.equal(detail({ 上限口径快照: '危机机会价' }).valuation.tier, T.tierUnlabelled, 'an unknown label is not a tier');
+  const legacy = logic.buildHoldingDetailRow_({ 代码: 'OLD', 名称: 'Old Co.', 资产类型: 'holding' }, null);
+  assert.equal(legacy.valuation.tier, T.oldRow);
+  assert.equal(legacy.valuation.crisis, T.oldRow);
+});
+
+test('#407: a blank crisis price under the regular tier is 未核定; one that breaks the write invariant is never shown as a price', () => {
+  assert.equal(detail({ 上限口径快照: '常规安全边际买价' }).valuation.crisis, T.crisisNotEstablished);
+  assert.equal(detail({ 上限口径快照: '常规安全边际买价', 危机机会价快照: 450 }).valuation.crisis, T.crisisInvalid, 'above the cap');
+  assert.equal(detail({ 危机机会价快照: 300 }).valuation.crisis, T.crisisInvalid, 'without the regular tier');
+  assert.equal(detail({ 上限口径快照: '常规安全边际买价', 危机机会价快照: 300, 长期买入上限快照: '' }).valuation.crisis, T.crisisInvalid, 'without a cap');
+  assert.equal(detail({ 上限口径快照: '常规安全边际买价', 危机机会价快照: 'abc' }).valuation.crisis, T.invalidCap);
+  assert.equal(detail({ 上限口径快照: '常规安全边际买价', 危机机会价快照: 400 }).valuation.crisis, '400 USD（仅参考，不约束周计划）', 'equal to the cap is allowed');
+});
+
+test('#407: table and cards show 上限口径 and 危机机会价 inside the valuation group only', () => {
+  const rows = [detail({ 上限口径快照: '常规安全边际买价', 危机机会价快照: 320 })];
+  const { content } = load(bootstrapWith(rows));
+  const table = byClass(content, 'ios-holding-detail-table')[0];
+  const [, labelRow] = descendants(table).filter((n) => n.tagName === 'TR').slice(0, 2);
+  const labels = labelRow.children.map((c) => c.textContent);
+  assert.deepEqual(labels.slice(labels.indexOf('长期买入上限'), labels.indexOf('适用周')),
+    ['长期买入上限', '上限口径', '现价距上限', '长期合理价值', '危机机会价', '来源', '估值研究日期']);
+  const cells = descendants(table).filter((n) => n.tagName === 'TR' && n.getAttribute('data-code') === 'AAA')[0].children.map((c) => c.textContent);
+  assert.equal(cells[labels.indexOf('上限口径')], '常规安全边际买价');
+  assert.equal(cells[labels.indexOf('危机机会价')], '320 USD（仅参考，不约束周计划）');
+  const groups = byClass(byClass(content, 'ios-holding-detail-cards')[0], 'ios-detail-group');
+  assert.match(groups[0].textContent, /上限口径: 常规安全边际买价/);
+  assert.match(groups[0].textContent, /危机机会价: 320 USD（仅参考，不约束周计划）/);
+  assert.doesNotMatch(groups[1].textContent, /危机机会价/);
+});
+
+test('#407 round trip: only a writer-validated crisis price is shown as a price (fixture from the writer spec)', () => {
+  const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', '..', '..', 'fixtures', 'valuation-tiers', 'snapshots.json'), 'utf8'));
+  assert.ok(fixture.cases.length >= 8);
+  fixture.cases.forEach((c) => {
+    const overrides = Object.assign({ 上限口径快照: undefined, 危机机会价快照: undefined }, c.report_row);
+    const row = detail(overrides);
+    assert.equal(row.valuation.crisis, c.dashboard_crisis, c.case);
+    if (!['valid', 'equal_to_cap'].includes(c.case)) assert.doesNotMatch(row.valuation.crisis, /仅参考/, c.case);
+  });
+});

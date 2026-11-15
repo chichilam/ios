@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE: do not edit by hand. Edit setup/runtime/fragments/ and run
 python3 setup/runtime/build_task_runtime.py build -->
-<!-- runtime-stats: {"runtime_snapshot":"issue-296-v1","runtime_digest":"1c35f8b4df56f8b8084828db85acd5aee8dc2b907d8d9c49ec51fd0628670598","utf16_units":82915,"code_points":82915,"utf8_bytes":196621,"worst_case_bound_utf16_units":84955,"budget_utf16_units":85000} -->
+<!-- runtime-stats: {"runtime_snapshot":"issue-296-v1","runtime_digest":"50d9d9bcae2922d275f60dcbc33a76f8a2df79f19a422ec9944cffba7a0a7a77","utf16_units":83960,"code_points":83960,"utf8_bytes":199114,"worst_case_bound_utf16_units":86000,"budget_utf16_units":86000} -->
 
 This is the installable runtime snapshot of the Weekly Scheduled Task (Issue #296). The
 installer (`setup/chatgpt-install-prompt.md`) pastes everything between the `PASTE-READY START`/
@@ -12,13 +12,13 @@ references; `setup/runtime/rule-map.json` maps every runtime rule back to them.
 
 | Measure | Value |
 | --- | --- |
-| UTF-16 code units (paste-ready body, before binding) | 82915 |
-| Unicode code points | 82915 |
-| UTF-8 bytes | 196621 |
+| UTF-16 code units (paste-ready body, before binding) | 83960 |
+| Unicode code points | 83960 |
+| UTF-8 bytes | 199114 |
 | Embedded authority (no separate embedding step) | 0 |
-| Worst-case bound after binding (UTF-16 code units) | 84955 |
-| Engineering budget (UTF-16 code units, not a proven platform limit) | 85000 |
-| runtime_digest | `1c35f8b4df56f8b8084828db85acd5aee8dc2b907d8d9c49ec51fd0628670598` |
+| Worst-case bound after binding (UTF-16 code units) | 86000 |
+| Engineering budget (UTF-16 code units, not a proven platform limit) | 86000 |
+| runtime_digest | `50d9d9bcae2922d275f60dcbc33a76f8a2df79f19a422ec9944cffba7a0a7a77` |
 
 <!-- PASTE-READY START -->
 
@@ -40,7 +40,7 @@ Report 复盘，回答"这个组合在未来 3–12 个月是否需要维护动�
 时区名称，例如 Asia/Tokyo——不能是"用户本地时区"这类无法直接计算的描述>`
 
 - runtime_snapshot: issue-296-v1
-- runtime_digest: 1c35f8b4df56f8b8084828db85acd5aee8dc2b907d8d9c49ec51fd0628670598
+- runtime_digest: 50d9d9bcae2922d275f60dcbc33a76f8a2df79f19a422ec9944cffba7a0a7a77
 - 快照来源 commit/版本：`<CONTENT_VERSION_PLACEHOLDER：由安装程序填写读取本快照时的仓库 commit>`
 - 快照时间：`<CONTENT_SNAPSHOT_TIME_PLACEHOLDER：由安装程序填写，ISO 8601>`
 
@@ -1545,6 +1545,30 @@ risk_identity: issue-375-v1
   `无变化`，其余为 `无可比基线`；目录外行仍按 `风险类型`+`风险`。
 - **发布前检查**：未知规则、类型与规则不符、对象不合法或不在本次 `报告持仓`（上面的继承键除外）、`风险键` 与上式不同、同键重复、评估/严重度/
   依据/指标不合规、任一比较列或 `变化标记` 与重算不同、应保留的键缺行：不切换，按第 4 步失败处理。不回填、不改写历史行。
+
+## 三档长期估值（第 407 号 issue）
+
+valuation_tiers: issue-407-v1
+
+上一行供安装程序读回，勿改。本节只在 `_安装状态.schema_version` ≥ 13 时适用，低于 13 不写这些列。
+本节不改变任何门槛：`长期买入上限` 仍是唯一的长期上限，周度购买计划、`今日行动` 与全部校验照旧只用它。
+
+- **三档**：`合理价值下限`–`合理价值上限` 是正常合理价值，`长期买入上限` 是常规安全边际买价，`危机机会价`
+  只是参考，绝不作为上限、区间、复核线或任何门槛。
+- **口径**：`上限口径` 只有 `常规安全边际买价` 一个值；留空或其他值是第 407 号之前未标注口径的研究，其
+  `长期买入上限` 照原规则作硬上限，绝不因此放宽或失效。
+- **依据格式**：`危机机会价` 非空时，`安全边际说明` 各恰好一行 `常规安全边际买价=<数字> <估值币种>；依据=<文字>` 与
+  `危机机会价=<数字> <估值币种>；依据=<文字>`，数字分别等于 `长期买入上限` 与 `危机机会价`，两段依据非空、不是占位
+  （`待补`/`待定`/`未知`/`无`/`同上`/`TBD`/`TODO`/`-`）且互不相同。
+- **写入**（Deep Dive 实际做估值研究、写新 `估值研究日期` 时）：写 `常规安全边际买价` 口径须 `长期买入上限`
+  非空；`危机机会价` 只在该口径下写、不高于 `长期买入上限`，并按依据格式写；不能确立就留空，"不核定"是合法结论。
+  绝不把危机价写进 `长期买入上限`，绝不按市价反推任何一档。维护版本原样沿用两列。
+- **不提高上限**：被取代版本有 `长期买入上限` 时，新版本的不得高于它。研究值更高时三列沿用，另写一条
+  `报告待办`（`分类=Deep Dive 复核`）写明研究值、现行上限、研究日期，交维护者审核；只有维护者批准的研究会话才能提高上限。
+- **快照与发布前检查**：三层模式下，`上限口径快照`/`危机机会价快照` 与 `长期买入上限快照` 复制自同一个 `入场计划`
+  版本；危机价不是正数、口径不符、上限为空、高于上限或依据格式不符时 `危机机会价快照` 留空。发布前逐行按该行引用的
+  版本重算三个快照并逐项比较：任何不一致（应有却空、应空却有、口径或数值错写、来自其他版本）本报告都不切换（第 4 步
+  失败）。
 
 ## 第三步：写回 Sheet（必须遵循 report_write_protocol：Plan → Stage → Verify → Switch → Confirm，绝不能跳步）
 

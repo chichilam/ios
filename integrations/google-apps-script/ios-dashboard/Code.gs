@@ -179,7 +179,12 @@ var HOLDING_DETAIL_TEXT_ = {
   researchStale: '需更新',
   researchDateMissing: '未比较（研究日期未提供）',
   researchDateUnreadable: '未比较（研究日期不可读）',
-  reportDateUnreadable: '未比较（报告日期不可读）'
+  reportDateUnreadable: '未比较（报告日期不可读）',
+  tierRegular: '常规安全边际买价',
+  tierUnlabelled: '口径未标注（第 407 号之前的研究）',
+  crisisNotEstablished: '未核定',
+  crisisInvalid: '无效（不满足写入规则）',
+  crisisReference: '（仅参考，不约束周计划）'
 };
 // Maintainer decision on #388 (2026-11-11 JST): a valuation research date more
 // than 90 days before the report's own date shows 需更新 (about one quarterly
@@ -208,6 +213,26 @@ function holdingDetailRangeGap_(lower, upper) {
     if (ends[i][1].indexOf('需补全') === 0) return ends[i][0] + '：' + ends[i][1];
   }
   return '';
+}
+
+/**
+ * Issue #407: the stored tier of 长期买入上限 and the 危机机会价 reference,
+ * shown as written. The cap stays the only constraint whatever the tier says;
+ * the crisis price is displayed only when its own write invariant holds.
+ */
+function holdingDetailTier_(row, cap, capCurrency) {
+  var regular = layerText_(row['上限口径快照']) === HOLDING_DETAIL_TEXT_.tierRegular;
+  var raw = layerText_(row['危机机会价快照']);
+  var crisis;
+  if (raw === '') {
+    crisis = regular ? HOLDING_DETAIL_TEXT_.crisisNotEstablished : HOLDING_DETAIL_TEXT_.missing;
+  } else {
+    var number = holdingDetailNumber_(raw);
+    if (number === null || !isFinite(number) || number <= 0) crisis = HOLDING_DETAIL_TEXT_.invalidCap;
+    else if (!regular || cap === null || number > cap) crisis = HOLDING_DETAIL_TEXT_.crisisInvalid;
+    else crisis = raw + ' ' + (capCurrency || '（币种未提供）') + HOLDING_DETAIL_TEXT_.crisisReference;
+  }
+  return { tier: regular ? HOLDING_DETAIL_TEXT_.tierRegular : HOLDING_DETAIL_TEXT_.tierUnlabelled, crisis: crisis };
 }
 
 /** Price against the long-term cap, only when both are numbers in the same currency. */
@@ -319,6 +344,7 @@ function buildHoldingDetailRow_(row, module, dateText) {
   else if (layerText_(row['入场计划ID']) !== '') source = '入场计划';
   var old = HOLDING_DETAIL_TEXT_.oldRow;
   var researchAge = holdingDetailResearchAge_(row, dateText);
+  var tier = holdingDetailTier_(row, cap, capCurrency);
   return {
     code: layerText_(row['代码']),
     name: layerText_(row['名称']),
@@ -327,6 +353,8 @@ function buildHoldingDetailRow_(row, module, dateText) {
     valuation: {
       cap: !threeLayer ? old : (cap !== null ? capRaw + ' ' + (capCurrency || '（币种未提供）')
         : (capRaw === '' ? HOLDING_DETAIL_TEXT_.missing : HOLDING_DETAIL_TEXT_.invalidCap)),
+      tier: threeLayer ? tier.tier : old,
+      crisis: threeLayer ? tier.crisis : old,
       distance: threeLayer ? holdingDetailDistance_(row, cap, capCurrency) : { compared: false, text: old },
       fairValue: !threeLayer ? old : (fairValue || HOLDING_DETAIL_TEXT_.missing),
       source: !threeLayer ? old : source,

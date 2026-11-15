@@ -55,6 +55,10 @@ credentials anywhere — every value in [`demo/demo-sheet.json`](demo/demo-sheet
   separate groups (估值约束（台账）/ 本周执行 / 第三方公允值), the long-term cap never next to the
   weekly range, same-currency-only distance, filters, and pre-#318/history rows rendering as 未提供;
   the PR B 90-day 估值研究日期 rule (89/90/91 days, missing, unreadable, own report date).
+  Issue #407 adds 上限口径 and 危机机会价 to the 估值约束 group, read only from this generation's
+  `上限口径快照`/`危机机会价快照`: a blank or unknown tier shows 口径未标注 (the cap still applies), and a crisis price
+  shows as “仅参考，不约束周计划” only when it is under the regular tier and not above the cap, otherwise 无效/未核定.
+  The cap, the distance and every filter are unchanged.
 - `test/no-horizontal-overflow.test.js` — Issue #370: renders the real `Index.html`/`Styles.html`/
   `Script.html` in headless Chrome at 320/375/390/430px and desktop, with every report string made long
   and unbreakable, and asserts no Daily/Weekly view scrolls sideways (desktop keeps two card columns), the
