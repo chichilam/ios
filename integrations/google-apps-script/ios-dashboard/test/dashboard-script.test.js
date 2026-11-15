@@ -251,11 +251,11 @@ test('Issue #396 PR A: each view replaces the whole page; 日报 / 周报 bring 
   assert.equal(scrolled, 5, 'every switch starts the new view at the top of the page');
 });
 
-test('Issue #396 PR A, #409 P1: the views are 今天 / 待办 / 日报 / 周报 / 持仓明细 / 风险; 组合, 报告 and 资本配置 are gone and ignored', () => {
+test('Issue #396 PR A, #409 P1: the views are 今天 / 待办 / 日报 / 周报 / 标的 / 风险 (#409 P2 renames 持仓明细); 组合, 报告 and 资本配置 are gone and ignored', () => {
   const index = fs.readFileSync(path.join(__dirname, '..', 'Index.html'), 'utf8');
   assert.doesNotMatch(index, /资本配置|ios-tab-allocation|ios-tab-portfolio|ios-tab-report|ios-nav-/);
   const labels = [...index.matchAll(/class="ios-tab-label">([^<]+)</g)].map((m) => m[1]);
-  assert.deepEqual(labels, ['今天', '待办', '日报', '周报', '持仓明细', '风险']);
+  assert.deepEqual(labels, ['今天', '待办', '日报', '周报', '标的', '风险']);
   const { document, window } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
   window.selectTab('holdingDetail');
   ['portfolio', 'report', 'allocation'].forEach((tab) => window.selectTab(tab));
@@ -285,7 +285,7 @@ test('Issue #409 P0: the page title follows the current view, and the history en
   const { document, window } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
   const title = () => document.getElementById('ios-page-title').textContent;
   assert.equal(title(), '今天');
-  [['todos', '待办', true], ['daily', '日报', false], ['weekly', '周报', false], ['holdingDetail', '持仓明细', true], ['risks', '风险', true], ['today', '今天', true]].forEach(([tab, label, hidden]) => {
+  [['todos', '待办', true], ['daily', '日报', false], ['weekly', '周报', false], ['holdingDetail', '标的', true], ['risks', '风险', true], ['today', '今天', true]].forEach(([tab, label, hidden]) => {
     window.selectTab(tab);
     assert.equal(title(), label, tab);
     assert.equal(document.getElementById('ios-history-select').hidden, hidden, tab + ' history entry');
@@ -323,7 +323,7 @@ test('Issue #388 PR D/F, #396: a non-current generation keeps its reader banner 
   window.selectTab('daily');
   assert.equal(banner.hidden, true, 'the report view shows the banner itself');
   window.selectTab('holdingDetail');
-  assert.equal(banner.hidden, false, 'PR F: 持仓明细 is report-based, so the banner stays; the ledger group carries its own 当前台账 label');
+  assert.equal(banner.hidden, false, '#409 P2: 标的 reads the latest reports, so their banner stays; the ledger group carries its own 当前台账 label');
 });
 
 test('the summary grid (now in the 组合 overview, #388 PR D) has exactly the 4 v1.1 metrics (当前持仓/观察名单/核心状态/Review) with their explanatory subtitles, not tab-count shortcuts', () => {
@@ -442,13 +442,14 @@ test('selectTab ignores an unrecognized tab name rather than clearing the curren
   assert.ok(document.getElementById('ios-tab-risks').classList.contains('active'), 'must remain on the previously active tab');
 });
 
-test('Issue #396 PR A: 持仓明细 reads the report last chosen under 日报 / 周报, and says which one', () => {
+test('Issue #409 P2: 标的 reads the latest Weekly and Daily whatever 日报 / 周报 shows, and says so', () => {
   const { document, window } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {});
   window.selectTab('holdingDetail');
-  assert.match(tabText(document), /^来源：日报 2026-08-15（最新）/);
+  const first = tabText(document);
+  assert.match(first, /^来源：最新周报 08\/15 与 最新日报 08\/15 · 每个标的读列出它的最新一份报告/);
   window.selectTab('weekly');
   window.selectTab('holdingDetail');
-  assert.match(tabText(document), /^来源：周报 2026-08-15（最新）/);
+  assert.equal(tabText(document), first, 'switching 日报 / 周报 does not change 标的');
 });
 
 function ledgerGroups(document) {
@@ -478,7 +479,7 @@ test('the live current-holdings ledger in 持仓明细 (former 资本配置, #38
 });
 
 test('the ledger rows (Issue #255, inside 持仓明细 since #388 PR F) render both a desktop table and a mobile card list from the same data -- a CSS breakpoint picks one, Script.html never branches on viewport itself', () => {
-  const { document, window } = loadDashboard(Object.assign({}, DEMO_BOOTSTRAP, { daily: { found: false, reportType: 'daily' } }), 'daily', {});
+  const { document, window } = loadDashboard(Object.assign({}, DEMO_BOOTSTRAP, { daily: { found: false, reportType: 'daily' }, weekly: { found: false, reportType: 'weekly' } }), 'daily', {});
   window.selectTab('holdingDetail');
   const block = ledgerGroups(document).find((n) => n.classList.contains('ios-ledger-only'));
   const tableWrap = block.children.find((c) => c.classList.contains('ios-allocation-table'));
@@ -492,7 +493,7 @@ test('the ledger rows (Issue #255, inside 持仓明细 since #388 PR F) render b
 });
 
 test('a ledger mobile card surfaces code/name/quantity/avg-cost/reference with the same missing-value handling as the table', () => {
-  const { document, window } = loadDashboard(Object.assign({}, DEMO_BOOTSTRAP, { daily: { found: false, reportType: 'daily' } }), 'daily', {});
+  const { document, window } = loadDashboard(Object.assign({}, DEMO_BOOTSTRAP, { daily: { found: false, reportType: 'daily' }, weekly: { found: false, reportType: 'weekly' } }), 'daily', {});
   window.selectTab('holdingDetail');
   const block = ledgerGroups(document).find((n) => n.classList.contains('ios-ledger-only'));
   const cards = block.children.find((c) => c.classList.contains('ios-allocation-cards'));

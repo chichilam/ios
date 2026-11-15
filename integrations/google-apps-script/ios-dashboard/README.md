@@ -146,6 +146,33 @@ describe the topbar, the tab row and the control/card styling are superseded by 
   and 风险 all read it, so the same work counts once and every view shows the same numbers.
   `buyJudgmentGroups_` and `periodChangeGroups_` are likewise shared between 今天 and the report page.
 
+## 标的 and report-ID asset snapshots (Issue #409 P2)
+
+- **Snapshot model** (`buildAssetSnapshots_` in `Code.gs`): every report view model now carries
+  `assetSnapshots`, one per listed asset, copied only from that generation's own rows — 结论
+  (今日行动, 周计划结论, IOS状态, Thesis状态), 证据 (关键变化, 长期逻辑或估值, 较上次变化说明, and
+  报告周度研究 items whose 关联代码 names the code exactly), 条件 (价格参考确认/否定条件, 停止条件说明,
+  下一验证点, 当前阻碍), 风险 (报告风险 rows whose 风险对象 is the code, or with no 风险对象 an exact
+  影响资产 entry) and the 阻塞待办ID it names (found / not found). A row without the three-layer
+  snapshot carries `layerNote: 本报告版本无三层快照`; nothing is filled in from another report.
+  Because a snapshot lives inside its own report's view model, a history report fetched by ID
+  (`getReport_`) can only ever show that report's snapshot.
+- **标的** replaces 持仓明细 (the view id stays `holdingDetail`). Like 今天 / 待办 / 风险 it reads the
+  latest Weekly and Daily whatever 日报 / 周报 shows: each asset once, from the newer report that
+  lists it (same day: 日报). Group headings name their source and time (本周执行区间 · 日报 11/15,
+  长期估值约束 · 入场计划快照（日报 11/15 读取）, 外部公允值（仅供参考）, 台账 · 实时 HH:MM); when rows
+  come from different reports the heading points to the per-row 快照来源 column. The long-term cap
+  is headed 长期买入上限（非本周区间） and is never next to 本周执行区间. 代码 / 名称 is a sticky
+  column on a desktop; a phone shows cards. A row without the three-layer snapshot shows
+  本报告版本无三层快照 once, not in every column. Filters: 全部 / 持仓 / 观察 / 本周有区间 / 暂停中 /
+  需更新 / 估值缺失. 配置概况 and the ledger holdings no latest report lists follow the list.
+- **标的详情** (a row click on a desktop, 查看详情 on a phone): 本期快照 from the asset's report,
+  相关待办与风险 (this code's share of `buildActionModel_` — the same items and counts as 待办 and 风险),
+  and 判断历史: every Daily and Weekly, newest first. A date opens 报告时快照 for that report ID —
+  a latest report from the bootstrap, any other fetched once with `getReport` and cached until 刷新.
+  A report that does not list the asset, a failed read and a missing report each say so; none falls
+  back to the latest report. Report IDs stay out of the reading text.
+
 ## Visual structure (v1.1 parity, Issue #250)
 
 The original `IOS_GAS_Dashboard_v1.1` frontend is the visual source of truth for this Dashboard's

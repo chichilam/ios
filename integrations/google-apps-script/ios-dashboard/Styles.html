@@ -598,6 +598,35 @@ body {
 .ios-detail-group-ledger { background: #f9f5f1; }
 .ios-holding-detail-table th.ios-detail-group-ledger, .ios-holding-detail-table td.ios-detail-group-ledger { background: #f9f5f1; }
 
+/* Issue #409 P2: 标的. 代码 / 名称 stays fixed while the wide table scrolls
+   inside its own box; a row opens its detail on the line beneath it. */
+.ios-holding-detail-table .ios-sticky-col { position: sticky; left: 0; z-index: 1; background: var(--ios-card-bg); box-shadow: 1px 0 0 var(--ios-border); }
+.ios-asset-code-cell strong, .ios-asset-cell-name { display: block; }
+.ios-asset-cell-name { color: var(--ios-muted); font-size: 0.85rem; }
+.ios-asset-row { cursor: pointer; }
+.ios-holding-detail-table td.ios-asset-no-layer { color: var(--ios-muted); text-align: center; }
+.ios-asset-detail-row .ios-asset-detail { position: sticky; left: 0; max-width: min(900px, 80vw); }
+.ios-asset-row:hover td, .ios-asset-row.active td { background: var(--ios-hover); }
+.ios-asset-detail-row > td { white-space: normal; background: var(--ios-card-bg); }
+.ios-asset-detail { display: grid; gap: 4px; min-width: 0; max-width: 900px; overflow-wrap: anywhere; }
+.ios-asset-detail > * { min-width: 0; }
+.ios-asset-detail-toggle {
+  margin-top: 10px; min-height: 44px; width: 100%; border: 1px solid var(--ios-border); border-radius: var(--ios-radius);
+  background: var(--ios-card-bg); color: inherit; font: inherit; cursor: pointer;
+}
+.ios-asset-current, .ios-asset-actions, .ios-asset-history { background: var(--ios-card-bg); }
+.ios-snapshot-block { margin: 6px 0; min-width: 0; }
+.ios-snapshot-title { margin: 6px 0 2px; font-size: 0.85rem; }
+.ios-snapshot-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.ios-snapshot-panel { margin-top: 8px; padding: 8px 10px; border: 1px solid var(--ios-border); border-radius: var(--ios-radius); min-width: 0; }
+.ios-snapshot-close, .ios-history-link {
+  min-height: 32px; padding: 4px 10px; border: 1px solid var(--ios-border); border-radius: var(--ios-tag-radius);
+  background: var(--ios-card-bg); color: inherit; font: inherit; font-size: 0.85rem; cursor: pointer;
+}
+.ios-history-link.active { background: var(--ios-hover); font-weight: 600; }
+.ios-history-links { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 6px; }
+.ios-history-more { max-width: 100%; min-height: 32px; }
+
 /* Issue #409 P1: 今天. Count tiles are buttons into 待办 / 风险 (same model,
    same numbers); every line wraps, nothing sets a fixed width. */
 .ios-today-report { display: grid; gap: 4px; padding: 10px 0; border-top: 1px solid var(--ios-border); min-width: 0; overflow-wrap: anywhere; }

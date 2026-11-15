@@ -208,86 +208,110 @@ const ROWS = [
   detail({ 代码: 'VVV', 名称: 'No Cap Co.', 资产类型: 'watchlist', 周计划结论: '长期估值缺失或失效', 长期买入上限快照: '', 报价币种: 'JPY' })
 ];
 
-test('the 持仓明细 tab is a tab of its own and renders the selected report', () => {
+const GROUP_HEADS = (table) => descendants(table).filter((n) => n.tagName === 'TR')[0].children.map((c) => c.textContent);
+const LABELS = (table) => descendants(table).filter((n) => n.tagName === 'TR')[1].children.map((c) => c.textContent);
+const CAP = '长期买入上限（非本周区间）';
+const RANGE = '本周执行区间';
+
+test('#409 P2: 标的 is a view of its own, reads the latest reports and names its source', () => {
   const { document, content } = load(bootstrapWith(ROWS));
   assert.ok(document.getElementById('ios-tab-holdingDetail').classList.contains('active'));
-  assert.match(content.textContent, /持仓明细/);
+  assert.equal(document.getElementById('ios-page-title').textContent, '标的');
+  assert.match(content.children[0].textContent, /^来源：最新周报 11\/09 · 每个标的读列出它的最新一份报告/);
   assert.match(content.textContent, /第三方公允值仅供参考，不能替代长期买入上限/);
-  assert.match(content.textContent, /估值研究日期早于本报告日期超过 90 天标「需更新」；日期缺失或不可读为「未比较」/);
+  assert.match(content.textContent, /估值研究日期早于该报告日期超过 90 天标「需更新」/);
 });
 
-test('table: separate groups (#388 PR F adds 当前台账), 长期买入上限 and 本周区间 never adjacent', () => {
+test('#409 P2 table: every group heading names its source and time; 长期买入上限 and 本周执行区间 carry full names and are never adjacent', () => {
   const { content } = load(bootstrapWith(ROWS));
   const table = byClass(content, 'ios-holding-detail-table')[0];
-  const [groupRow, labelRow] = descendants(table).filter((n) => n.tagName === 'TR').slice(0, 2);
-  assert.deepEqual(groupRow.children.map((c) => c.textContent), ['标的', '估值约束（台账）', '本周执行', '第三方公允值（仅供参考）', '当前台账（实时，当前台账，非本报告快照）']);
-  const labels = labelRow.children.map((c) => c.textContent);
-  const cap = labels.indexOf('长期买入上限');
-  const range = labels.indexOf('本周区间');
+  const heads = GROUP_HEADS(table);
+  assert.deepEqual(heads.slice(0, 4), ['标的', '本周执行区间 · 周报 11/09', '长期估值约束 · 入场计划快照（周报 11/09 读取）',
+    '外部公允值（仅供参考）· 按获取日期']);
+  assert.match(heads[4], /^台账 · 实时 \d+\/\d+ \d{2}:\d{2}（当前台账，非本报告快照）$/);
+  const labels = LABELS(table);
+  const cap = labels.indexOf(CAP);
+  const range = labels.indexOf(RANGE);
   assert.ok(cap !== -1 && range !== -1);
   assert.ok(Math.abs(range - cap) > 1, 'cap and weekly range are not adjacent');
-  assert.ok(labelRow.children[cap].classList.contains('ios-detail-group-start'));
-  assert.ok(labelRow.children[labels.indexOf('适用周')].classList.contains('ios-detail-group-start'));
-  const first = descendants(table).filter((n) => n.tagName === 'TR' && n.getAttribute('data-code') === 'AAA')[0];
-  const cells = first.children.map((c) => c.textContent);
+  assert.equal(labels.indexOf('长期买入上限'), -1, 'the cap never appears under a short name');
+  assert.ok(labelRowCell(table, CAP).classList.contains('ios-detail-group-start'));
+  assert.ok(labelRowCell(table, RANGE).classList.contains('ios-detail-group-start'));
+  assert.ok(labelRowCell(table, '代码 / 名称').classList.contains('ios-sticky-col'), '代码 / 名称 stays fixed');
+  const cells = rowCells(table, 'AAA');
+  assert.equal(cells[0], 'AAAAlpha Co.');
+  assert.equal(cells[labels.indexOf('快照来源')], '周报 11/09');
   assert.equal(cells[cap], '400 USD');
   assert.equal(cells[range], '350 USD（区间1，本周购买计划） – 380 USD（区间1，本周购买计划）');
   assert.equal(cells[labels.indexOf('公允值')], '410.5 USD');
 });
 
-test('cards: the three groups are separate blocks in order, the EFV block says 仅供参考', () => {
+function labelRowCell(table, label) {
+  const row = descendants(table).filter((n) => n.tagName === 'TR')[1];
+  return row.children[row.children.map((c) => c.textContent).indexOf(label)];
+}
+
+function rowCells(table, code) {
+  return descendants(table).filter((n) => n.tagName === 'TR' && n.getAttribute('data-code') === code)[0].children.map((c) => c.textContent);
+}
+
+test('#409 P2 cards: the groups are separate blocks with their source, the EFV block says 仅供参考, state is text', () => {
   const { content } = load(bootstrapWith(ROWS));
   const cards = byClass(content, 'ios-holding-detail-cards')[0];
   const card = cards.children[0];
   const groups = card.children.filter((c) => c.classList.contains('ios-detail-group'));
-  assert.deepEqual(groups.map((g) => g.children[0].textContent), ['估值约束（台账）', '本周执行', '第三方公允值（仅供参考）', '当前台账（实时）']);
-  assert.match(groups[0].textContent, /长期买入上限: 400 USD/);
-  assert.doesNotMatch(groups[0].textContent, /本周区间/);
-  assert.match(groups[1].textContent, /本周区间: 350 USD/);
-  assert.doesNotMatch(groups[1].textContent, /长期买入上限/);
+  assert.deepEqual(groups.map((g) => g.children[0].textContent).slice(0, 3), ['本周执行区间 · 周报 11/09',
+    '长期估值约束 · 入场计划快照（周报 11/09 读取）', '外部公允值（仅供参考）']);
+  assert.match(groups[3].children[0].textContent, /^台账 · 实时 /);
+  assert.match(groups[0].textContent, /本周执行区间: 350 USD/);
+  assert.doesNotMatch(groups[0].textContent, /长期买入上限/);
+  assert.match(groups[1].textContent, /长期买入上限（非本周区间）: 400 USD/);
+  assert.doesNotMatch(groups[1].textContent, /本周执行区间/);
   assert.match(groups[2].textContent, /来源: external-source · 获取日期: 2026-11-08/);
   assert.match(groups[2].textContent, /仅供参考，不能替代长期买入上限/);
-  assert.match(cards.children[1].textContent, /本周区间: 无区间：暂停中/);
-  assert.match(cards.children[2].textContent, /长期买入上限: 未提供/);
+  assert.match(cards.children[1].textContent, /本周执行区间: 无区间：暂停中/);
+  assert.match(cards.children[1].children[0].textContent, /暂停中/, 'a paused card says so in its head, in words');
+  assert.match(cards.children[2].textContent, /长期买入上限（非本周区间）: 未提供/);
   assert.match(cards.children[2].textContent, /现价距上限: 未比较（无长期买入上限）/);
 });
 
-test('filters count and narrow the rows; an empty filter says so', () => {
-  const { content, window } = load(bootstrapWith(ROWS));
+test('#409 P2 filters: 全部 / 持仓 / 观察 / 本周有区间 / 暂停中 / 需更新 / 估值缺失 count and narrow the rows', () => {
+  const { content, window } = load(bootstrapWith(ROWS.concat([detail({ 代码: 'OLDV', 估值研究日期快照: '2026-05-01' })])));
   const labels = byClass(content, 'ios-detail-filter-btn').map((b) => b.textContent);
-  assert.deepEqual(labels, ['全部 (3)', '本周有区间 (1)', '暂停中 (1)', '估值缺失 (1)', '持仓 (2)', '观察 (1)']);
+  assert.deepEqual(labels, ['全部 (4)', '持仓 (3)', '观察 (1)', '本周有区间 (2)', '暂停中 (1)', '需更新 (1)', '估值缺失 (1)']);
   const codes = () => byClass(content, 'ios-holding-detail-cards')[0].children.map((c) => c.getAttribute('data-code'));
   const click = (filter) => byClass(content, 'ios-detail-filter-btn').find((b) => b.getAttribute('data-filter') === filter).click();
   click('suspended');
   assert.deepEqual(codes(), ['PPP']);
   click('watchlist');
   assert.deepEqual(codes(), ['VVV']);
+  click('researchStale');
+  assert.deepEqual(codes(), ['OLDV']);
   click('hasRange');
-  assert.deepEqual(codes(), ['AAA']);
+  assert.deepEqual(codes(), ['AAA', 'OLDV']);
   const one = load(bootstrapWith([ROWS[0]]));
   byClass(one.content, 'ios-detail-filter-btn').find((b) => b.getAttribute('data-filter') === 'suspended').click();
   assert.match(one.content.textContent, /没有符合「暂停中」的标的。/);
   assert.equal(typeof window.selectTab, 'function');
 });
 
-test('an empty report and a view model without holdingDetail render safely', () => {
-  assert.match(load(bootstrapWith([])).content.textContent, /本期报告没有持仓或观察行/);
+test('#409 P2: an empty report and a view model without holdingDetail render safely', () => {
+  assert.match(load(bootstrapWith([])).content.textContent, /最新报告没有持仓或观察行/);
   const missing = bootstrapWith(undefined);
   delete missing.weekly.holdingDetail;
-  assert.match(load(missing).content.textContent, /本报告未提供持仓明细/);
+  assert.match(load(missing).content.textContent, /最新报告没有持仓或观察行/);
 });
 
-test('a history report renders its own frozen rows, not the latest report', () => {
+test('#409 P2: a history selection under 周报 does not change 标的; it keeps the latest report', () => {
   const latest = bootstrapWith(ROWS);
   latest.weeklyHistory = [{ reportId: 'weekly-2026-11-02', reportDate: '2026-11-02' }];
   const legacy = logic.buildHoldingDetailRow_({ 代码: 'OLD', 名称: 'Old Co.', 资产类型: 'holding' }, null);
   const historical = bootstrapWith([legacy]).weekly;
   const { content, window } = load(latest, { getReport: () => historical });
   window.selectHistoryReport('weekly-2026-11-02');
-  const text = content.textContent;
-  assert.match(text, /OLD/);
-  assert.doesNotMatch(text, /AAA/);
-  assert.match(text, /未提供（本报告版本无三层快照）/);
+  window.selectTab('holdingDetail');
+  assert.match(content.textContent, /AAA/);
+  assert.doesNotMatch(content.textContent, /Old Co\./);
 });
 
 // -- Issue #388 PR B: 估值研究日期 需更新 at more than 90 days (maintainer decision, 2026-11-11 JST) --
@@ -382,12 +406,13 @@ function ledgerBootstrap(rows, extra) {
     accountStatus: { state: 'ok', rows: [{ account: 'Broker A', currency: 'JPY', availableCash: 500000 }, { account: 'Broker B', currency: 'USD', availableCash: null }] } }, extra || {});
 }
 
-test('PR F: 配置概况 opens 持仓明细 with only existing facts, labelled as the current ledger', () => {
+test('PR F, #409 P2: 配置概况 follows the 标的 list with only existing facts, labelled as the current ledger', () => {
   const { content } = load(ledgerBootstrap(ROWS));
   const overview = byClass(content, 'ios-allocation-overview')[0];
   assert.ok(overview, '配置概况 is rendered');
-  assert.match(content.children[0].textContent, /^来源：周报 2026-11-09（最新）/, '#396 PR A: the view names the report it reads');
-  assert.equal(content.children[1], overview, '配置概况 comes before the detail table');
+  assert.match(content.children[0].textContent, /^来源：最新周报 11\/09/, 'the view names the reports it reads');
+  assert.ok(content.children[1].classList.contains('ios-holding-detail'), 'the 标的 list comes first');
+  assert.equal(content.children[2], overview, '配置概况 follows the list');
   assert.match(overview.textContent, /当前台账，非本报告快照/);
   assert.match(overview.textContent, /配置比例: 未提供（Sheet 没有市值和汇率字段/);
   assert.match(overview.textContent, /可用现金: Broker A 500000 JPY/);
@@ -402,42 +427,40 @@ test('PR F: 配置概况 opens 持仓明细 with only existing facts, labelled a
   assert.match(byClass(none, 'ios-allocation-overview')[0].textContent, /可用现金: 未提供（Sheet 没有「账户状态」表）/);
 });
 
-test('PR F: table adds a 当前台账 group read as-is from 当前持仓; watchlist is 未持有; four price kinds stay separate columns', () => {
+test('PR F: table adds a 台账 · 实时 group read as-is from 当前持仓; watchlist is 未持有; four price kinds stay separate columns', () => {
   const { content } = load(ledgerBootstrap(ROWS));
   const table = byClass(content, 'ios-holding-detail-table')[0];
-  const [, labelRow] = descendants(table).filter((n) => n.tagName === 'TR').slice(0, 2);
-  const labels = labelRow.children.map((c) => c.textContent);
-  ['长期买入上限', '本周区间', '参考买入价（台账）', '公允值'].forEach((label) => {
+  const labels = LABELS(table);
+  [CAP, RANGE, '参考买入价（台账）', '公允值'].forEach((label) => {
     assert.equal(labels.filter((l) => l === label).length, 1, label + ' is its own column');
   });
-  assert.ok(labelRow.children[labels.indexOf('持有数量')].classList.contains('ios-detail-group-ledger'));
-  const cellsOf = (code) => descendants(table).filter((n) => n.tagName === 'TR' && n.getAttribute('data-code') === code)[0].children.map((c) => c.textContent);
-  const aaa = cellsOf('AAA');
+  assert.ok(labelRowCell(table, '持有数量').classList.contains('ios-detail-group-ledger'));
+  const aaa = rowCells(table, 'AAA');
   assert.equal(aaa[labels.indexOf('持有数量')], '12');
   assert.equal(aaa[labels.indexOf('平均成本')], '310.25 USD');
   assert.equal(aaa[labels.indexOf('参考买入价（台账）')], '340-360');
-  assert.equal(aaa[labels.indexOf('本周区间')], '350 USD（区间1，本周购买计划） – 380 USD（区间1，本周购买计划）', 'the weekly range is never merged with the ledger price');
-  const ppp = cellsOf('PPP');
+  assert.equal(aaa[labels.indexOf(RANGE)], '350 USD（区间1，本周购买计划） – 380 USD（区间1，本周购买计划）', 'the weekly range is never merged with the ledger price');
+  const ppp = rowCells(table, 'PPP');
   assert.equal(ppp[labels.indexOf('平均成本')], '未提供');
   assert.equal(ppp[labels.indexOf('参考买入价（台账）')], '未提供');
-  const vvv = cellsOf('VVV');
+  const vvv = rowCells(table, 'VVV');
   assert.deepEqual([vvv[labels.indexOf('持有数量')], vvv[labels.indexOf('平均成本')], vvv[labels.indexOf('参考买入价（台账）')]], ['未持有', '—', '—']);
 });
 
-test('PR F: phone cards carry the 当前台账 group with its label; a held row no longer in the ledger says so', () => {
+test('PR F: phone cards carry the 台账 · 实时 group with its label; a held row no longer in the ledger says so', () => {
   const sold = [detail({ 代码: 'GONE', 名称: 'Sold Co.' })];
   const { content } = load(ledgerBootstrap(ROWS.concat(sold)));
   const cards = byClass(content, 'ios-holding-detail-cards')[0].children;
   const ledgerOf = (card) => card.children.find((c) => c.classList.contains('ios-detail-group-ledger'));
-  assert.match(ledgerOf(cards[0]).textContent, /当前台账（实时）当前台账，非本报告快照持有数量: 12平均成本: 310.25 USD参考买入价（台账）: 340-360/);
+  assert.match(ledgerOf(cards[0]).textContent, /^台账 · 实时 \d+\/\d+ \d{2}:\d{2}当前台账，非本报告快照持有数量: 12平均成本: 310.25 USD参考买入价（台账）: 340-360$/);
   assert.match(ledgerOf(cards[2]).textContent, /未持有/);
   assert.match(ledgerOf(cards[3]).textContent, /当前台账无此持仓/);
 });
 
-test('PR F: ledger holdings the report does not list are still shown (nothing from the old 资本配置 is lost)', () => {
+test('PR F: ledger holdings no latest report lists are still shown (nothing from the old 资本配置 is lost)', () => {
   const { content } = load(ledgerBootstrap(ROWS));
   const extra = byClass(content, 'ios-ledger-only')[0];
-  assert.match(extra.textContent, /当前台账中有、本报告未列出的持仓 \(1\)/);
+  assert.match(extra.textContent, /当前台账中有、最新报告未列出的持仓 \(1\)/);
   assert.match(extra.textContent, /当前台账，非本报告快照/);
   assert.equal(byClass(extra, 'ios-allocation-table')[0].children[0].children[1].children.length, 1);
   assert.match(byClass(extra, 'ios-allocation-cards')[0].textContent, /NEWB.*持有数量: 3平均成本: 99参考买入价（台账）: 未提供/);
@@ -445,7 +468,7 @@ test('PR F: ledger holdings the report does not list are still shown (nothing fr
   assert.equal(byClass(all, 'ios-ledger-only').length, 0, 'no extra block when every ledger holding is listed');
 });
 
-test('PR F: with no report, 持仓明细 still shows the live ledger after the empty-state card', () => {
+test('PR F: with no report, 标的 still shows the live ledger after the empty-state card', () => {
   const boot = ledgerBootstrap([]);
   boot.weekly = { found: false, reportType: 'weekly' };
   const { content } = load(boot);
@@ -453,19 +476,7 @@ test('PR F: with no report, 持仓明细 still shows the live ledger after the e
   assert.match(byClass(content, 'ios-ledger-only')[0].textContent, /当前台账持仓（实时） \(3\)/);
 });
 
-test('PR F: a history report labels the ledger group as today’s ledger, not part of that report', () => {
-  const old = Object.assign({}, bootstrapWith(ROWS).weekly, {
-    summary: Object.assign({}, bootstrapWith(ROWS).weekly.summary, { 报告ID: 'weekly-2026-10-31', 报告日期: '2026-10-31' }) });
-  const { content, window } = load(ledgerBootstrap(ROWS, { weeklyHistory: [{ reportId: 'weekly-2026-10-31', reportDate: '2026-10-31', headline: 'x' }] }),
-    { getReport: () => Object.assign({ error: null }, old) });
-  assert.doesNotMatch(content.textContent, /正在查看历史报告：「当前台账」/, 'the latest report needs no history note');
-  window.onHistorySelectChange('weekly-2026-10-31');
-  const text = content.textContent;
-  assert.match(text, /正在查看历史报告：「当前台账」与配置概况是今天的台账，不属于该期报告。/);
-  assert.match(byClass(content, 'ios-holding-detail-table')[0].textContent, /当前台账，非本报告快照/);
-});
-
-test('PR F: no share-of-portfolio numbers and no add/trim conclusions anywhere in 持仓明细', () => {
+test('PR F: no share-of-portfolio numbers and no add/trim conclusions anywhere in 标的', () => {
   const { content } = load(ledgerBootstrap(ROWS));
   const text = content.textContent;
   assert.doesNotMatch(text, /当前占比\s*[:：]?\s*\d|目标占比\s*[:：]?\s*\d|\d+(\.\d+)?%\s*(占比|权重)/);
@@ -535,17 +546,16 @@ test('#407: table and cards show 上限口径 and 危机机会价 inside the val
   const rows = [detail({ 上限口径快照: '常规安全边际买价', 危机机会价快照: 320 })];
   const { content } = load(bootstrapWith(rows));
   const table = byClass(content, 'ios-holding-detail-table')[0];
-  const [, labelRow] = descendants(table).filter((n) => n.tagName === 'TR').slice(0, 2);
-  const labels = labelRow.children.map((c) => c.textContent);
-  assert.deepEqual(labels.slice(labels.indexOf('长期买入上限'), labels.indexOf('适用周')),
-    ['长期买入上限', '上限口径', '现价距上限', '长期合理价值', '危机机会价', '来源', '估值研究日期']);
-  const cells = descendants(table).filter((n) => n.tagName === 'TR' && n.getAttribute('data-code') === 'AAA')[0].children.map((c) => c.textContent);
+  const labels = LABELS(table);
+  assert.deepEqual(labels.slice(labels.indexOf(CAP), labels.indexOf('公允值')),
+    [CAP, '上限口径', '现价距上限', '长期合理价值', '危机机会价', '来源', '估值研究日期']);
+  const cells = rowCells(table, 'AAA');
   assert.equal(cells[labels.indexOf('上限口径')], '常规安全边际买价');
   assert.equal(cells[labels.indexOf('危机机会价')], '320 USD（仅参考，不约束周计划）');
   const groups = byClass(byClass(content, 'ios-holding-detail-cards')[0], 'ios-detail-group');
-  assert.match(groups[0].textContent, /上限口径: 常规安全边际买价/);
-  assert.match(groups[0].textContent, /危机机会价: 320 USD（仅参考，不约束周计划）/);
-  assert.doesNotMatch(groups[1].textContent, /危机机会价/);
+  assert.match(groups[1].textContent, /上限口径: 常规安全边际买价/);
+  assert.match(groups[1].textContent, /危机机会价: 320 USD（仅参考，不约束周计划）/);
+  assert.doesNotMatch(groups[0].textContent, /危机机会价/);
 });
 
 test('#407 round trip: only a writer-validated crisis price is shown as a price (fixture from the writer spec)', () => {
@@ -557,4 +567,207 @@ test('#407 round trip: only a writer-validated crisis price is shown as a price 
     assert.equal(row.valuation.crisis, c.dashboard_crisis, c.case);
     if (!['valid', 'equal_to_cap'].includes(c.case)) assert.doesNotMatch(row.valuation.crisis, /仅参考/, c.case);
   });
+});
+
+// -- Issue #409 P2: report-ID bound asset snapshots, the merged 标的 list, its detail and 判断历史 --
+
+function snapshotTabs() {
+  const summary = (id, gen, date) => ({ 报告ID: id, 生成ID: gen, 报告类型: 'weekly', 报告日期: date, 一句话结论: 'x ' + id,
+    核心状态: '正常', Review状态: '已检查', 当前持仓数: 1, 高优先级观察数: 0, 生成时间: date + 'T09:00:00+09:00' });
+  const own = (id, gen, date) => ({ 报告ID: id, 生成ID: gen, 报告类型: 'weekly', 报告日期: date });
+  return {
+    当前持仓: [], 交易记录: [], 观察名单: [],
+    报告摘要: [summary('weekly-2026-11-09', 'g-current', '2026-11-09'), summary('weekly-2026-11-02', 'g-old', '2026-11-02')],
+    报告持仓: [
+      assetRow({ 关键变化: '新：订单加速', 今日行动: '本周无购买区间', 阻塞待办ID: 't1、t9', 价格参考确认条件: '站稳 360', 价格参考否定条件: '跌破 340',
+        停止条件说明: '指引下修则暂停', 下一验证点: '11/20 财报' }),
+      assetRow({ 代码: 'BBB', 名称: 'Beta Co.', 排序: 2 }),
+      Object.assign({ 代码: 'AAA', 名称: 'Alpha Co.', 资产类型: 'holding', 关键变化: '旧：订单平稳', Thesis状态: '维持', 今日行动: '等待价格' }, own('weekly-2026-11-02', 'g-old', '2026-11-02')),
+      assetRow({ 代码: 'AAA', 生成ID: 'g-superseded', 关键变化: '被取代的生成' })
+    ],
+    报告风险: [
+      Object.assign({ 风险: '客户集中', 严重度: '高', 风险对象: 'AAA', 风险评估: '触发', 风险键: 'k1' }, own('weekly-2026-11-09', 'g-current', '2026-11-09')),
+      Object.assign({ 风险: '行业周期', 严重度: '中', 影响资产: 'AAA、BBB', 风险评估: '触发' }, own('weekly-2026-11-09', 'g-current', '2026-11-09')),
+      Object.assign({ 风险: '名字相近', 严重度: '低', 影响资产: 'AAAX', 风险评估: '触发' }, own('weekly-2026-11-09', 'g-current', '2026-11-09')),
+      Object.assign({ 风险: '对象是 BBB', 严重度: '低', 风险对象: 'BBB', 影响资产: 'AAA', 风险评估: '触发' }, own('weekly-2026-11-09', 'g-current', '2026-11-09')),
+      Object.assign({ 风险: '旧风险', 严重度: '中', 影响资产: 'AAA' }, own('weekly-2026-11-02', 'g-old', '2026-11-02'))
+    ],
+    报告待办: [Object.assign({ 待办ID: 't1', 待办: '核对订单', 状态: '待处理', 排序: 1 }, own('weekly-2026-11-09', 'g-current', '2026-11-09'))]
+  };
+}
+
+test('#409 P2 model: a report’s asset snapshot is copied from that generation’s own rows only', () => {
+  const tabs = snapshotTabs();
+  const latest = logic.buildReportViewModel_(tabs, 'weekly', null);
+  const aaa = latest.assetSnapshots.find((s) => s.code === 'AAA');
+  assert.equal(aaa.reportId, 'weekly-2026-11-09');
+  assert.equal(aaa.generationId, 'g-current');
+  assert.equal(aaa.threeLayer, true);
+  assert.equal(aaa.layerNote, '');
+  assert.equal(aaa.evidence.keyChange, '新：订单加速', 'never the superseded generation');
+  assert.deepEqual(aaa.conditions, { confirm: '站稳 360', deny: '跌破 340', stop: '指引下修则暂停', nextCheck: '11/20 财报', blocker: '' });
+  assert.deepEqual(aaa.risks.map((r) => r.risk), ['客户集中', '行业周期'],
+    '风险对象 decides when present; else an exact 影响资产 entry; AAAX and a BBB-object row do not match');
+  assert.deepEqual(aaa.blockers, [{ id: 't1', found: true, todo: '核对订单', status: '待处理' }, { id: 't9', found: false }]);
+  assert.deepEqual(latest.assetSnapshots.map((s) => s.code), ['AAA', 'BBB']);
+
+  const old = logic.getReport_(tabs, 'weekly-2026-11-02');
+  const oldAaa = old.assetSnapshots.find((s) => s.code === 'AAA');
+  assert.equal(oldAaa.reportId, 'weekly-2026-11-02');
+  assert.equal(oldAaa.evidence.keyChange, '旧：订单平稳');
+  assert.deepEqual(oldAaa.risks.map((r) => r.risk), ['旧风险']);
+  assert.equal(oldAaa.threeLayer, false);
+  assert.equal(oldAaa.layerNote, '本报告版本无三层快照');
+  assert.deepEqual(oldAaa.conditions, { confirm: '', deny: '', stop: '', nextCheck: '', blocker: '' }, 'nothing filled from the newer report');
+  assert.equal(old.assetSnapshots.find((s) => s.code === 'BBB'), undefined, 'a code the old report does not list has no snapshot there');
+});
+
+test('#409 P2 model: weekly research items join a snapshot only by an exact 关联代码 entry', () => {
+  const summary = { 报告ID: 'weekly-2026-11-09', 生成ID: 'g', 报告类型: 'weekly', 报告日期: '2026-11-09' };
+  const research = [
+    { 关联代码: 'AAA、CCC', 分区: '判断变化', 标题: '订单', 结论: '加速', 本周证据: '公告', 状态: '已变化' },
+    { 关联代码: 'AAAX', 分区: '判断变化', 标题: '别的', 结论: 'x' },
+    { 关联代码: '', 分区: '本周结论', 标题: '组合', 结论: 'y' }
+  ];
+  const snap = logic.buildAssetSnapshot_(assetRow(), summary, [], [], research);
+  assert.deepEqual(snap.evidence.research, [{ section: '判断变化', title: '订单', conclusion: '加速', evidence: '公告', status: '已变化', next: '' }]);
+});
+
+function twoReportBootstrap(weeklyRows, dailyRows, extra) {
+  const base = bootstrapWith(weeklyRows);
+  base.daily = Object.assign({}, base.weekly, {
+    reportType: 'daily',
+    summary: Object.assign({}, base.weekly.summary, { 报告ID: 'daily-2026-11-10', 报告日期: '2026-11-10' }),
+    holdingDetail: dailyRows
+  });
+  return Object.assign(base, extra || {});
+}
+
+test('#409 P2: an asset in both latest reports is read from the newer one and listed once; mixed sources say so', () => {
+  const weekly = [detail({}), detail({ 代码: 'WOW', 名称: 'Weekly Only' })];
+  const daily = [detail({ 周计划状态: '事件暂停' })];
+  const { content } = load(twoReportBootstrap(weekly, daily));
+  const table = byClass(content, 'ios-holding-detail-table')[0];
+  const labels = LABELS(table);
+  const rows = descendants(table).filter((n) => n.tagName === 'TR' && n.getAttribute('data-code'));
+  assert.deepEqual(rows.map((r) => r.getAttribute('data-code')), ['AAA', 'WOW'], 'AAA once');
+  assert.equal(rowCells(table, 'AAA')[labels.indexOf('快照来源')], '日报 11/10');
+  assert.equal(rowCells(table, 'AAA')[labels.indexOf(RANGE)], '无区间：暂停中', 'the newer report’s values');
+  assert.equal(rowCells(table, 'WOW')[labels.indexOf('快照来源')], '周报 11/09');
+  assert.equal(GROUP_HEADS(table)[1], '本周执行区间 · 各行见「快照来源」');
+  const same = load(twoReportBootstrap([detail({})], [detail({})])).content;
+  assert.equal(GROUP_HEADS(byClass(same, 'ios-holding-detail-table')[0])[1], '本周执行区间 · 日报 11/10');
+});
+
+function snapshotBootstrap(handlers) {
+  const tabs = snapshotTabs();
+  const boot = logic.buildDashboardBootstrap_(tabs);
+  boot.weeklyHistory = logic.buildHistoryList_(tabs['报告摘要'], 'weekly');
+  const calls = [];
+  const loaded = load(boot, Object.assign({ getReport: (id) => { calls.push(id); return Object.assign({ error: null }, logic.getReport_(tabs, id)); } }, handlers || {}));
+  return Object.assign(loaded, { calls });
+}
+
+function openRow(content, code) {
+  const table = byClass(content, 'ios-holding-detail-table')[0];
+  descendants(table).filter((n) => n.tagName === 'TR' && n.getAttribute('data-code') === code)[0].click();
+  return byClass(byClass(content, 'ios-holding-detail-table')[0], 'ios-asset-detail')[0];
+}
+
+test('#409 P2 detail: a row opens 本期快照, the shared todo/risk items of this code, and 判断历史; a second click closes it', () => {
+  const { content } = snapshotBootstrap();
+  const detailNode = openRow(content, 'AAA');
+  assert.ok(detailNode, 'the detail opens beneath the row');
+  const text = detailNode.textContent;
+  assert.match(text, /本期快照 · 最新周报 11\/09/);
+  assert.match(text, /关键变化: 新：订单加速/);
+  assert.match(text, /价格参考确认条件: 站稳 360/);
+  assert.match(text, /价格参考否定条件: 跌破 340/);
+  assert.match(text, /停止条件: 指引下修则暂停/);
+  assert.match(text, /下一验证点: 11\/20 财报/);
+  assert.match(text, /t9: 未找到：该报告没有这条待办/);
+  assert.match(text, /相关待办与风险（与「待办」「风险」同源）卡住买入 2 · 触发风险 2 · 数据维护 0/);
+  assert.match(text, /核对订单/);
+  assert.match(text, /阻塞待办未找到/);
+  assert.doesNotMatch(byClass(detailNode, 'ios-asset-actions')[0].textContent, /名字相近|对象是 BBB/);
+  const history = byClass(detailNode, 'ios-history-link').map((b) => b.textContent);
+  assert.deepEqual(history, ['周报 11/09', '周报 11/02']);
+  assert.doesNotMatch(text, /weekly-2026-11-0\d/, 'report IDs stay out of the reading text');
+  const card = byClass(content, 'ios-holding-detail-cards')[0].children[0];
+  assert.ok(byClass(card, 'ios-asset-detail').length === 1, 'the phone card shows the same detail');
+  openRow(content, 'AAA');
+  assert.equal(byClass(content, 'ios-asset-detail').length, 0);
+});
+
+test('#409 P2 判断历史: a history date opens that report ID’s own snapshot, never the latest one', () => {
+  const { content, calls } = snapshotBootstrap();
+  let node = openRow(content, 'AAA');
+  byClass(node, 'ios-history-link').find((b) => b.textContent === '周报 11/02').click();
+  assert.deepEqual(calls, ['weekly-2026-11-02'], 'fetched by its report ID');
+  const panel = byClass(content, 'ios-snapshot-panel')[0];
+  assert.equal(panel.getAttribute('data-report-id'), 'weekly-2026-11-02');
+  const text = panel.textContent;
+  assert.match(text, /^报告时快照 · 周报 11\/02/);
+  assert.match(text, /历史报告的快照，只是该报告当时的内容，不是当前结论。/);
+  assert.match(text, /关键变化: 旧：订单平稳/);
+  assert.match(text, /Thesis状态: 维持/);
+  assert.match(text, /本报告版本无三层快照/);
+  assert.match(text, /旧风险/);
+  assert.doesNotMatch(text, /新：订单加速|站稳 360|客户集中|核对订单/, 'nothing from the latest report');
+  assert.match(text, /本周执行区间 \/ 长期估值约束（该报告）状态: 本报告版本无三层快照/);
+  node = byClass(content, 'ios-asset-detail')[0];
+  byClass(node, 'ios-history-link').find((b) => b.textContent === '周报 11/09').click();
+  assert.deepEqual(calls, ['weekly-2026-11-02'], 'the latest report is already loaded, no fetch');
+  assert.match(byClass(content, 'ios-snapshot-panel')[0].textContent, /这是最新一份周报。/);
+});
+
+test('#409 P2 判断历史: a report that does not list the asset says so, and a failed read says so; neither falls back to the latest', () => {
+  const { content } = snapshotBootstrap();
+  const node = openRow(content, 'BBB');
+  byClass(node, 'ios-history-link').find((b) => b.textContent === '周报 11/02').click();
+  const panel = byClass(content, 'ios-snapshot-panel')[0].textContent;
+  assert.match(panel, /该报告未列出此标的。不用其他报告的数据补位。/);
+  assert.doesNotMatch(panel, /Beta Co\.|行业周期/);
+  const failing = snapshotBootstrap({ getReport: () => { throw new Error('超时'); } });
+  byClass(openRow(failing.content, 'AAA'), 'ios-history-link').find((b) => b.textContent === '周报 11/02').click();
+  assert.match(byClass(failing.content, 'ios-snapshot-panel')[0].textContent, /读取该报告失败：超时/);
+  const missing = snapshotBootstrap({ getReport: () => ({ error: null, found: false }) });
+  byClass(openRow(missing.content, 'AAA'), 'ios-history-link').find((b) => b.textContent === '周报 11/02').click();
+  assert.match(byClass(missing.content, 'ios-snapshot-panel')[0].textContent, /找不到该报告。/);
+});
+
+test('#409 P2 判断历史: a late answer for a snapshot the viewer already left is ignored', () => {
+  const tabs = snapshotTabs();
+  const boot = logic.buildDashboardBootstrap_(tabs);
+  boot.weeklyHistory = logic.buildHistoryList_(tabs['报告摘要'], 'weekly');
+  let answer = null;
+  const document = createFakeDocument();
+  const pending = {};
+  const google = { script: { run: { withSuccessHandler(ok) { return { withFailureHandler() { return { getReport(id) { pending.ok = ok; pending.id = id; } }; } }; } } } };
+  const sandbox = { document, window: {}, google, IOS_BOOTSTRAP: boot, IOS_ACTIVE_VIEW: 'weekly', console };
+  vm.createContext(sandbox);
+  vm.runInContext(SCRIPT_HTML_SRC, sandbox, { filename: 'Script.html' });
+  sandbox.window.selectTab('holdingDetail');
+  const content = document.getElementById('ios-tab-content');
+  byClass(openRow(content, 'AAA'), 'ios-history-link').find((b) => b.textContent === '周报 11/02').click();
+  assert.match(byClass(content, 'ios-snapshot-panel')[0].textContent, /正在读取该报告/);
+  byClass(byClass(content, 'ios-snapshot-panel')[0], 'ios-snapshot-close')[0].click();
+  answer = Object.assign({ error: null }, logic.getReport_(tabs, pending.id));
+  pending.ok(answer);
+  assert.equal(byClass(content, 'ios-snapshot-panel').length, 0, 'a closed snapshot stays closed');
+});
+
+test('#409 P2: a row without the three-layer snapshot says so once, not in every column; the card says it once too', () => {
+  const legacy = logic.buildHoldingDetailRow_({ 代码: 'OLD', 名称: 'Old Co.', 资产类型: 'holding' }, null);
+  const { content } = load(bootstrapWith([ROWS[0], legacy]));
+  const table = byClass(content, 'ios-holding-detail-table')[0];
+  const old = descendants(table).filter((n) => n.tagName === 'TR' && n.getAttribute('data-code') === 'OLD')[0];
+  const merged = old.children.filter((c) => c.textContent === '本报告版本无三层快照');
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].getAttribute('colspan'), '10', 'spans 本周执行区间 and 长期估值约束');
+  assert.doesNotMatch(old.textContent, /未提供（本报告版本无三层快照）/);
+  const width = (tr) => tr.children.reduce((n, c) => n + Number(c.getAttribute('colspan') || 1), 0);
+  assert.equal(width(old), width(descendants(table).filter((n) => n.tagName === 'TR' && n.getAttribute('data-code') === 'AAA')[0]));
+  const card = byClass(content, 'ios-holding-detail-cards')[0].children[1];
+  assert.equal((card.textContent.match(/本报告版本无三层快照/g) || []).length, 1);
 });

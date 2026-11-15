@@ -125,9 +125,24 @@ function harnessScript() {
     var doc = win.document;
     ['daily', 'weekly'].forEach(function (view) {
       win.switchView(view);
-      // Issue #396: 日报 / 周报 are views of their own; 持仓明细 and 风险 read the report chosen there.
-      ['report', 'holdingDetail', 'risks', 'todos', 'today'].forEach(function (tab) {
-        win.selectTab(tab === 'report' ? view : tab);
+      // Issue #396: 日报 / 周报 are views of their own. Issue #409 P2: 'assetOpen' is 标的 with
+      // the first asset's detail and its first 判断历史 snapshot open (the row on a desktop, the
+      // card's 查看详情 on a phone).
+      ['report', 'holdingDetail', 'assetOpen', 'risks', 'todos', 'today'].forEach(function (tab) {
+        win.selectTab(tab === 'report' ? view : (tab === 'assetOpen' ? 'holdingDetail' : tab));
+        if (tab === 'assetOpen') {
+          var opener = Array.prototype.filter.call(doc.querySelectorAll('.ios-asset-detail-toggle, tr.ios-asset-row'), function (n) {
+            return n.getBoundingClientRect().width > 0;
+          })[0];
+          var alreadyOpen = Array.prototype.some.call(doc.querySelectorAll('.ios-asset-detail'), function (n) {
+            return n.getBoundingClientRect().width > 0;
+          });
+          if (opener && !alreadyOpen) { opener.click(); }
+          var link = Array.prototype.filter.call(doc.querySelectorAll('.ios-history-link'), function (n) {
+            return n.getBoundingClientRect().width > 0;
+          })[0];
+          if (link) { link.click(); }
+        }
         Array.prototype.forEach.call(doc.querySelectorAll('details'), function (d) { d.open = true; });
         var root = doc.documentElement;
         var offenders = [];
@@ -176,7 +191,8 @@ function harnessScript() {
           }),
           cardColumns: grid ? win.getComputedStyle(grid).gridTemplateColumns.split(' ').length : 0,
           sections: ['.ios-layering', '.ios-layer-fact', '.ios-layer-verdict', '.ios-inline-fair-value', '.ios-asset-card',
-            '.ios-today-counts', '.ios-today-todo', '.ios-today-report', '.ios-checklist', '.ios-todo-copy', '.ios-todo-note-part', '.ios-todo-split', '.ios-list', '.ios-allocation-cards', '.ios-holding-detail-cards', '.ios-holding-detail-cards .ios-detail-group-ledger']
+            '.ios-today-counts', '.ios-today-todo', '.ios-today-report', '.ios-checklist', '.ios-todo-copy', '.ios-todo-note-part', '.ios-todo-split', '.ios-list', '.ios-allocation-cards', '.ios-holding-detail-cards', '.ios-holding-detail-cards .ios-detail-group-ledger',
+            '.ios-asset-detail', '.ios-snapshot-panel', '.ios-holding-detail-table .ios-sticky-col']
             .filter(function (sel) { return Array.prototype.some.call(doc.querySelectorAll(sel), visible); })
         });
       });
@@ -263,7 +279,7 @@ test('no Daily or Weekly tab scrolls sideways at 320-430px or desktop, and deskt
   }
   const boot = stressBootstrap();
   const results = runInChrome(chrome, harnessHtml(dashboardHtml(boot, 'daily')));
-  assert.equal(results.length, WIDTHS.length * 10, JSON.stringify(results.filter((r) => r.error)));
+  assert.equal(results.length, WIDTHS.length * 12, JSON.stringify(results.filter((r) => r.error)));
   results.forEach((r) => {
     assert.ok(r.scrollWidth <= r.clientWidth,
       `${r.width}px ${r.view}/${r.tab}: scrollWidth ${r.scrollWidth} > clientWidth ${r.clientWidth}; widest: ${r.offenders.join(', ')}`);
@@ -303,8 +319,16 @@ test('no Daily or Weekly tab scrolls sideways at 320-430px or desktop, and deskt
   assert.ok(at(390, 'weekly', 'report').sections.includes('.ios-layer-verdict'), 'the Weekly verdict rows are covered');
   ['daily', 'weekly'].forEach((view) => {
     const detail = results.find((r) => r.width === 390 && r.view === view && r.tab === 'holdingDetail');
-    assert.ok(detail.sections.includes('.ios-holding-detail-cards'), `${view} renders the 持仓明细 cards`);
+    assert.ok(detail.sections.includes('.ios-holding-detail-cards'), `${view} renders the 标的 cards`);
+    // Issue #409 P2: the open asset detail and a 判断历史 snapshot fit a phone and a desktop.
+    [390, 1280].forEach((width) => {
+      const open = results.find((r) => r.width === width && r.view === view && r.tab === 'assetOpen');
+      assert.ok(open.sections.includes('.ios-asset-detail'), `${width}px ${view}: the asset detail is open`);
+      assert.ok(open.sections.includes('.ios-snapshot-panel'), `${width}px ${view}: a 判断历史 snapshot is open`);
+    });
+    assert.ok(results.find((r) => r.width === 1280 && r.view === view && r.tab === 'holdingDetail').sections
+      .includes('.ios-holding-detail-table .ios-sticky-col'), `${view}: 代码 / 名称 is the fixed column on a desktop`);
     // Issue #388 PR F: the live ledger group (former 资本配置) is inside each 持仓明细 card at 390px.
-    assert.ok(detail.sections.includes('.ios-holding-detail-cards .ios-detail-group-ledger'), `${view} renders the 当前台账 group in the 持仓明细 cards`);
+    assert.ok(detail.sections.includes('.ios-holding-detail-cards .ios-detail-group-ledger'), `${view} renders the 台账 group in the 标的 cards`);
   });
 });

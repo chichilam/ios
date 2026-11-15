@@ -39,14 +39,17 @@
   // Issue #409 P1: 今天 comes first and opens by default.
   var TABS = ['today', 'todos', 'daily', 'weekly', 'holdingDetail', 'risks'];
   // Issue #409 P0: each view's page title (the large heading above its content).
-  var TAB_TITLES = { today: '今天', todos: '待办', daily: '日报', weekly: '周报', holdingDetail: '持仓明细', risks: '风险' };
+  var TAB_TITLES = { today: '今天', todos: '待办', daily: '日报', weekly: '周报', holdingDetail: '标的', risks: '风险' };
 
   var STATE = {
     bootstrap: IOS_BOOTSTRAP,
-    activeView: IOS_ACTIVE_VIEW === 'weekly' ? 'weekly' : 'daily', // the report 日报/周报, 持仓明细 and 风险 read
+    activeView: IOS_ACTIVE_VIEW === 'weekly' ? 'weekly' : 'daily', // the report 日报/周报, history selection reads
     activeTab: 'today',
     detailTab: 'today', // the view #ios-tab-content renders: activeTab unless that is a report tab
-    holdingDetailFilter: 'all', // 持仓明细 filter (Issue #388 PR A)
+    holdingDetailFilter: 'all', // 标的 filter (Issue #388 PR A, #409 P2)
+    assetOpenCode: null, // 标的: the asset whose detail is open (Issue #409 P2)
+    assetSnapshot: null, // 标的详情 › 判断历史: { code, reportId, state, vm, error } of the open report snapshot
+    reportCache: {}, // report view models fetched by ID for 判断历史, keyed by 报告ID
     viewingReportId: null, // non-null while pinned to a specific history entry
     displayedViewModel: null, // the viewModel for viewingReportId, once fetched
     loading: false,
@@ -399,9 +402,9 @@
     return tab === 'daily' || tab === 'weekly';
   }
 
-  /** 今天, 待办 and 风险 always merge the latest Daily and Weekly, whatever a history selection shows (Issue #396, #409 P1). */
+  /** 今天, 标的, 待办 and 风险 always merge the latest Daily and Weekly, whatever a history selection shows (Issue #396, #409 P1/P2). */
   function isMergedTab_(tab) {
-    return tab === 'today' || tab === 'todos' || tab === 'risks';
+    return tab === 'today' || tab === 'todos' || tab === 'holdingDetail' || tab === 'risks';
   }
 
   function reportLabel_(type) {
@@ -1192,14 +1195,14 @@
       verdicts.appendChild(buildWeeklyVerdictItem_(asset, vm.todos));
     });
     fourth.push(verdicts.children.length ? verdicts : text('p', 'ios-empty-note', '本报告没有写出今日行动的资产。'));
-    fourth.push(text('p', 'ios-muted', '估值与完整购买计划依据见顶部「持仓明细」。'));
+    fourth.push(text('p', 'ios-muted', '估值与完整购买计划依据见「标的」。'));
     sections.push(el('section', { className: 'ios-card ios-layer-section' }, fourth));
 
     if (weekly.unplaced.length) {
       sections.push(el('section', { className: 'ios-card ios-layer-section' },
         [text('h2', null, vmText_().shapeError)].concat(weekly.unplaced.map(buildResearchRow_))));
     }
-    sections.push(text('p', 'ios-muted ios-layer-next', '⑤ 全部持仓与观察候选的完整卡片见下方；持仓明细、风险与待办见顶部对应 tab。'));
+    sections.push(text('p', 'ios-muted ios-layer-next', '⑤ 全部持仓与观察候选的完整卡片见下方；标的、风险与待办见对应视图。'));
     return sections;
   }
 
@@ -1353,31 +1356,7 @@
       buildMergedRisksView_().forEach(function (node) { container.appendChild(node); });
       return;
     }
-    var vm = currentViewModel();
-    if (!vm || !vm.found) {
-      // Each view now replaces the report on the whole page (Issue #388 PR D),
-      // so a report-based view repeats the "no report yet" card itself. The
-      // live ledger (formerly 资本配置) does not depend on a report, so
-      // 持仓明细 still shows it (Issue #388 PR F).
-      container.appendChild(buildEmptyStateCard(STATE.activeView));
-      if (tab === 'holdingDetail') {
-        container.appendChild(buildAllocationOverview_());
-        container.appendChild(buildLedgerOnlySection_(STATE.bootstrap.allocation || [], '当前台账持仓（实时）'));
-      }
-      return;
-    }
-
-    container.appendChild(reportSourceLine_(vm));
-    container.appendChild(buildAllocationOverview_());
-    container.appendChild(buildHoldingDetailSection(vm.holdingDetail));
-  }
-
-  /** 持仓明细 reads the report last chosen under 日报 / 周报; say which one. */
-  function reportSourceLine_(vm) {
-    var summary = vm.summary || {};
-    return text('p', 'ios-report-caption ios-view-source', '来源：' + reportLabel_(vm.reportType) + ' ' +
-      (isBlank(summary['报告日期']) ? '日期未知' : summary['报告日期']) + (STATE.viewingReportId ? '（历史报告）' : '（最新）') +
-      ' · 在「日报」「周报」中切换来源');
+    buildAssetsView_().forEach(function (node) { container.appendChild(node); });
   }
 
   /**
@@ -3491,22 +3470,23 @@
     ];
   }
 
-  // -- 持仓明细 (Issue #388 PR A): one row per holding/watchlist entry of the
-  // selected report, built server-side by buildHoldingDetailView_ from that
-  // report's own snapshot. Three groups kept apart -- 估值约束（台账）, 本周执行,
-  // 第三方公允值 -- and the long-term cap is never placed next to the weekly
-  // range. Desktop table and phone cards come from the same rows; CSS picks
-  // one. Issue #388 PR F adds a fourth group, 当前台账（实时）: the live
-  // 当前持仓 row of the same code (the former 资本配置 view), always labelled
-  // as the current ledger, never as part of the report's snapshot. --
+  // -- 标的 (Issue #409 P2, formerly 持仓明细 of Issue #388 PR A/F). One row
+  // per asset of the latest Weekly and the latest Daily: each asset is read
+  // from the newest of the two reports that lists it (same day: 日报), and
+  // every group heading names that report. The row values are that report's
+  // own holdingDetail row, built server-side by buildHoldingDetailView_; the
+  // live 当前持仓 row is a separate group labelled 台账 · 实时. A row opens
+  // the asset's detail; 判断历史 opens the snapshot of one report ID
+  // (vm.assetSnapshots of that report only, never the latest). --
 
   var HOLDING_DETAIL_FILTERS_ = [
     ['all', '全部', function () { return true; }],
+    ['holding', '持仓', function (row) { return row.kind === 'holding'; }],
+    ['watchlist', '观察', function (row) { return row.kind === 'watchlist'; }],
     ['hasRange', '本周有区间', function (row) { return row.filters.hasRange; }],
     ['suspended', '暂停中', function (row) { return row.filters.suspended; }],
-    ['valuationMissing', '估值缺失', function (row) { return row.filters.valuationMissing; }],
-    ['holding', '持仓', function (row) { return row.kind === 'holding'; }],
-    ['watchlist', '观察', function (row) { return row.kind === 'watchlist'; }]
+    ['researchStale', '需更新', function (row) { return !!(row.valuation && row.valuation.researchStale); }],
+    ['valuationMissing', '估值缺失', function (row) { return row.filters.valuationMissing; }]
   ];
 
   function holdingDetailKindLabel_(row) {
@@ -3559,11 +3539,6 @@
     };
   }
 
-  function ledgerHistoryNote_() {
-    return STATE.viewingReportId
-      ? text('p', 'ios-entry-plan-incomplete', '正在查看历史报告：「当前台账」与配置概况是今天的台账，不属于该期报告。')
-      : null;
-  }
 
   /** 状态=持有 rows whose quantity is missing/invalid: named, never counted as current holdings. */
   function excludedLedgerLine_() {
@@ -3605,7 +3580,6 @@
     return el('section', { className: 'ios-card ios-allocation-overview' }, [
       text('h2', null, '配置概况'),
       text('p', 'ios-muted', LEDGER_NOTE_),
-      ledgerHistoryNote_(),
       labelledLine_('配置比例', null, '未提供（Sheet 没有市值和汇率字段，Dashboard 不自行计算当前占比或目标占比）'),
       labelledLine_('可用现金', cash, '未提供'),
       accountStatusLines_(),
@@ -3626,138 +3600,522 @@
     return el('div', { className: 'ios-detail-group ios-detail-group-ledger ios-ledger-only' }, children);
   }
 
-  function buildHoldingDetailSection(rows) {
-    var children = [
-      text('h2', null, '持仓明细'),
-      text('p', 'ios-hint', '估值约束来自本报告快照中的入场计划，本周执行来自本周购买计划，两者分开显示；只有同币种才计算现价距长期买入上限。第三方公允值仅供参考，不能替代长期买入上限。估值研究日期早于本报告日期超过 90 天标「需更新」；日期缺失或不可读为「未比较」。「当前台账（实时）」读自当前持仓表，是当前台账，非本报告快照；参考买入价（台账）不是本周区间，也不是长期买入上限。'),
-      ledgerHistoryNote_()
-    ];
-    if (!Array.isArray(rows)) {
-      children.push(text('p', 'ios-empty-note', '本报告未提供持仓明细。'));
-      children.push(buildLedgerOnlySection_(STATE.bootstrap.allocation || [], '当前台账持仓（实时）'));
-      return el('section', { className: 'ios-card ios-holding-detail' }, children);
-    }
-    var active = HOLDING_DETAIL_FILTERS_.filter(function (f) { return f[0] === STATE.holdingDetailFilter; })[0] || HOLDING_DETAIL_FILTERS_[0];
-    children.push(el('div', { className: 'ios-detail-filter-bar' }, HOLDING_DETAIL_FILTERS_.map(function (f) {
-      var count = rows.filter(f[2]).length;
-      var btn = el('button', {
-        className: 'ios-detail-filter-btn' + (f === active ? ' active' : ''),
-        text: f[1] + ' (' + count + ')',
-        attrs: { type: 'button', 'data-filter': f[0] },
-        onclick: function () { selectHoldingDetailFilter(f[0]); }
-      });
-      if (f === active) btn.setAttribute('aria-pressed', 'true');
-      return btn;
-    })));
-    var shown = rows.filter(active[2]);
-    if (rows.length === 0) {
-      children.push(text('p', 'ios-empty-note', '本期报告没有持仓或观察行——这是合法的空结果，不是错误。'));
-    } else if (shown.length === 0) {
-      children.push(text('p', 'ios-empty-note', '没有符合「' + active[1] + '」的标的。'));
-    } else {
-      var byCode = ledgerByCode_();
-      var excluded = ledgerExcludedCodes_();
-      children.push(buildHoldingDetailTable(shown, byCode, excluded));
-      children.push(buildHoldingDetailCards(shown, byCode, excluded));
-    }
-    var listed = {};
-    rows.forEach(function (row) { listed[ledgerCode_(row.code)] = true; });
-    var extra = (STATE.bootstrap.allocation || []).filter(function (entry) { return !listed[ledgerCode_(entry.code)]; });
-    if (extra.length) { children.push(buildLedgerOnlySection_(extra, '当前台账中有、本报告未列出的持仓')); }
-    return el('section', { className: 'ios-card ios-holding-detail' }, children);
+  /** The newer of two report entries (same 报告日期: 日报), the same rule the 风险 view uses for its lead row. */
+  function newerReport_(a, b) {
+    var da = reportDate_(a);
+    var db = reportDate_(b);
+    if (db > da) { return b; }
+    if (db === da && b.type === 'daily' && a.type !== 'daily') { return b; }
+    return a;
   }
 
-  /** Desktop: grouped columns; 长期买入上限 opens the first group and 本周区间 closes the second. */
-  function buildHoldingDetailTable(rows, byCode, excluded) {
-    var groups = [
-      ['标的', ['代码', '名称', '类型'], ''],
-      ['估值约束（台账）', ['长期买入上限', '上限口径', '现价距上限', '长期合理价值', '危机机会价', '来源', '估值研究日期'], 'ios-detail-group-valuation'],
-      ['本周执行', ['适用周', '计划状态', '本周区间'], 'ios-detail-group-weekly'],
-      ['第三方公允值（仅供参考）', ['公允值', '来源', '获取日期'], 'ios-detail-group-efv'],
-      ['当前台账（实时，' + LEDGER_NOTE_ + '）', ['持有数量', '平均成本', '参考买入价（台账）'], 'ios-detail-group-ledger']
+  /**
+   * Every asset of the given reports, once: { code, row (that report's own
+   * holdingDetail row), entry (the report it is read from), also (other
+   * reports that list it) }. Order: the lead report's own order, the
+   * Weekly's assets first, then any the Daily alone lists.
+   */
+  function assetRows_(reports) {
+    var items = [];
+    var byCode = {};
+    reports.forEach(function (entry) {
+      (entry.vm.holdingDetail || []).forEach(function (row) {
+        var code = ledgerCode_(row.code);
+        var item = byCode[code];
+        if (!item) {
+          item = { code: code, row: row, entry: entry, also: [] };
+          byCode[code] = item;
+          items.push(item);
+          return;
+        }
+        var lead = newerReport_(item.entry, entry);
+        if (lead === entry) {
+          item.also.push(item.entry);
+          item.row = row;
+          item.entry = entry;
+        } else {
+          item.also.push(entry);
+        }
+      });
+    });
+    return items;
+  }
+
+  function readTimeText_() {
+    var at = STATE.readAt;
+    return (at.getMonth() + 1) + '/' + at.getDate() + ' ' + pad2_(at.getHours()) + ':' + pad2_(at.getMinutes());
+  }
+
+  /** One report label for a group heading when every shown row comes from it, else a pointer to the per-row column. */
+  function assetGroupSource_(items) {
+    var labels = [];
+    items.forEach(function (item) {
+      var label = reportShortLabel_(item.entry);
+      if (labels.indexOf(label) === -1) { labels.push(label); }
+    });
+    return labels.length === 1 ? labels[0] : '各行见「快照来源」';
+  }
+
+  function assetGroups_(items) {
+    var source = assetGroupSource_(items);
+    return [
+      ['标的', ['代码 / 名称', '类型', '快照来源'], ''],
+      ['本周执行区间 · ' + source, ['本周执行区间', '适用周', '计划状态'], 'ios-detail-group-weekly'],
+      ['长期估值约束 · 入场计划快照（' + source + ' 读取）', ['长期买入上限（非本周区间）', '上限口径', '现价距上限', '长期合理价值', '危机机会价', '来源', '估值研究日期'], 'ios-detail-group-valuation'],
+      ['外部公允值（仅供参考）· 按获取日期', ['公允值', '来源', '获取日期'], 'ios-detail-group-efv'],
+      ['台账 · 实时 ' + readTimeText_() + '（' + LEDGER_NOTE_ + '）', ['持有数量', '平均成本', '参考买入价（台账）'], 'ios-detail-group-ledger']
     ];
+  }
+
+  var ASSET_NO_LAYER_TEXT_ = '本报告版本无三层快照';
+
+  function toggleAsset_(code) {
+    STATE.assetOpenCode = STATE.assetOpenCode === code ? null : code;
+    renderTabContent();
+  }
+
+  /** Desktop: one wide table; 代码 / 名称 stays fixed on the left; a row click opens its detail beneath it. */
+  function buildHoldingDetailTable(items, byCode, excluded, model) {
+    var groups = assetGroups_(items);
+    var width = groups.reduce(function (n, g) { return n + g[1].length; }, 0);
     var head = el('thead', null, [
-      el('tr', null, groups.map(function (g) {
-        return el('th', { className: g[2] ? 'ios-detail-group-start ' + g[2] : '', text: g[0], attrs: { colspan: String(g[1].length) } });
+      el('tr', null, groups.map(function (g, gi) {
+        var cls = gi === 0 ? 'ios-sticky-col' : 'ios-detail-group-start ' + g[2];
+        return el('th', { className: cls, text: g[0], attrs: { colspan: String(g[1].length) } });
       })),
-      el('tr', null, groups.reduce(function (cells, g) {
+      el('tr', null, groups.reduce(function (cells, g, gi) {
         return cells.concat(g[1].map(function (label, i) {
-          return el('th', { className: i === 0 && g[2] ? 'ios-detail-group-start ' + g[2] : (g[2] || ''), text: label });
+          var cls = gi === 0 ? (i === 0 ? 'ios-sticky-col' : '') : (i === 0 ? 'ios-detail-group-start ' : '') + g[2];
+          return el('th', { className: cls, text: label });
         }));
       }, []))
     ]);
     var body = el('tbody');
-    rows.forEach(function (row) {
+    items.forEach(function (item) {
+      var row = item.row;
       var efv = holdingDetailEfvParts_(row);
       var ledger = ledgerParts_(row, byCode, excluded);
+      var open = STATE.assetOpenCode === item.code;
       var values = [
-        [displayCode_(row.code), row.name, holdingDetailKindLabel_(row)],
+        [null, holdingDetailKindLabel_(row), reportShortLabel_(item.entry)],
+        [holdingDetailRangeText_(row), row.weekly.week, row.weekly.status],
         [row.valuation.cap, row.valuation.tier, row.valuation.distance.text, row.valuation.fairValue, row.valuation.crisis,
           row.valuation.source, row.valuation.researchDate],
-        [row.weekly.week, row.weekly.status, holdingDetailRangeText_(row)],
         [efv.value, efv.source || '—', efv.fetched || '—'],
         [ledger.quantity, ledger.avgCost, ledger.reference]
       ];
-      var cells = [];
+      var cells = [el('td', { className: 'ios-sticky-col ios-asset-code-cell' }, [
+        text('strong', null, displayCode_(row.code)), text('span', 'ios-asset-cell-name', row.name)])];
       values.forEach(function (group, gi) {
+        // A row written before the three-layer snapshot (#318) has no 本周执行 or 估值约束 at all:
+        // one cell says so instead of repeating it in every column (#409 visual rule).
+        if (!row.threeLayer && (gi === 1 || gi === 2)) {
+          if (gi === 1) {
+            cells.push(el('td', { className: 'ios-detail-group-start ios-asset-no-layer', text: ASSET_NO_LAYER_TEXT_,
+              attrs: { colspan: String(groups[1][1].length + groups[2][1].length) } }));
+          }
+          return;
+        }
         group.forEach(function (value, i) {
-          var cls = groups[gi][2] ? (i === 0 ? 'ios-detail-group-start ' : '') + groups[gi][2] : '';
+          if (gi === 0 && i === 0) { return; }
+          var cls = gi === 0 ? '' : (i === 0 ? 'ios-detail-group-start ' : '') + groups[gi][2];
           cells.push(el('td', { className: cls, text: value }));
         });
       });
-      body.appendChild(el('tr', { attrs: { 'data-code': row.code } }, cells));
+      var tr = el('tr', {
+        className: 'ios-asset-row' + (open ? ' active' : ''),
+        attrs: { 'data-code': row.code, 'aria-expanded': open ? 'true' : 'false', tabindex: '0' },
+        onclick: function () { toggleAsset_(item.code); }
+      }, cells);
+      tr.addEventListener('keydown', function (event) {
+        if (event && (event.key === 'Enter' || event.key === ' ')) {
+          if (event.preventDefault) { event.preventDefault(); }
+          toggleAsset_(item.code);
+        }
+      });
+      body.appendChild(tr);
+      if (open) {
+        body.appendChild(el('tr', { className: 'ios-asset-detail-row', attrs: { 'data-detail-for': row.code } }, [
+          el('td', { attrs: { colspan: String(width) } }, [buildAssetDetail_(item, model)])
+        ]));
+      }
     });
     return el('div', { className: 'ios-table-wrap ios-holding-detail-table' }, [el('table', { className: 'ios-table' }, [head, body])]);
   }
 
-  /** Phone: one card per row, the three groups as separate blocks in the same order as the table. */
-  function buildHoldingDetailCards(rows, byCode, excluded) {
+  /** Phone: one card per asset with the same groups in the same order; 查看详情 opens the detail inside the card. */
+  function buildHoldingDetailCards(items, byCode, excluded, model) {
+    var groups = assetGroups_(items);
     var grid = el('div', { className: 'ios-holding-detail-cards' });
-    rows.forEach(function (row) {
+    items.forEach(function (item) {
+      var row = item.row;
       var efv = holdingDetailEfvParts_(row);
       var ledger = ledgerParts_(row, byCode, excluded);
+      var open = STATE.assetOpenCode === item.code;
+      var source = reportShortLabel_(item.entry);
       grid.appendChild(el('div', { className: 'ios-asset-card', attrs: { 'data-code': row.code } }, [
         el('div', { className: 'ios-asset-head' }, [
           text('strong', null, displayCode_(row.code)),
           text('span', 'ios-badge ios-badge-muted', holdingDetailKindLabel_(row)),
+          row.filters.suspended ? text('span', 'ios-badge ios-severity-high', '暂停中') : null,
           row.valuation.researchStale ? text('span', 'ios-badge ios-severity-medium', '估值需更新') : null
         ]),
         text('p', 'ios-asset-name', row.name),
-        el('div', { className: 'ios-detail-group ios-detail-group-valuation' }, [
-          text('h3', 'ios-detail-heading', '估值约束（台账）'),
-          text('p', 'ios-asset-line', '长期买入上限: ' + row.valuation.cap),
+        row.threeLayer ? null : el('div', { className: 'ios-detail-group ios-asset-no-layer' }, [
+          text('h3', 'ios-detail-heading', '本周执行区间 / 长期估值约束 · ' + source),
+          text('p', 'ios-asset-line', ASSET_NO_LAYER_TEXT_)
+        ]),
+        !row.threeLayer ? null : el('div', { className: 'ios-detail-group ios-detail-group-weekly' }, [
+          text('h3', 'ios-detail-heading', '本周执行区间 · ' + source),
+          text('p', 'ios-asset-line', '本周执行区间: ' + holdingDetailRangeText_(row)),
+          text('p', 'ios-asset-line', '适用周: ' + row.weekly.week),
+          text('p', 'ios-asset-line', '计划状态: ' + row.weekly.status)
+        ]),
+        !row.threeLayer ? null : el('div', { className: 'ios-detail-group ios-detail-group-valuation' }, [
+          text('h3', 'ios-detail-heading', '长期估值约束 · 入场计划快照（' + source + ' 读取）'),
+          text('p', 'ios-asset-line', '长期买入上限（非本周区间）: ' + row.valuation.cap),
           text('p', 'ios-asset-line ios-muted', '上限口径: ' + row.valuation.tier),
           text('p', 'ios-asset-line', '现价距上限: ' + row.valuation.distance.text),
           text('p', 'ios-asset-line', '长期合理价值: ' + row.valuation.fairValue),
           text('p', 'ios-asset-line ios-muted', '危机机会价: ' + row.valuation.crisis),
           text('p', 'ios-asset-line ios-muted', '来源: ' + row.valuation.source + ' · 估值研究日期: ' + row.valuation.researchDate)
         ]),
-        el('div', { className: 'ios-detail-group ios-detail-group-weekly' }, [
-          text('h3', 'ios-detail-heading', '本周执行'),
-          text('p', 'ios-asset-line', '适用周: ' + row.weekly.week),
-          text('p', 'ios-asset-line', '计划状态: ' + row.weekly.status),
-          text('p', 'ios-asset-line', '本周区间: ' + holdingDetailRangeText_(row))
-        ]),
         el('div', { className: 'ios-detail-group ios-detail-group-efv' }, [
-          text('h3', 'ios-detail-heading', '第三方公允值（仅供参考）'),
+          text('h3', 'ios-detail-heading', '外部公允值（仅供参考）'),
           text('p', 'ios-asset-line', '公允值: ' + efv.value),
           efv.source ? text('p', 'ios-asset-line ios-muted', '来源: ' + efv.source + ' · 获取日期: ' + efv.fetched) : null,
           text('p', 'ios-asset-line ios-muted', '仅供参考，不能替代长期买入上限')
         ]),
-        el('div', { className: 'ios-detail-group ios-detail-group-ledger' }, ledger.held ? [
-          text('h3', 'ios-detail-heading', '当前台账（实时）'),
-          text('p', 'ios-asset-line ios-muted', LEDGER_NOTE_),
+        el('div', { className: 'ios-detail-group ios-detail-group-ledger' }, [
+          text('h3', 'ios-detail-heading', groups[4][0].replace('（' + LEDGER_NOTE_ + '）', '')),
+          text('p', 'ios-asset-line ios-muted', LEDGER_NOTE_)
+        ].concat(ledger.held ? [
           text('p', 'ios-asset-line', '持有数量: ' + ledger.quantity),
           text('p', 'ios-asset-line', '平均成本: ' + ledger.avgCost),
           text('p', 'ios-asset-line', '参考买入价（台账）: ' + ledger.reference)
-        ] : [
-          text('h3', 'ios-detail-heading', '当前台账（实时）'),
-          text('p', 'ios-asset-line ios-muted', LEDGER_NOTE_),
-          text('p', 'ios-asset-line', ledger.quantity)
-        ])
+        ] : [text('p', 'ios-asset-line', ledger.quantity)])),
+        el('button', {
+          className: 'ios-asset-detail-toggle',
+          text: open ? '收起详情' : '查看详情',
+          attrs: { type: 'button', 'aria-expanded': open ? 'true' : 'false' },
+          onclick: function () { toggleAsset_(item.code); }
+        }),
+        open ? buildAssetDetail_(item, model) : null
       ]));
     });
     return grid;
+  }
+
+  // -- 标的详情 (Issue #409 P2) --
+
+  function dash_(value) {
+    return isBlank(value) ? '—' : String(value);
+  }
+
+  /** The raw 报告持仓 row of one code inside one report's own view model; null when that report does not list it. */
+  function reportAssetRow_(vm, code) {
+    return (vm.holdings || []).concat(vm.watchlistCandidates || []).filter(function (row) {
+      return ledgerCode_(row['代码']) === code;
+    })[0] || null;
+  }
+
+  function reportSnapshot_(vm, code) {
+    return (vm.assetSnapshots || []).filter(function (snap) { return ledgerCode_(snap.code) === code; })[0] || null;
+  }
+
+  function snapshotLines_(title, pairs) {
+    var lines = pairs.filter(function (pair) { return pair !== null; }).map(function (pair) {
+      return text('p', 'ios-asset-line', pair[0] + ': ' + dash_(pair[1]));
+    });
+    return el('div', { className: 'ios-snapshot-block' }, [text('h4', 'ios-snapshot-title', title)].concat(lines));
+  }
+
+  /**
+   * One report's own snapshot of one asset: 结论, 证据, 条件, 风险 and the
+   * blockers it names, read from that report's view model only. withPlan
+   * adds that report's own 本周执行 and 长期估值约束 lines (for a history
+   * snapshot, whose values the table above does not show).
+   */
+  function buildSnapshotBody_(vm, code, withPlan) {
+    var snap = reportSnapshot_(vm, code);
+    var raw = reportAssetRow_(vm, code);
+    if (!snap || !raw) {
+      return [text('p', 'ios-empty-note', '该报告未列出此标的。不用其他报告的数据补位。')];
+    }
+    var nodes = [];
+    var verdict = todayVerdict_(raw);
+    nodes.push(snapshotLines_('结论', [
+      ['今日建议', verdict ? verdict + '（今日行动：' + dash_(snap.conclusion.action) + '）' : snap.conclusion.action],
+      snap.threeLayer ? ['周计划结论', snap.conclusion.weeklyConclusion] : null,
+      ['IOS状态', snap.conclusion.iosStatus],
+      ['Thesis状态', snap.conclusion.thesis],
+      ['说明', snap.conclusion.actionNote]
+    ]));
+    if (!snap.threeLayer) { nodes.push(text('p', 'ios-entry-plan-incomplete', snap.layerNote)); }
+    var evidence = snapshotLines_('证据', [
+      ['关键变化', snap.evidence.keyChange],
+      ['长期逻辑或估值', snap.evidence.logic],
+      ['较上次变化', snap.evidence.changeNote]
+    ]);
+    snap.evidence.research.forEach(function (item) {
+      evidence.appendChild(text('p', 'ios-asset-line', '周度研究 · ' + dash_(item.section) + '：' + dash_(item.title) + ' — ' +
+        dash_(item.conclusion) + (isBlank(item.status) ? '' : '（' + item.status + '）') +
+        (isBlank(item.evidence) ? '' : ' · 证据：' + item.evidence)));
+    });
+    nodes.push(evidence);
+    nodes.push(snapshotLines_('条件', [
+      snap.threeLayer ? ['价格参考确认条件', snap.conditions.confirm] : null,
+      snap.threeLayer ? ['价格参考否定条件', snap.conditions.deny] : null,
+      ['停止条件', snap.conditions.stop],
+      ['下一验证点', snap.conditions.nextCheck],
+      ['当前阻碍', snap.conditions.blocker]
+    ]));
+    var risks = el('div', { className: 'ios-snapshot-block' }, [text('h4', 'ios-snapshot-title', '风险（该报告）')]);
+    if (snap.risks.length === 0) {
+      risks.appendChild(text('p', 'ios-asset-line ios-muted', '该报告没有列出与此标的相关的风险。'));
+    }
+    snap.risks.forEach(function (risk) {
+      risks.appendChild(text('p', 'ios-asset-line', [risk.severity, risk.risk].filter(Boolean).join(' ') +
+        '（风险评估：' + (risk.evaluation || '未提供（旧版行）') + '）' + (isBlank(risk.action) ? '' : ' · 本期动作：' + risk.action)));
+    });
+    nodes.push(risks);
+    if (snap.blockers.length) {
+      nodes.push(snapshotLines_('阻塞待办（该报告）', snap.blockers.map(function (b) {
+        return [b.id, b.found ? b.todo + '（' + (b.status || '待处理') + '）' : '未找到：该报告没有这条待办'];
+      })));
+    }
+    if (withPlan) {
+      var row = (vm.holdingDetail || []).filter(function (r) { return ledgerCode_(r.code) === code; })[0];
+      if (row && !row.threeLayer) {
+        nodes.push(snapshotLines_('本周执行区间 / 长期估值约束（该报告）', [['状态', ASSET_NO_LAYER_TEXT_]]));
+      } else if (row) {
+        nodes.push(snapshotLines_('本周执行区间（该报告）', [
+          ['本周执行区间', holdingDetailRangeText_(row)], ['适用周', row.weekly.week], ['计划状态', row.weekly.status]]));
+        nodes.push(snapshotLines_('长期估值约束（该报告的入场计划快照）', [
+          ['长期买入上限（非本周区间）', row.valuation.cap], ['上限口径', row.valuation.tier], ['估值研究日期', row.valuation.researchDate]]));
+      }
+    }
+    return nodes;
+  }
+
+  /** A risk row of the shared model that names this code (风险对象, else an exact 影响资产 entry). */
+  function riskNamesCode_(row, code) {
+    var object = cellText_(row['风险对象']);
+    if (object !== '') { return ledgerCode_(object) === code; }
+    return cellText_(row['影响资产']).split(/[、,，;；\s]+/).some(function (part) { return ledgerCode_(part) === code; });
+  }
+
+  /** The asset's share of the shared action model: the same items 待办 and 风险 count, filtered to this code. */
+  function assetActions_(model, code) {
+    var blocked = model.todos.assets.filter(function (asset) { return ledgerCode_(asset.code) === code; })[0] || null;
+    var invest = model.risks.invest.filter(function (item) {
+      return item.sources.some(function (source) { return riskNamesCode_(source.row, code); });
+    });
+    var maintenance = model.risks.stale.concat(model.risks.paused).filter(function (entry) { return ledgerCode_(entry.code) === code; });
+    return { blocked: blocked, invest: invest, maintenance: maintenance };
+  }
+
+  function buildAssetActions_(model, code) {
+    var actions = assetActions_(model, code);
+    var openBlocked = actions.blocked ? actions.blocked.entries.filter(function (entry) {
+      return entry.missingId || (entry.todo && !entry.sharedWith && !isTodoCompleted(entry.todo['状态']));
+    }).length : 0;
+    var children = [
+      text('h3', 'ios-detail-heading', '相关待办与风险（与「待办」「风险」同源）'),
+      text('p', 'ios-asset-line', '卡住买入 ' + openBlocked + ' · 触发风险 ' + actions.invest.length + ' · 数据维护 ' + actions.maintenance.length)
+    ];
+    if (actions.blocked) { children.push(buildBlockedAssetCard_(actions.blocked)); }
+    if (actions.invest.length) { children.push(mergedRiskList_(actions.invest)); }
+    actions.maintenance.forEach(function (entry) {
+      entry.lines.forEach(function (line) { children.push(text('p', 'ios-asset-line ios-muted', '数据维护 · ' + line)); });
+    });
+    if (!actions.blocked && !actions.invest.length && !actions.maintenance.length) {
+      children.push(text('p', 'ios-asset-line ios-muted', '最新报告没有与此标的相关的卡住买入、触发风险或数据维护。'));
+    }
+    children.push(text('p', 'ios-hint', '「其他待办」没有标的字段，不归到单个标的。'));
+    return el('div', { className: 'ios-detail-group ios-asset-actions' }, children);
+  }
+
+  /** Every report of both types, newest first (same day: 日报 first). */
+  function allReportEntries_() {
+    var out = [];
+    [['daily', STATE.bootstrap.dailyHistory], ['weekly', STATE.bootstrap.weeklyHistory]].forEach(function (pair) {
+      (pair[1] || []).forEach(function (entry) {
+        out.push({ type: pair[0], reportId: entry.reportId, reportDate: String(entry.reportDate || '') });
+      });
+    });
+    return out.sort(function (a, b) {
+      if (a.reportDate !== b.reportDate) { return a.reportDate < b.reportDate ? 1 : -1; }
+      return a.type === b.type ? 0 : (a.type === 'daily' ? -1 : 1);
+    });
+  }
+
+  var ASSET_HISTORY_BUTTONS_ = 8;
+
+  /** The view model of one report ID: a latest report from the bootstrap, else one already fetched. */
+  function knownReport_(reportId) {
+    var found = null;
+    ['weekly', 'daily'].forEach(function (type) {
+      var vm = STATE.bootstrap[type];
+      if (vm && vm.found && vm.summary && vm.summary['报告ID'] === reportId) { found = vm; }
+    });
+    return found || STATE.reportCache[reportId] || null;
+  }
+
+  function isLatestReportId_(reportId) {
+    return latestReports_().some(function (entry) { return entry.vm.summary && entry.vm.summary['报告ID'] === reportId; });
+  }
+
+  /** Opens one report's own snapshot of the asset; fetches that report by ID when it is not loaded yet. */
+  function openAssetSnapshot_(code, reportId) {
+    var known = knownReport_(reportId);
+    STATE.assetSnapshot = { code: code, reportId: reportId, state: known ? 'ok' : 'loading', vm: known, error: null };
+    renderTabContent();
+    if (known) { return; }
+    google.script.run
+      .withSuccessHandler(function (result) {
+        var current = STATE.assetSnapshot;
+        if (!current || current.code !== code || current.reportId !== reportId) { return; }
+        if (result && result.error) {
+          STATE.assetSnapshot = { code: code, reportId: reportId, state: 'error', vm: null, error: result.error };
+        } else {
+          STATE.reportCache[reportId] = result;
+          STATE.assetSnapshot = { code: code, reportId: reportId, state: 'ok', vm: result, error: null };
+        }
+        renderTabContent();
+      })
+      .withFailureHandler(function (err) {
+        var current = STATE.assetSnapshot;
+        if (!current || current.code !== code || current.reportId !== reportId) { return; }
+        STATE.assetSnapshot = { code: code, reportId: reportId, state: 'error', vm: null, error: err && err.message ? err.message : String(err) };
+        renderTabContent();
+      })
+      .getReport(reportId);
+  }
+
+  function historyEntryLabel_(entry) {
+    return reportLabel_(entry.type) + ' ' + shortDate_(entry.reportDate);
+  }
+
+  function buildAssetSnapshotPanel_(code) {
+    var current = STATE.assetSnapshot;
+    if (!current || current.code !== code) { return null; }
+    var entry = allReportEntries_().filter(function (e) { return e.reportId === current.reportId; })[0];
+    var label = entry ? historyEntryLabel_(entry) : current.reportId;
+    var latest = isLatestReportId_(current.reportId);
+    var children = [
+      el('div', { className: 'ios-snapshot-head' }, [
+        text('h4', 'ios-snapshot-title', '报告时快照 · ' + label),
+        el('button', { className: 'ios-snapshot-close', text: '关闭', attrs: { type: 'button' },
+          onclick: function () { STATE.assetSnapshot = null; renderTabContent(); } })
+      ]),
+      text('p', latest ? 'ios-muted' : 'ios-entry-plan-incomplete', latest ? '这是最新一份' + (entry ? reportLabel_(entry.type) : '报告') + '。' :
+        '历史报告的快照，只是该报告当时的内容，不是当前结论。')
+    ];
+    if (current.state === 'loading') {
+      children.push(text('p', 'ios-muted', '正在读取该报告…'));
+    } else if (current.state === 'error') {
+      children.push(text('p', 'ios-entry-plan-incomplete', '读取该报告失败：' + current.error));
+    } else if (!current.vm || !current.vm.found) {
+      children.push(text('p', 'ios-empty-note', '找不到该报告。'));
+    } else {
+      buildSnapshotBody_(current.vm, code, true).forEach(function (node) { children.push(node); });
+    }
+    return el('div', { className: 'ios-snapshot-panel', attrs: { 'data-report-id': current.reportId } }, children);
+  }
+
+  function buildAssetHistory_(code) {
+    var entries = allReportEntries_();
+    var children = [text('h3', 'ios-detail-heading', '判断历史'),
+      text('p', 'ios-hint', '点一份报告，看该报告当时对此标的的结论、证据、条件与风险。')];
+    if (entries.length === 0) {
+      children.push(text('p', 'ios-asset-line ios-muted', '还没有报告。'));
+      return el('div', { className: 'ios-detail-group ios-asset-history' }, children);
+    }
+    var openId = STATE.assetSnapshot && STATE.assetSnapshot.code === code ? STATE.assetSnapshot.reportId : null;
+    children.push(el('div', { className: 'ios-history-links' }, entries.slice(0, ASSET_HISTORY_BUTTONS_).map(function (entry) {
+      return el('button', {
+        className: 'ios-history-link' + (entry.reportId === openId ? ' active' : ''),
+        text: historyEntryLabel_(entry),
+        attrs: { type: 'button', 'data-report-id': entry.reportId },
+        onclick: function () { openAssetSnapshot_(code, entry.reportId); }
+      });
+    })));
+    if (entries.length > ASSET_HISTORY_BUTTONS_) {
+      var select = el('select', { className: 'ios-history-more', attrs: { 'aria-label': '更早的报告' } },
+        [el('option', { text: '更早的报告…', attrs: { value: '' } })].concat(entries.slice(ASSET_HISTORY_BUTTONS_).map(function (entry) {
+          return el('option', { text: historyEntryLabel_(entry), attrs: { value: entry.reportId } });
+        })));
+      select.addEventListener('change', function () { if (select.value) { openAssetSnapshot_(code, select.value); } });
+      children.push(select);
+    }
+    var panel = buildAssetSnapshotPanel_(code);
+    if (panel) { children.push(panel); }
+    return el('div', { className: 'ios-detail-group ios-asset-history' }, children);
+  }
+
+  function buildAssetDetail_(item, model) {
+    var lead = item.entry;
+    var also = item.also.map(reportShortLabel_);
+    var current = el('div', { className: 'ios-detail-group ios-asset-current' }, [
+      text('h3', 'ios-detail-heading', '本期快照 · 最新' + reportShortLabel_(lead)),
+      also.length ? text('p', 'ios-muted', '也列于 ' + also.join('、') + '；此处读最新的一份。') : null
+    ].concat(buildSnapshotBody_(lead.vm, item.code, false)));
+    return el('div', { className: 'ios-asset-detail', attrs: { 'data-code': item.code } }, [
+      current,
+      buildAssetActions_(model, item.code),
+      buildAssetHistory_(item.code)
+    ]);
+  }
+
+  /** 标的: the latest Weekly and Daily merged per asset, then 配置概况 and the ledger holdings no report lists. */
+  function buildAssetsView_() {
+    var reports = latestReports_();
+    var nodes = [];
+    if (reports.length === 0) {
+      nodes.push(buildEmptyStateCard(STATE.activeView));
+      nodes.push(buildAllocationOverview_());
+      nodes.push(buildLedgerOnlySection_(STATE.bootstrap.allocation || [], '当前台账持仓（实时）'));
+      return nodes;
+    }
+    var model = buildActionModel_(reports);
+    var items = assetRows_(reports);
+    nodes.push(text('p', 'ios-report-caption ios-view-source', '来源：' +
+      reports.map(function (r) { return '最新' + reportShortLabel_(r); }).join(' 与 ') + ' · 每个标的读列出它的最新一份报告'));
+    var children = [
+      text('h2', null, '标的'),
+      text('p', 'ios-hint', '每组标题写明来源与时间。本周执行区间是本周计划，长期买入上限是长期约束，两者不是同一个价格；第三方公允值仅供参考，不能替代长期买入上限。估值研究日期早于该报告日期超过 90 天标「需更新」。点一行查看详情与判断历史。')
+    ];
+    var active = HOLDING_DETAIL_FILTERS_.filter(function (f) { return f[0] === STATE.holdingDetailFilter; })[0] || HOLDING_DETAIL_FILTERS_[0];
+    var rows = items.map(function (item) { return item.row; });
+    children.push(el('div', { className: 'ios-detail-filter-bar' }, HOLDING_DETAIL_FILTERS_.map(function (f) {
+      var btn = el('button', {
+        className: 'ios-detail-filter-btn' + (f === active ? ' active' : ''),
+        text: f[1] + ' (' + rows.filter(f[2]).length + ')',
+        attrs: { type: 'button', 'data-filter': f[0] },
+        onclick: function () { selectHoldingDetailFilter(f[0]); }
+      });
+      if (f === active) btn.setAttribute('aria-pressed', 'true');
+      return btn;
+    })));
+    var shown = items.filter(function (item) { return active[2](item.row); });
+    if (items.length === 0) {
+      children.push(text('p', 'ios-empty-note', '最新报告没有持仓或观察行——这是合法的空结果，不是错误。'));
+    } else if (shown.length === 0) {
+      children.push(text('p', 'ios-empty-note', '没有符合「' + active[1] + '」的标的。'));
+    } else {
+      var byCode = ledgerByCode_();
+      var excluded = ledgerExcludedCodes_();
+      children.push(buildHoldingDetailTable(shown, byCode, excluded, model));
+      children.push(buildHoldingDetailCards(shown, byCode, excluded, model));
+    }
+    nodes.push(el('section', { className: 'ios-card ios-holding-detail' }, children));
+    nodes.push(buildAllocationOverview_());
+    var listed = {};
+    items.forEach(function (item) { listed[item.code] = true; });
+    var extra = (STATE.bootstrap.allocation || []).filter(function (entry) { return !listed[ledgerCode_(entry.code)]; });
+    if (extra.length) { nodes.push(buildLedgerOnlySection_(extra, '当前台账中有、最新报告未列出的持仓')); }
+    return nodes;
   }
 
   // -- Live current-holdings ledger rows (the former 资本配置 view, inside
@@ -3913,6 +4271,8 @@
         setLoading(false);
         STATE.bootstrap = bootstrap;
         STATE.readAt = new Date();
+        STATE.reportCache = {};
+        STATE.assetSnapshot = null;
         STATE.viewingReportId = null;
         STATE.periodPanel = null;
         STATE.displayedViewModel = null;

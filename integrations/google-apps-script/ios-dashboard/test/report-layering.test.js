@@ -222,7 +222,7 @@ test('Weekly page order: header facts, then sections ① to ④, then the detail
   const headings = findAll(root, (n) => n.tagName === 'H2').map((n) => n.textContent);
   assert.deepEqual(headings, ['① 本周结论与较上周变化', '② 资本配置比较与组合风险', '③ 本周事件与估值复核',
     '④ 下周重点与适用周购买结论']);
-  assert.match(root.textContent, /⑤ 全部持仓与观察候选的完整卡片见下方；持仓明细、风险与待办见顶部对应 tab/);
+  assert.match(root.textContent, /⑤ 全部持仓与观察候选的完整卡片见下方；标的、风险与待办见对应视图/);
   assert.match(root.textContent, /较上周基线：weekly-2026-10-31/);
 });
 

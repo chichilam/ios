@@ -158,7 +158,10 @@ function buildReportViewModel_(tabs, reportType, explicitReportId, reader) {
     externalFairValue: externalFairValue,
     externalFairValuePortfolio: externalFairValuePortfolio,
     holdingDetail: buildHoldingDetailView_(sortByOrder_(holdings), sortByOrder_(watchlistCandidates), externalFairValue,
-      efvInputs && efvInputs.dateText)
+      efvInputs && efvInputs.dateText),
+    // Issue #409 P2: this report's own asset snapshots (report-ID bound).
+    assetSnapshots: buildAssetSnapshots_(summary, sortByOrder_(holdings), sortByOrder_(watchlistCandidates), risks, todos,
+      research || [])
   };
 }
 
@@ -374,6 +377,85 @@ function buildHoldingDetailRow_(row, module, dateText) {
 
 function buildHoldingDetailView_(holdings, watchlist, module, dateText) {
   return (holdings || []).concat(watchlist || []).map(function (row) { return buildHoldingDetailRow_(row, module, dateText); });
+}
+
+// -- Issue #409 P2: the asset snapshot of one report. Every field is copied
+// from this generation's own rows (报告持仓, 报告风险, 报告待办, 报告周度研究),
+// so a snapshot built for a history report ID can never show newer data: the
+// caller looks it up only inside the view model of that same report. A field
+// the report's version does not carry stays '' and renders as such; nothing
+// is filled in from another report or from the live ledger. --
+
+var ASSET_SNAPSHOT_NO_LAYER_ = '本报告版本无三层快照';
+
+function assetSnapshotSplit_(value) {
+  return layerText_(value).split(/[、,，;；\s]+/).filter(function (part) { return part !== ''; });
+}
+
+/** A risk row of this generation that names this code: by 风险对象 when the row has one, else by an exact 影响资产 entry. */
+function assetSnapshotRiskMatches_(row, code) {
+  var object = layerText_(row['风险对象']);
+  if (object !== '') return object === code;
+  return assetSnapshotSplit_(row['影响资产']).indexOf(code) !== -1;
+}
+
+function buildAssetSnapshot_(row, summary, risks, todos, research) {
+  var code = layerText_(row['代码']);
+  var field = function (name) { return layerText_(row[name]); };
+  var threeLayer = holdingDetailIsThreeLayer_(row);
+  var blockerIds = assetSnapshotSplit_(row['阻塞待办ID']);
+  return {
+    reportId: layerText_(summary['报告ID']),
+    generationId: layerText_(summary['生成ID']),
+    reportType: layerText_(summary['报告类型']),
+    reportDate: layerText_(summary['报告日期']),
+    code: code,
+    name: field('名称'),
+    kind: row['资产类型'] === 'watchlist' ? 'watchlist' : 'holding',
+    threeLayer: threeLayer,
+    layerNote: threeLayer ? '' : ASSET_SNAPSHOT_NO_LAYER_,
+    conclusion: {
+      action: field('今日行动'),
+      actionNote: field('今日行动说明'),
+      weeklyConclusion: field('周计划结论'),
+      iosStatus: field('IOS状态'),
+      thesis: field('Thesis状态'),
+      changeFlag: field('变化标记')
+    },
+    evidence: {
+      keyChange: field('关键变化'),
+      logic: field('长期逻辑或估值'),
+      changeNote: field('较上次变化说明'),
+      research: (research || []).filter(function (item) {
+        return assetSnapshotSplit_(item['关联代码']).indexOf(code) !== -1;
+      }).map(function (item) {
+        return { section: layerText_(item['分区']), title: layerText_(item['标题']), conclusion: layerText_(item['结论']),
+          evidence: layerText_(item['本周证据']), status: layerText_(item['状态']), next: layerText_(item['下一证据或触发']) };
+      })
+    },
+    conditions: {
+      confirm: field('价格参考确认条件'),
+      deny: field('价格参考否定条件'),
+      stop: field('停止条件说明'),
+      nextCheck: field('下一验证点'),
+      blocker: field('当前阻碍')
+    },
+    risks: (risks || []).filter(function (risk) { return assetSnapshotRiskMatches_(risk, code); }).map(function (risk) {
+      return { risk: layerText_(risk['风险']), severity: layerText_(risk['严重度']), evaluation: layerText_(risk['风险评估']),
+        action: layerText_(risk['本期动作']), key: layerText_(risk['风险键']) };
+    }),
+    blockers: blockerIds.map(function (id) {
+      var todo = (todos || []).filter(function (t) { return layerText_(t['待办ID']) === id; })[0];
+      return todo ? { id: id, found: true, todo: layerText_(todo['待办']), status: layerText_(todo['状态']) } : { id: id, found: false };
+    })
+  };
+}
+
+/** Every listed asset of one report generation, in the 持仓明细 order (holdings, then watchlist). */
+function buildAssetSnapshots_(summary, holdings, watchlist, risks, todos, research) {
+  return (holdings || []).concat(watchlist || []).map(function (row) {
+    return buildAssetSnapshot_(row, summary, risks, todos, research);
+  });
 }
 
 /**
@@ -2809,6 +2891,9 @@ if (typeof module !== 'undefined') {
     efvHoldingRow_: efvHoldingRow_,
     buildHoldingDetailView_: buildHoldingDetailView_,
     buildHoldingDetailRow_: buildHoldingDetailRow_,
+    buildAssetSnapshot_: buildAssetSnapshot_,
+    buildAssetSnapshots_: buildAssetSnapshots_,
+    ASSET_SNAPSHOT_NO_LAYER_: ASSET_SNAPSHOT_NO_LAYER_,
     HOLDING_DETAIL_TEXT_: HOLDING_DETAIL_TEXT_,
     VALUATION_RESEARCH_STALE_DAYS: VALUATION_RESEARCH_STALE_DAYS,
     holdingDetailResearchAge_: holdingDetailResearchAge_,
