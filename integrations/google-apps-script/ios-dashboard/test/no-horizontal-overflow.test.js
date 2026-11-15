@@ -80,6 +80,13 @@ function stressBootstrap() {
     vm.summary['核心状态'] = EXECUTED_SUMMARY;
     vm.summary['Review状态'] = EXECUTED_SUMMARY;
   });
+  // Issue #403: the same work in both latest reports folds into one item, with a labelled note and a source link.
+  [['daily', '2026-11-14', '待处理', '可执行'], ['weekly', '2026-11-15', '待处理', '等待证据']].forEach(([type, date, status, kind]) => {
+    boot[type].todos = (boot[type].todos || []).concat([{
+      待办ID: 'DEMO-403', 待办: 'Demo cross-report todo', 状态: status, 跟进类型: kind, 报告日期: date,
+      备注: '已核验：ep-20261113-DEMO-v9 https://example.com/filing；剩余：独立长期估值；下一验证点：2026-11-17 财报'
+    }]);
+  });
   return lengthen(boot);
 }
 
@@ -149,7 +156,7 @@ function harnessScript() {
           }),
           cardColumns: grid ? win.getComputedStyle(grid).gridTemplateColumns.split(' ').length : 0,
           sections: ['.ios-layering', '.ios-layer-fact', '.ios-layer-verdict', '.ios-inline-fair-value', '.ios-asset-card',
-            '.ios-checklist', '.ios-list', '.ios-allocation-cards', '.ios-holding-detail-cards', '.ios-holding-detail-cards .ios-detail-group-ledger']
+            '.ios-checklist', '.ios-todo-copy', '.ios-todo-note-part', '.ios-list', '.ios-allocation-cards', '.ios-holding-detail-cards', '.ios-holding-detail-cards .ios-detail-group-ledger']
             .filter(function (sel) { return Array.prototype.some.call(doc.querySelectorAll(sel), visible); })
         });
       });
@@ -255,6 +262,8 @@ test('no Daily or Weekly tab scrolls sideways at 320-430px or desktop, and deskt
     assert.ok(at(390, view, 'report').sections.includes('.ios-layer-fact'), `${view} renders the layering facts`);
     assert.ok(!at(390, view, 'todos').sections.includes('.ios-layering'), `${view}: 待办 replaces the report on the page`);
   });
+  assert.ok(at(390, 'daily', 'todos').sections.includes('.ios-todo-copy'), 'the 待办 tab renders the folded cross-report item (Issue #403)');
+  assert.ok(at(390, 'daily', 'todos').sections.includes('.ios-todo-note-part'), 'the 待办 tab renders labelled note segments (Issue #403)');
   // A Weekly's card grid closes its page (#396 PR A, formerly the 组合 view).
   assert.equal(at(1280, 'weekly', 'report').cardColumns, 2, 'weekly keeps two card columns on desktop');
   assert.equal(at(390, 'weekly', 'report').cardColumns, 1, 'weekly uses one card column on a phone');

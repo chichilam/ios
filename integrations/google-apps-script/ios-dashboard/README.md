@@ -587,6 +587,20 @@ Display only; no Sheet field, schema, Task or Agent contract changes, and nothin
 - Blocker links: on the latest report they open 待办 and highlight that report's todo (the key is
   `报告类型|待办ID`, so the two reports may reuse an ID); on a history report they open that report's own
   folded `本期待办（该期快照）` list on its page.
+- **Same work in both reports (Issue #403)**: inside one 卡住买入 asset, or among 其他待办/已完成, a Daily
+  todo and a Weekly todo are one item when both carry a non-blank `复核键` and it is equal, or (when not both
+  carry one) their `待办ID` is equal, and only as a one-to-one pair: when a row matches more than one row of
+  the other report, or its match matches more than one, every row involved stays on its own (as the Daily
+  writer refuses to sync an ambiguous match). Rows of one report never merge; a blocker and an unclaimed row
+  never merge; nothing is matched by 代码, name or free text. The newer `报告日期` leads (same day: 日报) and decides
+  the item's group and count; the other report is named under it (`同一工作也见于…：状态·跟进类型`), marked when
+  its `状态`·`跟进类型` differs (that snapshot is not rewritten; its own buy judgment changes with its next report), and
+  kept in full in a folded `另一份报告的原条目`. A blocker link to the folded source opens it and highlights it.
+  A history report shows only itself, so nothing merges there.
+- **备注 (Issue #403)**: segments that start with the fixed labels `已核验：` / `剩余：` / `下一验证点：`
+  (split on `；`) are shown first in that order, and the whole note folds under `完整备注与来源`. A note without
+  them that is longer than 120 characters or contains a link folds under `备注（展开）`; a short one stays
+  inline. A note is never cut.
 
 ### 风险 tab: latest Daily + Weekly, 投资风险 and 数据维护 (Issue #396 PR C)
 

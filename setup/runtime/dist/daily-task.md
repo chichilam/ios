@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE: do not edit by hand. Edit setup/runtime/fragments/ and run
 python3 setup/runtime/build_task_runtime.py build -->
-<!-- runtime-stats: {"runtime_snapshot":"issue-296-v1","runtime_digest":"cceb6c945f14b29550eac019056ff752d95ee507923c36dd4f79e1fdcb4d069d","utf16_units":62840,"code_points":62840,"utf8_bytes":148244,"worst_case_bound_utf16_units":64455,"budget_utf16_units":85000} -->
+<!-- runtime-stats: {"runtime_snapshot":"issue-296-v1","runtime_digest":"f90bd94fa25bd35e9707aa81a6356e1fe2895a4904da219fc448727a42796247","utf16_units":63378,"code_points":63378,"utf8_bytes":149548,"worst_case_bound_utf16_units":64993,"budget_utf16_units":85000} -->
 
 This is the installable runtime snapshot of the Daily Scheduled Task (Issue #296). The
 installer (`setup/chatgpt-install-prompt.md`) pastes everything between the `PASTE-READY START`/
@@ -12,13 +12,13 @@ references; `setup/runtime/rule-map.json` maps every runtime rule back to them.
 
 | Measure | Value |
 | --- | --- |
-| UTF-16 code units (paste-ready body, before binding) | 62840 |
-| Unicode code points | 62840 |
-| UTF-8 bytes | 148244 |
+| UTF-16 code units (paste-ready body, before binding) | 63378 |
+| Unicode code points | 63378 |
+| UTF-8 bytes | 149548 |
 | Embedded authority (no separate embedding step) | 0 |
-| Worst-case bound after binding (UTF-16 code units) | 64455 |
+| Worst-case bound after binding (UTF-16 code units) | 64993 |
 | Engineering budget (UTF-16 code units, not a proven platform limit) | 85000 |
-| runtime_digest | `cceb6c945f14b29550eac019056ff752d95ee507923c36dd4f79e1fdcb4d069d` |
+| runtime_digest | `f90bd94fa25bd35e9707aa81a6356e1fe2895a4904da219fc448727a42796247` |
 
 <!-- PASTE-READY START -->
 
@@ -40,7 +40,7 @@ Report 研究，回答"今天发生了什么，值得长期投资者记录或继
 时区名称，例如 Asia/Tokyo——不能是"用户本地时区"这类无法直接计算的描述>`
 
 - runtime_snapshot: issue-296-v1
-- runtime_digest: cceb6c945f14b29550eac019056ff752d95ee507923c36dd4f79e1fdcb4d069d
+- runtime_digest: f90bd94fa25bd35e9707aa81a6356e1fe2895a4904da219fc448727a42796247
 - 快照来源 commit/版本：`<CONTENT_VERSION_PLACEHOLDER：由安装程序填写读取本快照时的仓库 commit>`
 - 快照时间：`<CONTENT_SNAPSHOT_TIME_PLACEHOLDER：由安装程序填写，ISO 8601>`
 
@@ -1056,12 +1056,20 @@ generation 的持仓数量、行情与汇率证据汇总成"覆盖部分"的组�
 `生成ID`）的 `报告待办`；同 `报告ID` 的其他 generation 不读、不合并、不相加，读不全时不关闭任何待办。按 `待办ID` 去重：
 - `已完成` 只在本次读到的证据（active `入场计划` 的 `计划ID`/版本、官方文件、该待办 `备注` 的研究记录标识）覆盖原待办
   **全部**验收项时写，`备注` 写证据标识、原 `待办ID` 与原 `生成ID`；只核验完一次财报或事件而估值、上限、交割、融资等仍缺，不是完成。
-- 其余沿用原 `待办ID`、`状态=待处理`：可做研究已完成、剩余只等未发布的外部披露或事件时写 `等待证据`，`备注` 写“已核验：
-  <证据>；剩余：<条件>；下一验证点：<事件或日期>”，下一验证点前且无新官方披露时不重做同一研究；有现在能做的动作（新文件
-  未复核、需重估、需用户提供账户/资金事实）写 `可执行`；只是观察写 `持续观察`。
+- 其余沿用原 `待办ID`、`状态=待处理`：可做研究已完成、剩余只等未发布的外部披露或事件时写 `等待证据`，`备注` 以“已核验：
+  <证据>；剩余：<条件>；下一验证点：<事件或日期>”开头，下一验证点前且无新官方披露时不重做同一研究；有现在能做的动作（新文件
+  未复核、需重估、需用户提供账户/资金事实）写 `可执行`，已做完部分步骤时 `备注` 以“已核验：<证据>；剩余：<现在要做的具体
+  动作>”开头，不重写已完成的子步骤；只是观察写 `持续观察`。
 - 这种 `等待证据` 阻塞待办照常列入 `阻塞待办ID`，是各节"阻塞/补全待办须 `可执行`"的唯一例外，`今日建议`、空上限、暂停
   与门槛都不放宽；用户需提供的事实永远 `可执行`，只索取真正缺的项。旧 generation 行不改不删，关闭被 live 阻塞引用的待办按
   第 337 号 issue 发布新 generation。
+
+**跨报告同步（仅 Daily，第 403 号 issue）**：再按同样方式读最近一份 live Weekly 的 `报告待办`（仍不读 `报告周度研究`）。本次要写的待办与其中
+恰好一行 `复核键` 非空且相同，或（两边 `复核键` 不都非空时）`待办ID` 相同，即同一工作；不按代码、名称或文字猜测。那行
+的结论只是证据输入，不照抄：逐条核对本行的**全部**验收项（含用户/账户事实、重估等非披露项）。那行的证据覆盖全部验收项、
+本次没有晚于它 `报告日期` 的新官方披露时，本行写 `已完成`，`备注` 以“已核验：<Weekly 报告ID>/<生成ID> <证据>”开头；
+只覆盖一部分时不关闭，`已核验` 写已覆盖的部分、`剩余` 写本行仍缺的具体项。剩余里只要有现在就能做的动作就写 `可执行`；
+全部剩余都只等未发布的外部披露时才写 `等待证据`（可沿用那行的下一验证点）。同步不解除任何暂停（只按第 316 号 issue）；关闭被 `阻塞待办ID` 引用的待办时 `今日行动`/`阻塞待办ID` 在本 generation 重算。
 
 ## 报告分层：变化标记与周度研究（第 364 号 issue）
 

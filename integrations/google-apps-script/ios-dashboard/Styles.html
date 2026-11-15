@@ -421,6 +421,16 @@ body {
 .ios-todo-none { font-weight: 600; color: var(--ios-severity-low); }
 .ios-account-detail { margin: 4px 0; }
 .ios-todo-waiting .ios-todo-indicator { color: var(--ios-severity-medium); }
+/* Issue #403: labelled note segments first, long notes/links folded; the same
+   work in the other latest report is one item with its source kept below. */
+.ios-todo-note-part strong { color: var(--ios-text, inherit); font-weight: 600; }
+.ios-todo-note-1 { color: inherit; }
+.ios-todo-note-fold, .ios-todo-copy-fold { margin: 4px 0 0 26px; min-width: 0; overflow-wrap: anywhere; }
+.ios-todo-note-fold .ios-todo-note { margin-left: 0; }
+.ios-todo-note-summary { cursor: pointer; font-size: 0.8rem; color: var(--ios-muted); }
+.ios-todo-copy { margin: 4px 0 0 26px; font-size: 0.8rem; color: var(--ios-muted); overflow-wrap: anywhere; }
+.ios-todo-copy-conflict { color: var(--ios-severity-medium); }
+.ios-todo-copies { margin: 4px 0 0; padding: 0; }
 
 .ios-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 .ios-table th, .ios-table td { text-align: left; padding: 8px; border-bottom: 1px solid var(--ios-border); overflow-wrap: break-word; }

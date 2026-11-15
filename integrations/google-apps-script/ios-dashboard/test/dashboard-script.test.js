@@ -1278,14 +1278,143 @@ test('todos: 卡住买入 is decided by 阻塞待办ID only -- Daily ref, Weekly
   const blocked = todoSection(document, 'ios-todo-blocked');
   const assets = blocked.children.filter((c) => c.classList.contains('ios-todo-asset'));
   assert.deepEqual(assets.map((a) => a.children[0].children[0].textContent), ['AAA', 'BBB', 'CCC', 'WWW'], 'AAA appears once although both reports name it');
-  assert.deepEqual(todoNames(assets[0]), ['Weekly AAA blocker', 'Daily AAA blocker'], 'neither source is dropped; Weekly first, then Daily');
-  assert.match(assets[0].textContent, /周报 11\/09[\s\S]*日报 11\/11/);
+  assert.deepEqual(todoNames(assets[0]), ['Daily AAA blocker', 'Weekly AAA blocker'],
+    'Issue #403: the same 待办ID in both reports is one item led by the newer report; the other source is kept below it, never dropped');
+  assert.match(assets[0].textContent, /日报 11\/11[\s\S]*同一工作也见于周报 11\/09：待处理/);
   assert.match(assets[2].textContent, /阻塞待办未找到：日报 11\/11 的买入判断引用了待办ID C-9/);
   assert.deepEqual(todoNames(assets[3]), ['Watch blocker'], 'a watchlist row\'s blocker counts too');
   assert.deepEqual(todoNames(todoSection(document, 'ios-todo-others')), ['Unreferenced, looks like BBB', 'Fund check'],
     'no asset is inferred from 复核键 or an ID prefix, and the fund aggregate is not a buy-judgment row');
   assert.match(blocked.children[0].textContent, /卡住买入 \(4 个标的\)/);
-  assert.match(todoSection(document, 'ios-todo-overview').textContent, /卡住买入 4 项 · 其他待办 2 项/);
+  assert.match(todoSection(document, 'ios-todo-overview').textContent, /卡住买入 3 项 · 其他待办 2 项/, 'the merged AAA item counts once');
+});
+
+test('Issue #403: an older Daily still open and a newer Weekly 已完成 for the same 待办ID are one item led by the Weekly; the Daily snapshot is shown as a conflict, not as work to do now', () => {
+  const daily = reportVm('daily', '2026-11-14', {
+    holdings: [blockedRow('MSFT', 'MSFT-13、MSFT-CPI')],
+    todos: [
+      { 待办ID: 'MSFT-13', 待办: 'Daily MSFT Q1 check', 状态: '待处理', 跟进类型: '可执行' },
+      { 待办ID: 'MSFT-CPI', 待办: 'Daily MSFT CPI check', 状态: '待处理', 跟进类型: '可执行' }
+    ]
+  });
+  const weekly = reportVm('weekly', '2026-11-15', {
+    holdings: [blockedRow('MSFT', 'MSFT-13、WP-MSFT')],
+    todos: [
+      { 待办ID: 'MSFT-13', 待办: 'Weekly MSFT Q1 check', 状态: '已完成', 跟进类型: '可执行', 备注: '已核验：ep-20261113-MSFT-v9；原生成ID 600b12c3' },
+      { 待办ID: 'WP-MSFT', 待办: 'Weekly MSFT plan range', 状态: '待处理', 跟进类型: '可执行', 备注: '已核验：11/09–11/13 OHLCV；剩余：4/13周背景与目标周事件复核' }
+    ]
+  });
+  const { document } = loadDashboard(latestBootstrap(daily, weekly), 'daily', {});
+  const blocked = todoSection(document, 'ios-todo-blocked');
+  const asset = blocked.children.filter((c) => c.classList.contains('ios-todo-asset'))[0];
+  const top = asset.children[1].children;
+  assert.equal(top.length, 3, 'MSFT-13 once, then WP-MSFT and MSFT-CPI on their own');
+  assert.equal(top[0].children[0].children[1].textContent, 'Weekly MSFT Q1 check');
+  assert.ok(top[0].classList.contains('ios-todo-done'), 'the newer Weekly decides how the merged item reads');
+  const conflict = top[0].children.find((c) => c.classList && c.classList.contains('ios-todo-copy'));
+  assert.ok(conflict.classList.contains('ios-todo-copy-conflict'));
+  assert.match(conflict.textContent, /同一工作也见于日报 11\/14：待处理·可执行（该报告快照的状态不同，以较新的周报 11\/15为准/);
+  const fold = top[0].children.find((c) => c.classList && c.classList.contains('ios-todo-copy-fold'));
+  assert.equal(fold.getAttribute('open'), null, 'the other source is folded');
+  assert.match(fold.textContent, /Daily MSFT Q1 check/, 'and kept in full');
+  assert.deepEqual([top[1], top[2]].map((li) => li.children[0].children[1].textContent), ['Weekly MSFT plan range', 'Daily MSFT CPI check']);
+  assert.match(todoSection(document, 'ios-todo-overview').textContent, /卡住买入 2 项/, 'WP-MSFT and MSFT-CPI stay open; the merged MSFT-13 is not counted again');
+});
+
+test('Issue #403: 复核键 decides when both rows have one; otherwise only an equal 待办ID merges, never across 卡住买入 and 其他待办 or inside one report', () => {
+  const daily = reportVm('daily', '2026-11-14', {
+    holdings: [blockedRow('AAA', 'A-1')],
+    todos: [
+      { 待办ID: 'A-1', 待办: 'Daily A-1', 状态: '待处理' },
+      { 待办ID: 'K-1', 待办: 'Daily K-1', 状态: '待处理', 复核键: '事件|BBB|财报|src-1|2026-11-01' },
+      { 待办ID: 'S-1', 待办: 'Daily S-1', 状态: '待处理', 复核键: '事件|CCC|财报|src-2|2026-11-01' },
+      { 待办ID: 'D-1', 待办: 'Daily D-1 same key', 状态: '待处理', 复核键: '事件|DDD|财报|src-3|2026-11-01' },
+      { 待办ID: 'D-2', 待办: 'Daily D-2 same key', 状态: '待处理', 复核键: '事件|DDD|财报|src-3|2026-11-01' },
+      { 待办ID: 'U-1', 待办: 'Daily U-1 unclaimed', 状态: '待处理' }
+    ]
+  });
+  const weekly = reportVm('weekly', '2026-11-15', {
+    holdings: [blockedRow('UUU', 'U-1')],
+    todos: [
+      { 待办ID: 'A-1', 待办: 'Weekly A-1 unclaimed', 状态: '待处理' },
+      { 待办ID: 'K-9', 待办: 'Weekly K-9', 状态: '待处理', 复核键: '事件|BBB|财报|src-1|2026-11-01' },
+      { 待办ID: 'S-1', 待办: 'Weekly S-1 other key', 状态: '待处理', 复核键: '事件|CCC|财报|src-9|2026-11-01' },
+      { 待办ID: 'U-1', 待办: 'Weekly U-1 blocker', 状态: '待处理' }
+    ]
+  });
+  const { document } = loadDashboard(latestBootstrap(daily, weekly), 'daily', {});
+  const others = todoSection(document, 'ios-todo-others');
+  const top = others.children.find((c) => c.tagName === 'UL').children.map((li) => li.children[0].children[1].textContent);
+  assert.deepEqual(top, ['Weekly A-1 unclaimed', 'Weekly K-9', 'Weekly S-1 other key', 'Daily S-1', 'Daily D-1 same key', 'Daily D-2 same key', 'Daily U-1 unclaimed']);
+  assert.match(itemNamed(document, 'Weekly K-9').textContent, /同一工作也见于日报 11\/14/, 'equal 复核键 merges different 待办ID');
+  assert.doesNotMatch(itemNamed(document, 'Weekly S-1 other key').textContent, /同一工作/, 'different 复核键 keeps an equal 待办ID apart');
+  assert.doesNotMatch(itemNamed(document, 'Daily D-1 same key').textContent, /同一工作/, 'rows of one report never merge');
+  assert.doesNotMatch(itemNamed(document, 'Weekly A-1 unclaimed').textContent, /同一工作/, 'a blocker and an unclaimed row stay apart');
+  const blockedText = todoSection(document, 'ios-todo-blocked').textContent;
+  assert.match(blockedText, /Weekly U-1 blocker/);
+  assert.match(blockedText, /Daily A-1/);
+  assert.doesNotMatch(blockedText, /同一工作/);
+});
+
+test('PR #405 review: only a one-to-one pair merges; one-to-many, many-to-one and many-to-many keys leave every row on its own, in any input order', () => {
+  const run = (dailyTodos, weeklyTodos) => {
+    const daily = reportVm('daily', '2026-11-14', { todos: dailyTodos });
+    const weekly = reportVm('weekly', '2026-11-15', { todos: weeklyTodos });
+    const { document } = loadDashboard(latestBootstrap(daily, weekly), 'daily', {});
+    const others = todoSection(document, 'ios-todo-others');
+    return { text: others.textContent, names: others.children.find((c) => c.tagName === 'UL').children.map((li) => li.children[0].children[1].textContent), document };
+  };
+  const K = '事件|AAA|财报|src-1|2026-11-01';
+  const d1 = { 待办ID: 'D1', 待办: 'Daily D1', 状态: '待处理', 复核键: K };
+  const d2 = { 待办ID: 'D2', 待办: 'Daily D2', 状态: '待处理', 复核键: K };
+  const w1 = { 待办ID: 'W1', 待办: 'Weekly W1', 状态: '已完成', 复核键: K };
+  const w2 = { 待办ID: 'W2', 待办: 'Weekly W2', 状态: '待处理', 复核键: K };
+  [[[d1, d2], [w1]], [[d2, d1], [w1]], [[d1], [w1, w2]], [[d1], [w2, w1]], [[d1, d2], [w1, w2]]].forEach(([dt, wt], i) => {
+    const r = run(dt, wt);
+    assert.doesNotMatch(r.text, /同一工作/, 'case ' + i + ': an ambiguous key never merges');
+    assert.equal(r.names.length + todoNames(todoSection(r.document, 'ios-todo-completed')).length, dt.length + wt.length, 'case ' + i + ': every row stays');
+  });
+  const idOnly = run([{ 待办ID: 'X', 待办: 'Daily X a', 状态: '待处理' }],
+    [{ 待办ID: 'X', 待办: 'Weekly X', 状态: '待处理' }, { 待办ID: 'Y', 待办: 'Weekly Y same key', 状态: '待处理', 复核键: 'k' }]);
+  assert.match(idOnly.text, /同一工作也见于日报 11\/14/, 'a unique one-to-one pair still merges');
+});
+
+test('PR #405 review: two open rows that differ only in 跟进类型 are marked as a status difference', () => {
+  const daily = reportVm('daily', '2026-11-14', { todos: [{ 待办ID: 'V-1', 待办: 'Daily V-1', 状态: '待处理', 跟进类型: '可执行' }] });
+  const weekly = reportVm('weekly', '2026-11-15', { todos: [{ 待办ID: 'V-1', 待办: 'Weekly V-1', 状态: '待处理', 跟进类型: '等待证据' }] });
+  const { document } = loadDashboard(latestBootstrap(daily, weekly), 'daily', {});
+  const item = itemNamed(document, 'Weekly V-1');
+  const copy = item.children.find((c) => c.classList && c.classList.contains('ios-todo-copy'));
+  assert.ok(copy.classList.contains('ios-todo-copy-conflict'));
+  assert.match(copy.textContent, /日报 11\/14：待处理·可执行（该报告快照的状态不同，以较新的周报 11\/15为准/);
+  const same = loadDashboard(latestBootstrap(
+    reportVm('daily', '2026-11-14', { todos: [{ 待办ID: 'S-1', 待办: 'Daily S-1', 状态: '待处理', 跟进类型: '等待证据' }] }),
+    reportVm('weekly', '2026-11-15', { todos: [{ 待办ID: 'S-1', 待办: 'Weekly S-1', 状态: '待处理', 跟进类型: '等待证据' }] })), 'daily', {});
+  const sameCopy = itemNamed(same.document, 'Weekly S-1').children.find((c) => c.classList && c.classList.contains('ios-todo-copy'));
+  assert.ok(!sameCopy.classList.contains('ios-todo-copy-conflict'), 'equal 状态 and 跟进类型 is no conflict');
+});
+
+test('Issue #403: a note shows 已核验 / 剩余 / 下一验证点 first and folds the full text; a long or linked note folds; a short one stays inline', () => {
+  const { document } = loadDashboard(buildBootstrapWithTodos([
+    { 排序: 1, 待办: 'Labelled', 状态: '待处理', 备注: '审计：原生成ID x；剩余：独立估值；已核验：ep-1 https://example.com/a；下一验证点：11/17 财报' },
+    { 排序: 2, 待办: 'Linked', 状态: '待处理', 备注: '见 https://example.com/b' },
+    { 排序: 3, 待办: 'Long', 状态: '待处理', 备注: '长'.repeat(121) },
+    { 排序: 4, 待办: 'Short', 状态: '待处理', 备注: '已核验 但没有冒号' }
+  ]), 'daily', {});
+  const labelled = itemNamed(document, 'Labelled');
+  const parts = labelled.children.filter((c) => c.classList && c.classList.contains('ios-todo-note-part')).map((c) => c.textContent);
+  assert.deepEqual(parts, ['已核验：ep-1 https://example.com/a', '剩余：独立估值', '下一验证点：11/17 财报'], 'fixed label order, exact labels only');
+  const fold = labelled.children.find((c) => c.classList && c.classList.contains('ios-todo-note-fold'));
+  assert.equal(fold.getAttribute('open'), null);
+  assert.match(fold.textContent, /完整备注与来源[\s\S]*审计：原生成ID x/, 'the full note is never cut');
+  ['Linked', 'Long'].forEach((name) => {
+    const f = itemNamed(document, name).children.find((c) => c.classList && c.classList.contains('ios-todo-note-fold'));
+    assert.ok(f, name);
+    assert.match(f.children[0].textContent, /备注（展开）/);
+  });
+  const short = itemNamed(document, 'Short');
+  assert.equal(short.children.length, 3);
+  assert.equal(short.children[2].textContent, '已核验 但没有冒号');
 });
 
 test('todos: one todo named by two rows of the same report is listed once, the second asset points to it', () => {

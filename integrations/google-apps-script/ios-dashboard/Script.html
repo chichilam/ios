@@ -2726,7 +2726,56 @@
    * (classifyTodoStatus_), and 未完成 carries a visible mark. 跟进类型 is a
    * display tag only -- it never decides grouping, urgency or a trade.
    */
-  function buildTodoItem(todo, type, vm) {
+  var TODO_NOTE_LABELS_ = ['已核验', '剩余', '下一验证点'];
+  var TODO_NOTE_FOLD_LENGTH_ = 120;
+
+  /**
+   * Issue #403: a writer note may start with fixed segments
+   * 「已核验：…；剩余：…；下一验证点：…」. Only those exact labels are read;
+   * nothing is inferred from other text. Returns the labelled segments in
+   * label order, or [] when the note has none.
+   */
+  function todoNoteParts_(note) {
+    var found = {};
+    String(note == null ? '' : note).split('；').forEach(function (segment) {
+      var s = segment.trim();
+      TODO_NOTE_LABELS_.forEach(function (label) {
+        if (found[label] === undefined && s.indexOf(label + '：') === 0 && s.length > label.length + 1) {
+          found[label] = s.slice(label.length + 1).trim();
+        }
+      });
+    });
+    return TODO_NOTE_LABELS_.filter(function (label) { return found[label] !== undefined; })
+      .map(function (label) { return { label: label, text: found[label] }; });
+  }
+
+  /** The note: labelled segments first; a long note or one with a link folds, never cut. */
+  function buildTodoNote_(note) {
+    var raw = String(note == null ? '' : note);
+    var parts = todoNoteParts_(raw);
+    var nodes = parts.map(function (part) {
+      return el('p', { className: 'ios-todo-note ios-todo-note-part ios-todo-note-' + TODO_NOTE_LABELS_.indexOf(part.label) }, [
+        text('strong', null, part.label + '：'), text('span', null, part.text)
+      ]);
+    });
+    if (parts.length || raw.length > TODO_NOTE_FOLD_LENGTH_ || /https?:\/\//.test(raw)) {
+      nodes.push(el('details', { className: 'ios-todo-note-fold' }, [
+        text('summary', 'ios-todo-note-summary', parts.length ? '完整备注与来源' : '备注（展开）'),
+        text('p', 'ios-todo-note', raw)
+      ]));
+    } else {
+      nodes.push(text('p', 'ios-todo-note', raw));
+    }
+    return nodes;
+  }
+
+  function todoStateText_(todo) {
+    var status = String(todo['状态'] == null ? '' : todo['状态']).trim();
+    var kind = String(todo['跟进类型'] == null ? '' : todo['跟进类型']).trim();
+    return (status === '' ? '状态未填写' : status) + (kind === '' ? '' : '·' + kind);
+  }
+
+  function buildTodoItem(todo, type, vm, copies) {
     var rawStatus = String(todo['状态'] == null ? '' : todo['状态']).trim();
     var completed = isTodoCompleted(rawStatus);
     var kind = classifyTodoKind_(todo['跟进类型']);
@@ -2742,7 +2791,24 @@
     meta.push(text('span', 'ios-todo-source', reportLabel_(type) + ' ' + shortDate_(todoReportDate_(todo, vm))));
     var children = [head, el('div', { className: 'ios-todo-meta' }, meta)];
     if (todo['备注']) {
-      children.push(text('p', 'ios-todo-note', todo['备注']));
+      children = children.concat(buildTodoNote_(todo['备注']));
+    }
+    if (copies && copies.length) {
+      var copyItems = [];
+      var copyHighlighted = false;
+      copies.forEach(function (copy) {
+        var conflict = todoStateText_(copy.todo) !== todoStateText_(todo);
+        children.push(text('p', 'ios-todo-copy' + (conflict ? ' ios-todo-copy-conflict' : ''),
+          '同一工作也见于' + reportLabel_(copy.type) + ' ' + shortDate_(todoReportDate_(copy.todo, copy.vm)) + '：' + todoStateText_(copy.todo) +
+          (conflict ? '（该报告快照的状态不同，以较新的' + reportLabel_(type) + ' ' + shortDate_(todoReportDate_(todo, vm)) + '为准；它的买入判断以它下一份报告为准）' : '')));
+        var copyKey = todoKey_(copy.type, copy.todo);
+        if (copyKey !== null && copyKey === STATE.highlightTodoId) { copyHighlighted = true; }
+        copyItems.push(buildTodoItem(copy.todo, copy.type, copy.vm));
+      });
+      var copyList = el('ul', { className: 'ios-checklist ios-todo-copies' }, copyItems);
+      children.push(el('details', { className: 'ios-todo-copy-fold', attrs: copyHighlighted ? { open: 'open' } : null }, [
+        text('summary', 'ios-todo-note-summary', '另一份报告的原条目（展开）'), copyList
+      ]));
     }
     var key = todoKey_(type, todo);
     var highlighted = key !== null && key === STATE.highlightTodoId;
@@ -2781,6 +2847,61 @@
    * 未找到. Every other todo stands alone -- no asset is inferred from
    * 复核键, an ID prefix or free text.
    */
+  /**
+   * Issue #403: the same work in the latest Daily and the latest Weekly.
+   * When both rows carry a non-blank 复核键 it alone decides; otherwise an
+   * equal non-blank 待办ID does. Rows of one report never merge, and nothing
+   * is matched by 代码, name or free text.
+   */
+  function sameTodoWork_(a, b) {
+    if (a.type === b.type) return false;
+    var trim = function (v) { return String(v == null ? '' : v).trim(); };
+    var ka = trim(a.todo['复核键']);
+    var kb = trim(b.todo['复核键']);
+    if (ka !== '' && kb !== '') return ka === kb;
+    var ia = trim(a.todo['待办ID']);
+    return ia !== '' && ia === trim(b.todo['待办ID']);
+  }
+
+  /**
+   * Newer 报告日期 leads (same day: 日报, as on the 风险 tab); the other source is kept as a copy.
+   * Only a one-to-one pair merges: each row must match exactly one row of the other report and that
+   * row must match only it. Any one-to-many, many-to-one or many-to-many key leaves every row involved
+   * on its own, unmerged, exactly as the Daily writer refuses to sync an ambiguous match.
+   */
+  function mergeSameTodoWork_(entries) {
+    var candidates = entries.filter(function (e) { return e.todo && !e.sharedWith; });
+    var matchesOf = function (entry) {
+      return candidates.filter(function (other) { return other !== entry && sameTodoWork_(entry, other); });
+    };
+    var partner = function (entry) {
+      if (!entry.todo || entry.sharedWith) return null;
+      var mine = matchesOf(entry);
+      if (mine.length !== 1) return null;
+      var back = matchesOf(mine[0]);
+      return back.length === 1 && back[0] === entry ? mine[0] : null;
+    };
+    var used = [];
+    var out = [];
+    entries.forEach(function (entry) {
+      if (used.indexOf(entry) !== -1) return;
+      var other = partner(entry);
+      if (!other) { out.push(entry); return; }
+      used.push(other);
+      var da = String(todoReportDate_(entry.todo, entry.vm) || '');
+      var db = String(todoReportDate_(other.todo, other.vm) || '');
+      var otherLeads = db > da || (db === da && other.type === 'daily');
+      var lead = otherLeads ? other : entry;
+      var copy = otherLeads ? entry : other;
+      out.push(Object.assign({}, lead, { copies: [copy], merged: true, order: entry.order }));
+    });
+    return out;
+  }
+
+  function entryKeys_(entry) {
+    return [entry].concat(entry.copies || []).map(function (e) { return e.todo ? todoKey_(e.type, e.todo) : null; });
+  }
+
   function buildTodoGroups_(reports) {
     var assets = [];
     var byCode = {};
@@ -2813,15 +2934,19 @@
         });
       });
     });
-    var others = [];
-    var done = [];
+    assets.forEach(function (asset) { asset.entries = mergeSameTodoWork_(asset.entries); });
+    var unclaimed = [];
     reports.forEach(function (report) {
       (report.vm.todos || []).forEach(function (todo, index) {
         var key = todoKey_(report.type, todo);
         if (key !== null && claimed[key]) { return; }
-        var entry = { type: report.type, vm: report.vm, todo: todo, order: others.length + done.length + index };
-        (isTodoCompleted(todo['状态']) ? done : others).push(entry);
+        unclaimed.push({ type: report.type, vm: report.vm, todo: todo, order: unclaimed.length + index });
       });
+    });
+    var others = [];
+    var done = [];
+    mergeSameTodoWork_(unclaimed).forEach(function (entry) {
+      (isTodoCompleted(entry.todo['状态']) ? done : others).push(entry);
     });
     var byDateDesc = function (a, b) {
       var da = String(todoReportDate_(a.todo, a.vm) || '');
@@ -2852,7 +2977,7 @@
           text('p', 'ios-muted', reportLabel_(entry.type) + '：与 ' + displayCode_(entry.sharedWith) + ' 共用同一条阻塞待办（见上）')
         ]));
       } else {
-        list.appendChild(buildTodoItem(entry.todo, entry.type, entry.vm));
+        list.appendChild(buildTodoItem(entry.todo, entry.type, entry.vm, entry.copies));
       }
     });
     return el('div', { className: 'ios-todo-asset' }, [
@@ -2864,7 +2989,7 @@
 
   function todoList_(entries) {
     var list = el('ul', { className: 'ios-checklist' });
-    entries.forEach(function (entry) { list.appendChild(buildTodoItem(entry.todo, entry.type, entry.vm)); });
+    entries.forEach(function (entry) { list.appendChild(buildTodoItem(entry.todo, entry.type, entry.vm, entry.copies)); });
     return list;
   }
 
@@ -2906,7 +3031,7 @@
     nodes.push(el('section', { className: 'ios-card ios-todo-others' }, others));
 
     if (groups.done.length > 0) {
-      var doneOpen = STATE.highlightTodoId !== null && groups.done.some(function (entry) { return todoKey_(entry.type, entry.todo) === STATE.highlightTodoId; });
+      var doneOpen = STATE.highlightTodoId !== null && groups.done.some(function (entry) { return entryKeys_(entry).indexOf(STATE.highlightTodoId) !== -1; });
       nodes.push(el('section', { className: 'ios-card ios-todo-completed' }, [
         el('details', { className: 'ios-layer-fold', attrs: doneOpen ? { open: 'open' } : null }, [
           text('summary', 'ios-layer-fold-title', '已完成 ' + groups.done.length + ' 项（展开查看）'),
