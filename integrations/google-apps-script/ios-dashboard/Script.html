@@ -515,6 +515,24 @@
     banner.appendChild(document.createTextNode(message));
   }
 
+  /**
+   * The business date the history banner names. It is the date the report list
+   * itself carries for this exact report ID in the current type (the same text the
+   * picker shows), never a timestamp re-read in the viewer's own time zone: a Sheet
+   * date cell reaches the page as UTC (2026-11-11T15:00:00.000Z), and a browser in
+   * another zone would name a different day. Without a listed entry, plain date text
+   * is shown as written; a timestamp or nothing falls back to the readable name.
+   */
+  function historyBannerDate_(reportId, summaryDate) {
+    var history = activeViewHistory();
+    for (var i = 0; i < history.length; i++) {
+      if (history[i].reportId === reportId && !isBlank(history[i].reportDate)) { return cellText_(history[i].reportDate); }
+    }
+    var raw = isBlank(summaryDate) ? '' : cellText_(summaryDate);
+    if (raw && !/^\d{4}-\d{2}-\d{2}T/.test(raw)) { return raw; }
+    return readableReportName_(reportId);
+  }
+
   function renderHistoryBanner() {
     var banner = document.getElementById('ios-history-banner');
     if (!STATE.viewingReportId || isMergedTab_(STATE.activeTab)) {
@@ -525,9 +543,9 @@
     banner.hidden = false;
     clear(banner);
     var shown = STATE.displayedViewModel && STATE.displayedViewModel.summary;
-    var date = (shown && cellText_(shown['报告日期'])) || '';
+    var date = historyBannerDate_(STATE.viewingReportId, shown && shown['报告日期']);
     banner.appendChild(document.createTextNode('正在查看历史' + reportLabel_(STATE.activeView) + '（' +
-      (date || readableReportName_(STATE.viewingReportId)) + '）。只显示这一期自己的内容；待办与风险 tab 仍是最新日报 + 最新周报的合并结果。'));
+      date + '）。只显示这一期自己的内容；待办与风险 tab 仍是最新日报 + 最新周报的合并结果。'));
     banner.appendChild(el('button', {
       className: 'ios-back-to-latest-btn',
       text: '返回最新报告',

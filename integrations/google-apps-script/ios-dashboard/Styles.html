@@ -640,7 +640,11 @@ body {
 .ios-segment { min-height: 36px; border: 0; border-radius: var(--ios-control-radius); background: transparent; color: var(--ios-muted); font: inherit; font-weight: 600; cursor: pointer; }
 .ios-segment[aria-pressed="true"] { background: var(--ios-card-bg); color: var(--ios-text); box-shadow: 0 0 0 1px var(--ios-border-strong); }
 .ios-report-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
-.ios-report-picker .ios-history-select { flex: 1 1 14em; width: 100%; min-width: 0; max-width: 100%; text-overflow: ellipsis; }
+/* Prod (iPhone, #409): WebKit lays a <select>'s whole option text out past its box and counts
+   it as scrollable overflow of every ancestor, so a long 一句话结论 still widened the page even
+   with the select held to 100%. contain: paint keeps that text inside the select's own box
+   (which already shows only what fits); the box itself is unchanged. */
+.ios-report-picker .ios-history-select { flex: 1 1 14em; width: 100%; min-width: 0; max-width: 100%; text-overflow: ellipsis; contain: paint; }
 .ios-report-step {
   min-height: 36px; padding: 4px 12px; border: 1px solid var(--ios-border); border-radius: var(--ios-control-radius);
   background: var(--ios-card-bg); color: inherit; font: inherit; cursor: pointer;

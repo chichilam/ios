@@ -67,6 +67,12 @@ credentials anywhere — every value in [`demo/demo-sheet.json`](demo/demo-sheet
   every item is ≥44px tall with its label shown in full, and the page's bottom padding clears the nav.
   Uses the system Chrome/Chromium (`CHROME_BIN` to point at one); skipped locally without a browser,
   required under CI.
+- `test/webkit-report-overflow.test.js` — Issue #409 prod: Chrome misses an iOS-only overflow (WebKit
+  counts a `<select>`'s whole option text as page overflow). Renders the 报告 page in WebKit (WebKitGTK
+  via `WebKitWebDriver`) at 320/375/390/430px, latest and history Daily/Weekly, realistic and lengthened
+  data, and asserts the page never scrolls sideways, every report block lies inside the viewport, any
+  wider element sits in a local scroll box, and the history banner names the listed business date.
+  Needs `WEBKIT_DRIVER` and a display (`xvfb-run`); skipped locally without it, required under CI.
 - `test/fake-dom.js` — a minimal hand-rolled DOM stand-in used only by `dashboard-script.test.js`
   (no browser, no third-party dependency).
 
@@ -82,6 +88,9 @@ node integrations/google-apps-script/ios-dashboard/test/external-fair-value-port
 node integrations/google-apps-script/ios-dashboard/test/report-layering.test.js
 node integrations/google-apps-script/ios-dashboard/test/holding-detail.test.js
 node integrations/google-apps-script/ios-dashboard/test/no-horizontal-overflow.test.js
+xvfb-run -a env WEBKIT_DRIVER=WebKitWebDriver \
+  WEBKIT_BROWSER=/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1/MiniBrowser \
+  node integrations/google-apps-script/ios-dashboard/test/webkit-report-overflow.test.js
 ```
 
 This is the only part of this package that can be verified without a real Google account —

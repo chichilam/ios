@@ -561,6 +561,58 @@ test('selectHistoryReport fetches via google.script.run.getReport and pins that 
   assert.match(summaryText(document), /daily-2026-08-15/);
 });
 
+// Issue #409 prod / PR #416 review: the banner names the report's business date -- the
+// date the report list carries for that exact ID -- in every viewer time zone. A Sheet
+// date cell reaches the page as a UTC timestamp and is never re-read in the device zone.
+function historyBannerIn(tz, summaryDate, history) {
+  const savedTz = process.env.TZ;
+  process.env.TZ = tz;
+  try {
+    const boot = JSON.parse(JSON.stringify(DEMO_BOOTSTRAP));
+    if (history !== undefined) { boot.dailyHistory = history; }
+    const { document, window } = loadDashboard(boot, 'daily', {
+      getReport: (reportId) => {
+        const result = JSON.parse(JSON.stringify(logic.getReport_(demoSheet, 'daily-2026-08-15')));
+        result.error = null;
+        result.summary['报告ID'] = reportId;
+        if (summaryDate === undefined) { delete result.summary['报告日期']; } else { result.summary['报告日期'] = summaryDate; }
+        return result;
+      }
+    });
+    window.selectHistoryReport('daily-hist');
+    return document.getElementById('ios-history-banner').textContent;
+  } finally {
+    if (savedTz === undefined) { delete process.env.TZ; } else { process.env.TZ = savedTz; }
+  }
+}
+
+const HIST_LIST = [{ reportId: 'daily-2026-08-15', reportDate: '2026-08-15', headline: 'latest' },
+  { reportId: 'daily-hist', reportDate: '2026-11-12', headline: 'older' }];
+
+test('Issue #409 prod: the history banner shows the listed business date in JST, UTC and Los Angeles alike', () => {
+  ['Asia/Tokyo', 'UTC', 'America/Los_Angeles'].forEach((tz) => {
+    const text = historyBannerIn(tz, '2026-11-11T15:00:00.000Z', HIST_LIST);
+    assert.match(text, /^正在查看历史日报（2026-11-12）/, tz);
+    assert.doesNotMatch(text, /T15:00|2026-11-11|daily-hist/, tz);
+  });
+});
+
+test('Issue #409 prod: the listed date wins over a contradicting summary date, and a Weekly entry is never used for a Daily', () => {
+  const list = HIST_LIST.concat([{ reportId: 'weekly-hist', reportDate: '2026-11-09', headline: 'w' }]);
+  assert.match(historyBannerIn('UTC', '2026-11-20', list), /^正在查看历史日报（2026-11-12）/);
+});
+
+test('Issue #409 prod: without a listed entry the banner keeps plain date text and never re-reads a timestamp', () => {
+  const unlisted = [HIST_LIST[0]];
+  ['Asia/Tokyo', 'UTC', 'America/Los_Angeles'].forEach((tz) => {
+    assert.match(historyBannerIn(tz, '2026-11-12', unlisted), /^正在查看历史日报（2026-11-12）/, tz);
+    assert.match(historyBannerIn(tz, '2026-11-11T15:00:00.000Z', unlisted), /^正在查看历史日报（所选报告）/, tz);
+    assert.match(historyBannerIn(tz, 'not-a-dateT', unlisted), /^正在查看历史日报（not-a-dateT）/, tz);
+    assert.match(historyBannerIn(tz, '2026-13-45T99:00:00Z', unlisted), /^正在查看历史日报（所选报告）/, tz);
+    assert.match(historyBannerIn(tz, undefined, unlisted), /^正在查看历史日报（所选报告）/, tz);
+  });
+});
+
 test('clicking the corresponding Daily/Weekly nav button again clears a pinned history selection back to latest', () => {
   const { document, window } = loadDashboard(DEMO_BOOTSTRAP, 'daily', {
     getReport: (reportId) => {
