@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE: do not edit by hand. Edit setup/runtime/fragments/ and run
 python3 setup/runtime/build_task_runtime.py build -->
-<!-- runtime-stats: {"runtime_snapshot":"issue-296-v1","runtime_digest":"c99804ce8c4eb96417528b1b7c0b0aae3edc94449a75cc8c4b162dcbc8795037","utf16_units":64613,"code_points":64613,"utf8_bytes":152483,"worst_case_bound_utf16_units":66228,"budget_utf16_units":86000} -->
+<!-- runtime-stats: {"runtime_snapshot":"issue-296-v1","runtime_digest":"d4e3a5cb7ffd2c48490d37ef8277e145fc88db24017a2c796db9cb043e11f5da","utf16_units":64595,"code_points":64595,"utf8_bytes":152477,"worst_case_bound_utf16_units":66210,"budget_utf16_units":86000} -->
 
 This is the installable runtime snapshot of the Daily Scheduled Task (Issue #296). The
 installer (`setup/chatgpt-install-prompt.md`) pastes everything between the `PASTE-READY START`/
@@ -12,13 +12,13 @@ references; `setup/runtime/rule-map.json` maps every runtime rule back to them.
 
 | Measure | Value |
 | --- | --- |
-| UTF-16 code units (paste-ready body, before binding) | 64613 |
-| Unicode code points | 64613 |
-| UTF-8 bytes | 152483 |
+| UTF-16 code units (paste-ready body, before binding) | 64595 |
+| Unicode code points | 64595 |
+| UTF-8 bytes | 152477 |
 | Embedded authority (no separate embedding step) | 0 |
-| Worst-case bound after binding (UTF-16 code units) | 66228 |
+| Worst-case bound after binding (UTF-16 code units) | 66210 |
 | Engineering budget (UTF-16 code units, not a proven platform limit) | 86000 |
-| runtime_digest | `c99804ce8c4eb96417528b1b7c0b0aae3edc94449a75cc8c4b162dcbc8795037` |
+| runtime_digest | `d4e3a5cb7ffd2c48490d37ef8277e145fc88db24017a2c796db9cb043e11f5da` |
 
 <!-- PASTE-READY START -->
 
@@ -40,7 +40,7 @@ Report 研究，回答"今天发生了什么，值得长期投资者记录或继
 时区名称，例如 Asia/Tokyo——不能是"用户本地时区"这类无法直接计算的描述>`
 
 - runtime_snapshot: issue-296-v1
-- runtime_digest: c99804ce8c4eb96417528b1b7c0b0aae3edc94449a75cc8c4b162dcbc8795037
+- runtime_digest: d4e3a5cb7ffd2c48490d37ef8277e145fc88db24017a2c796db9cb043e11f5da
 - 快照来源 commit/版本：`<CONTENT_VERSION_PLACEHOLDER：由安装程序填写读取本快照时的仓库 commit>`
 - 快照时间：`<CONTENT_SNAPSHOT_TIME_PLACEHOLDER：由安装程序填写，ISO 8601>`
 
@@ -596,8 +596,7 @@ Daily 与 Weekly 同输入同结论：两份报告对同一 `代码`、同一组
 唯一规则。
 
 - **读取**：除第一步的 tab 外，完整读取 `周度购买计划`、`周计划暂停记录`、`账户状态`，以及 `报告持仓` 全部行
-  （所有 `报告ID`、所有 `生成ID`）的 `暂停事件载荷` 列。暂停载体一律按下面的"安全扫描"读取，绝不当作"没有
-  暂停"。
+  （所有 `报告ID`、所有 `生成ID`）的 `暂停事件载荷` 列。暂停载体按下面的"安全扫描"读取。
 - **逐行写入**：对每个持仓/观察名单行写 `周计划状态`（第一个命中，如实写）、`今日行动`（T0–T9）、`资金结论`、
   快照字段、`计划买入下限`/`计划买入上限`、`暂停事件载荷`、`已核验暂停记录ID`（没有就写 `[]`）。
 
@@ -696,19 +695,20 @@ T1–T8 的 `执行状态` 留空，`资金结论=不适用`，`计划买入下�
 - 主载体 `周计划暂停记录`；第二载体是 `报告持仓` 的 `暂停事件载荷`：该 `代码` 有任何未解除事件时，本次
   暂存的每一行（S0、S1、S2、S3、T1、T2 行一样，以后每周一样）都写这些记录的规范 JSON 数组（八个字段：
   `暂停记录ID`、`代码`、`事件类别`、`事件说明`、`事件时间`、`来源`、`记录时间`、`记录者`，按 ID 排序，同一
-  ID 只写一次），没有就留空。
+  ID 只写一次；每条逐字复制 tab 里的那一行，tab 里还没有的才复制本次的记录，绝不重写），没有就留空。
 - 待处理集合 = tab 里未解除的记录 ∪ 任何 `报告持仓` 行（所有 `报告ID`、所有 `生成ID`，含已取代与孤立的）
   载荷里 ID 尚不在 tab 里的记录。每次运行在暂存前先把这些载荷记录按上面的写入规则写进 tab；只有 tab 里的
   记录才能被同 `代码` 的合格周计划版本解除。
 - 已见集合 `已核验暂停记录ID`：本次在两个载体里找到的该 `代码` 的全部 ID（未解除与已解除都算）的规范
   JSON 数组，没有就写 `[]`，绝不留空。
-- 两个载体都只追加、绝不删除：三层模式下报告清理（report_write_protocol 第 7 步）不删除任何 `报告持仓` 行，也
-  没有任何写入者删除 `周计划暂停记录` 行。
-- 读到的记录 `事件类别` 不在封闭列表、缺 `事件时间` 或 `来源`、或同一 ID 出现在两个 `代码` 下，仍然暂停
+- 两个载体都只追加、绝不删除（见下面"读写步骤补充"）。
+- 读到的记录 `事件类别` 不在封闭列表、缺 `事件时间` 或 `来源`、或同一 ID 的行 `代码` 或 `事件类别` 不一致（冲突），仍然暂停
   对应 `代码`，另写一条数据异常待办。畸形记录（同一 ID 在 `周计划暂停记录`、`暂停事件载荷` 与本次检测到的事件里只要有一行畸形，另有完整行也一样）永远不能被解除：
-  任何周计划版本列出它都不解除，反而让该周计划行成为 `周计划异常`；两个载体只追加不删除，修复需要维护者
-  另开 issue。解除仍只认 tab 里已落地的记录，载荷里的行从不单独授权解除；同一 ID 在各载体里完全相同的
-  重复行不算畸形，已合格解除的事件不会因此重新打开。
+  任何周计划版本列出它都不解除，反而让该周计划行成为 `周计划异常`；修复需要维护者
+  另开 issue。解除仍只认 tab 里已落地的记录，载荷里的行从不单独授权解除。同一 ID 的行只在
+  说明、来源、事件时间、记录时间、记录者上不同，是抄写副本差异（第 418 号 issue），不算畸形或冲突：事实以 tab 行
+  为准，照常解除（`研究依据截至` 须不早于各行最晚的 `事件时间`）；每个 ID 恰好一条不进 `阻塞待办ID` 的
+  `跟进类型=持续观察` 数据异常待办，点名差异行的 `报告ID`/`生成ID`（本次检测的行点名本次最终暂存那一代；缺这两项的载荷行令扫描不可核验）。不同 ID 永远是不同事件。
 
 **安全扫描**（Plan、检查 10、读取旧报告时都用）：先读 `报告持仓` 的 `暂停事件载荷` 列，再读 `周计划暂停记录`，
 两次都必须完整读完并能说出行数；任一载荷单元格不是规范 JSON 或缺 `暂停记录ID`/`代码`，或任一 tab 的行数
@@ -722,7 +722,7 @@ T1–T8 的 `执行状态` 留空，`资金结论=不适用`，`计划买入下�
 周计划 `目标批次`，`计划订单有效期` 与所引用计划版本的 `订单有效期` 原文相同（只看非空不够）；不可准备订单的行两者都留空；
 第 5 项区间只来自 `目标批次`；第 6 项另要求 `报价币种` = 周计划 `报价币种` = `估值币种`。另加三项：
 
-- 检查 8：快照与本次读到的周计划行、暂停记录一致；本次新记录的事件都已读回，或行里写明"暂停记录未能保存"。
+- 检查 8：快照与本次读到的周计划行、暂停记录一致（载荷每条与 tab 行逐字相同）；本次新记录的事件都已读回，或行里写明"暂停记录未能保存"。
 - 检查 9：Switch 之前立即重读 `_安装状态`，(模式, 纪元) 与 Plan 时不同或读不出 → 不 Switch，暂存行留作孤立行，
   运行状态写"模式已变更，放弃发布"，用新的 `生成ID` 从第 1 步按当前模式重新 Plan 与暂存。
 - 检查 10：Switch 之前立即重新安全扫描两个载体；任何暂存 `代码` 存在不在该行 `已核验暂停记录ID` 里的 ID，或
@@ -744,13 +744,10 @@ T1–T8 的 `执行状态` 留空，`资金结论=不适用`，`计划买入下�
 
 **三层模式的读写步骤补充**：
 
-- 本次发现的官方来源重大事件，以及载荷里 tab 尚未保存的事件，在第三步暂存之前按上面的写入规则写入
-  `周计划暂停记录`（追加 → 读回 → 至多再追加一次并读回）；已有同一 `暂停记录ID` 就不再写。
+- 本次发现的事件与载荷里 tab 尚未保存的事件，在第三步暂存之前按上面的写入规则写入 `周计划暂停记录`。
   这是 Daily 唯一的计划相关写入；Daily 绝不写 `已处理暂停记录`、绝不改周计划。
-- 第三步 Plan 时同时固定本次的 (`购买计划模式`, `模式纪元`) 与扫描到的两个载体行数。Verify 通过后、Switch
-  之前，立即做检查 9 与检查 10；任一不通过：不切换，已暂存的行留作孤立行，运行状态写明原因（例如"模式已变更，
-  放弃发布"），用新的 `生成ID` 从 Plan 重新开始；同一次运行最多 3 次尝试。Confirm 时再读一次纪元，变了就按
-  needs-attention 报告。三层模式下不做 report_write_protocol 第 7 步的清理：不删除任何 `报告持仓` 行（孤立行也
+- 第三步 Plan 时同时固定本次的 (`购买计划模式`, `模式纪元`) 与扫描到的两个载体行数；检查 9、10 在 Verify
+  通过后、Switch 之前做（见上）。三层模式下不做 report_write_protocol 第 7 步的清理：不删除任何 `报告持仓` 行（孤立行也
   保留），也不删除任何 `周计划暂停记录` 行。
 - `报告摘要`：`购买计划模式`、`模式纪元` 写 Plan 时读到的值；`暂停载体行数` 写
   `{"报告持仓": n, "周计划暂停记录": m}`（规范 JSON，n、m 是 Plan 扫描读到的行数）。
