@@ -843,7 +843,7 @@ test('#396 PR B: a history report counts only itself, opens its own lists on its
   assert.deepEqual(cards.map((c) => c.textContent), ['卡住买入 1 / 其他待办 0 →仅这一期', '风险 1 项 →数据维护 0 项 · 仅这一期']);
   cards[1].click();
   assert.ok((document.getElementById('ios-tab-report').classList.contains('active') && document.getElementById('ios-seg-weekly').getAttribute('aria-pressed') === 'true'), 'a history card never jumps to the latest tab');
-  assert.match(summaryChild(document, 'ios-period-panel').textContent, /历史风险[\s\S]*风险 tab 仍是最新日报 \+ 最新周报的合并结果|风险 tab 仍是最新日报 \+ 最新周报的合并结果[\s\S]*历史风险/);
+  assert.match(summaryChild(document, 'ios-period-panel').textContent, /历史风险[\s\S]*「待办与风险」页仍是最新日报 \+ 最新周报的合并结果|「待办与风险」页仍是最新日报 \+ 最新周报的合并结果[\s\S]*历史风险/);
   findAll(buyRow(document, 'OLD'), (n) => n.classList.contains('ios-blocker-link'))[0].click();
   const panel = summaryChild(document, 'ios-period-panel');
   assert.equal(panel.getAttribute('data-panel'), 'todos');

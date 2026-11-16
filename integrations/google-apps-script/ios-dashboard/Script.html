@@ -545,7 +545,7 @@
     var shown = STATE.displayedViewModel && STATE.displayedViewModel.summary;
     var date = historyBannerDate_(STATE.viewingReportId, shown && shown['报告日期']);
     banner.appendChild(document.createTextNode('正在查看历史' + reportLabel_(STATE.activeView) + '（' +
-      date + '）。只显示这一期自己的内容；待办与风险 tab 仍是最新日报 + 最新周报的合并结果。'));
+      date + '）。只显示这一期自己的内容；「待办与风险」页仍是最新日报 + 最新周报的合并结果。'));
     banner.appendChild(el('button', {
       className: 'ios-back-to-latest-btn',
       text: '返回最新报告',
@@ -2844,7 +2844,7 @@
     }
     var model = buildActionModel_(reports).risks;
     var invest = [text('h2', null, '投资风险 (' + model.invest.length + ')'),
-      text('p', 'ios-hint', (periodReports ? '只显示' + reportShortLabel_(reports[0]) + '这一期自己的风险；风险 tab 仍是最新日报 + 最新周报的合并结果' :
+      text('p', 'ios-hint', (periodReports ? '只显示' + reportShortLabel_(reports[0]) + '这一期自己的风险；「待办与风险」页仍是最新日报 + 最新周报的合并结果' :
         '合并' + reports.map(function (r) { return '最新' + reportShortLabel_(r); }).join(' 与 ')) +
         '。同一风险（报告写出的风险键相同）合并为一行并注明来源；没有风险键的风险逐条并列。只列评估为触发的风险。')];
     invest.push(model.invest.length === 0
@@ -3465,7 +3465,7 @@
     var overview = [text('h2', null, '待办')];
     overview.push(text('p', open === 0 ? 'ios-status-line ios-todo-none' : 'ios-status-line', open === 0 ? '本期无需操作' :
       '卡住买入 ' + groups.blockedOpen + ' 项 · 其他待办 ' + groups.others.length + ' 项'));
-    overview.push(text('p', 'ios-hint', (periodReports ? '只显示' + sources[0] + '这一期自己的待办，不与另一类报告合并；待办 tab 仍是最新日报 + 最新周报的合并结果' : '合并' + sources.join(' 与 ')) + '。「卡住买入」只收报告买入判断中「阻塞待办ID」引用的待办，同一标的的日报与周报条目并列显示；页面不推断标的归属。状态只有「已完成」或 done 算完成。页面只读报告快照，不能在这里勾选完成。'));
+    overview.push(text('p', 'ios-hint', (periodReports ? '只显示' + sources[0] + '这一期自己的待办，不与另一类报告合并；「待办与风险」页仍是最新日报 + 最新周报的合并结果' : '合并' + sources.join(' 与 ')) + '。「卡住买入」只收报告买入判断中「阻塞待办ID」引用的待办，同一标的的日报与周报条目并列显示；页面不推断标的归属。状态只有「已完成」或 done 算完成。页面只读报告快照，不能在这里勾选完成。'));
     overview.push(el('div', { className: 'ios-todo-summary' }, [
       text('span', 'ios-badge ios-severity-high', '卡住买入 ' + groups.blockedOpen),
       text('span', 'ios-badge', '其他待办 ' + groups.others.length),
@@ -3592,7 +3592,7 @@
       ]),
       model.counts.missing ? text('p', 'ios-entry-plan-incomplete ios-today-missing-note', '另有 ' + model.counts.missing +
         ' 条阻塞待办未找到：报告引用了待办ID，但报告中没有这条待办（见下方）。') : null,
-      text('p', 'ios-hint', '计数与「待办」「风险」页用同一份合并结果：同一件事在日报和周报中只算一次，风险按风险键合并。')
+      text('p', 'ios-hint', '计数与「待办与风险」页用同一份合并结果：同一件事在日报和周报中只算一次，风险按风险键合并。')
     ]);
   }
 
@@ -3646,7 +3646,7 @@
     }
     if (model.counts.maintenance) {
       children.push(text('h3', 'ios-today-group-title', '数据维护 (' + model.counts.maintenance + ')'));
-      children.push(text('p', 'ios-hint', '不影响当期交易决策；明细见「风险」页。'));
+      children.push(text('p', 'ios-hint', '不影响当期交易决策；明细见「待办与风险」页的风险分段。'));
       var upkeep = el('ul', { className: 'ios-list ios-today-maintenance' });
       [['估值需更新', model.risks.stale], ['延续暂停', model.risks.paused]].forEach(function (pair) {
         pair[1].forEach(function (entry) {
@@ -4170,7 +4170,7 @@
       return entry.missingId || (entry.todo && !entry.sharedWith && !isTodoCompleted(entry.todo['状态']));
     }).length : 0;
     var children = [
-      text('h3', 'ios-detail-heading', '相关待办与风险（与「待办」「风险」同源）'),
+      text('h3', 'ios-detail-heading', '相关待办与风险（与「待办与风险」页同源）'),
       text('p', 'ios-asset-line', '卡住买入 ' + openBlocked + ' · 触发风险 ' + actions.invest.length + ' · 数据维护 ' + actions.maintenance.length)
     ];
     if (actions.blocked) { children.push(buildBlockedAssetCard_(actions.blocked)); }

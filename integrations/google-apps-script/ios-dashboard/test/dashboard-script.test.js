@@ -1722,7 +1722,7 @@ test('todos: a history report never changes the 待办 tab; its own blocker link
   const { document, window } = loadDashboard(latestBootstrap(latest, null), 'daily', { getReport: () => history });
   window.selectHistoryReport('daily-2026-11-01');
   assert.ok((document.getElementById('ios-tab-report').classList.contains('active') && document.getElementById('ios-seg-daily').getAttribute('aria-pressed') === 'true'));
-  assert.match(document.getElementById('ios-history-banner').textContent, /待办与风险 tab 仍是最新日报 \+ 最新周报的合并结果/);
+  assert.match(document.getElementById('ios-history-banner').textContent, /「待办与风险」页仍是最新日报 \+ 最新周报的合并结果/);
   const panel = () => document.getElementById('ios-summary-content').children.find((c) => c.classList.contains('ios-period-panel'));
   assert.equal(panel(), undefined, 'the period list stays closed until asked for (#396 PR B)');
   const link = allElements(document.getElementById('ios-summary-content')).find((n) => n.classList && n.classList.contains('ios-blocker-link'));

@@ -686,7 +686,7 @@ test('#409 P2 detail: a row opens 本期快照, the shared todo/risk items of th
   assert.match(text, /停止条件: 指引下修则暂停/);
   assert.match(text, /下一验证点: 11\/20 财报/);
   assert.match(text, /t9: 未找到：该报告没有这条待办/);
-  assert.match(text, /相关待办与风险（与「待办」「风险」同源）卡住买入 2 · 触发风险 2 · 数据维护 0/);
+  assert.match(text, /相关待办与风险（与「待办与风险」页同源）卡住买入 2 · 触发风险 2 · 数据维护 0/);
   assert.match(text, /核对订单/);
   assert.match(text, /阻塞待办未找到/);
   assert.doesNotMatch(byClass(detailNode, 'ios-asset-actions')[0].textContent, /名字相近|对象是 BBB/);
