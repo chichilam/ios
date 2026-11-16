@@ -2,7 +2,7 @@
 
 <!-- GENERATED FILE: do not edit by hand. Edit setup/runtime/fragments/ and run
 python3 setup/runtime/build_task_runtime.py build -->
-<!-- runtime-stats: {"runtime_snapshot":"issue-296-v1","runtime_digest":"d4e3a5cb7ffd2c48490d37ef8277e145fc88db24017a2c796db9cb043e11f5da","utf16_units":64595,"code_points":64595,"utf8_bytes":152477,"worst_case_bound_utf16_units":66210,"budget_utf16_units":86000} -->
+<!-- runtime-stats: {"runtime_snapshot":"issue-296-v1","runtime_digest":"d60640e873cbcb5551b393be6d5dbc95352dc76591c6bf1494459f0ef458f02a","utf16_units":66565,"code_points":66565,"utf8_bytes":157083,"worst_case_bound_utf16_units":68180,"budget_utf16_units":86000} -->
 
 This is the installable runtime snapshot of the Daily Scheduled Task (Issue #296). The
 installer (`setup/chatgpt-install-prompt.md`) pastes everything between the `PASTE-READY START`/
@@ -12,13 +12,13 @@ references; `setup/runtime/rule-map.json` maps every runtime rule back to them.
 
 | Measure | Value |
 | --- | --- |
-| UTF-16 code units (paste-ready body, before binding) | 64595 |
-| Unicode code points | 64595 |
-| UTF-8 bytes | 152477 |
+| UTF-16 code units (paste-ready body, before binding) | 66565 |
+| Unicode code points | 66565 |
+| UTF-8 bytes | 157083 |
 | Embedded authority (no separate embedding step) | 0 |
-| Worst-case bound after binding (UTF-16 code units) | 66210 |
+| Worst-case bound after binding (UTF-16 code units) | 68180 |
 | Engineering budget (UTF-16 code units, not a proven platform limit) | 86000 |
-| runtime_digest | `d4e3a5cb7ffd2c48490d37ef8277e145fc88db24017a2c796db9cb043e11f5da` |
+| runtime_digest | `d60640e873cbcb5551b393be6d5dbc95352dc76591c6bf1494459f0ef458f02a` |
 
 <!-- PASTE-READY START -->
 
@@ -40,7 +40,7 @@ Report 研究，回答"今天发生了什么，值得长期投资者记录或继
 时区名称，例如 Asia/Tokyo——不能是"用户本地时区"这类无法直接计算的描述>`
 
 - runtime_snapshot: issue-296-v1
-- runtime_digest: d4e3a5cb7ffd2c48490d37ef8277e145fc88db24017a2c796db9cb043e11f5da
+- runtime_digest: d60640e873cbcb5551b393be6d5dbc95352dc76591c6bf1494459f0ef458f02a
 - 快照来源 commit/版本：`<CONTENT_VERSION_PLACEHOLDER：由安装程序填写读取本快照时的仓库 commit>`
 - 快照时间：`<CONTENT_SNAPSHOT_TIME_PLACEHOLDER：由安装程序填写，ISO 8601>`
 
@@ -1074,6 +1074,28 @@ generation 的持仓数量、行情与汇率证据汇总成"覆盖部分"的组�
 本次没有晚于它 `报告日期` 的新官方披露时，本行写 `已完成`，`备注` 以“已核验：<Weekly 报告ID>/<生成ID> <证据>”开头；
 只覆盖一部分时不关闭，`已核验` 写已覆盖的部分、`剩余` 写本行仍缺的具体项。剩余里只要有现在就能做的动作就写 `可执行`；
 全部剩余都只等未发布的外部披露时才写 `等待证据`（可沿用那行的下一验证点）。同步不解除任何暂停（只按第 316 号 issue）；关闭被 `阻塞待办ID` 引用的待办时 `今日行动`/`阻塞待办ID` 在本 generation 重算。
+**阻塞待办复用（仅 Daily，第 420 号 issue）**：本行因暂停或估值缺失需关联阻塞待办时，每项有一个身份键：暂停为每个 `已核验暂停记录ID` 前加 `事件|`
+（ID 须为 `代码|事件类别|来源标识|YYYY-MM-DD` 且代码等于本行；空、畸形、代码不符、列表无法解析或暂停却无 ID 时，身份为 `暂停记录异常|<代码>|<原文或“空”>`，
+同一身份只算一项，不跳过），估值缺失为 `记录|代码|入场计划|<计划ID>|估值缺失`。先在最近 live Daily、再在最近 live Weekly 的 `报告待办` 找 `复核键` 等于该键的行；
+不按代码或文字猜测，不用 `<代码>-BLOCK` 等按代码泛化的待办合并多个键。`报告日期` 合法值为 YYYY-MM-DD 或 Sheets 日期序列值（自 1899-12-30 起算的天数）。
+- 可用行：每份至多一行同键，`待办ID` 非空，`报告ID`/`生成ID`/`报告日期` 与本次读到的该份 live 指针（报告ID、生成ID、合法且不晚于本次的报告日期）逐项相同，`状态`∈待处理/已完成、`跟进类型` 为空或三值之一，且没有“Daily 行 `已完成`、
+  `报告日期` 更晚的 Weekly 同键行未完成”的矛盾。未完成就沿用其 `待办ID` 与 `复核键`（两份都有时用 Daily 的），按上面对账与同步，`备注` 写来源 报告ID/生成ID。
+  `等待证据` 只在下列条件下延续：同一 `复核键` 没有晚于该行 `报告日期` 的官方披露，且下一验证点未到——日期型到当日即到；“下一份 Weekly”在出现指针合法、
+  `报告日期` 更晚的 live Weekly 时即到；其他文字型只由同一复核项的新披露触发；验证点、日期或证据日期缺失或非法即视为已到。到了就重新核对，不沿用等待。
+  `已完成` 的暂停键不重开、不重做；`已完成` 的估值键而估值仍缺按下一条处理。
+- 其余（没找到、同键多行、字段缺失或非法、来源与 live 指针不符、两份矛盾、读取不完整或指针非法、暂停记录异常）失败关闭：新开 `可执行` 待办写出该事项与原因（暂停记录异常为
+  `分类=数据异常`）；只在没找到或读取不完整时写 `复核键`，否则 `复核键` 留空、`备注` 以“身份键：<身份键>；”开头。ID 先沿用上一份 live Daily 中同 `复核键`
+  （或同“身份键”开头）恰好一行未完成待办的，否则取 `<代码>-K<YYYYMMDD>-<n>`（本次报告日期，n 取本 generation 与两份 live 报告都未用过的最小正整数）。
+- 暂停仍在且本行全部暂停键都已完成、没有任何其他阻塞时，写一条暂停待解除待办：`复核键` 为 `暂停待解除|<代码>|` 加这些暂停记录 ID 去重后按码点序以
+  “ + ”连接，`分类=计划复核`、`跟进类型=等待证据`，`待办`/`备注` 逐条写“暂停记录ID→原待办ID（报告ID/生成ID）”，并写暂停只待 Weekly 按第 316 号 issue
+  解除或维持、下一验证点：下一份 Weekly。ID 沿用上一份 live Daily 同键未完成行，否则取 `<代码>-HOLD<YYYYMMDD>-<n>`。同键行已 `已完成`（或多于一行）而同一
+  集合仍在暂停：不写暂停待解除，改写一条 `分类=数据异常` 的 `可执行` 失败关闭待办（身份键即该键）。
+- 上一份 Daily 中本代码其他未完成暂停待解除待办：绑定记录仍全部在暂停中且都对应已完成待办时，本次写了新暂停待解除就写 `已完成`、`备注`“由<新ID>接续”
+  （实际 ID），本次因其他阻塞未写则照原样续写并继续列入 `阻塞待办ID`；有绑定记录已不在暂停中时，每条都须有本次 live Weekly 中恰好一条同代码、同暂停记录
+  ID 的解除（其报告ID/生成ID/报告日期与 live Weekly 指针一致、解除记录非空），逐条引用后写 `已完成`。来源与 live 指针不符、绑定记录不再对应已完成待办、
+  或任一解除缺失、来源不符、对应别的记录或代码时不关闭：照原样续写并列入 `阻塞待办ID`，另写一条 `分类=数据异常`、`可执行` 的失败关闭待办（身份键
+  `暂停待解除关闭异常|<代码>|<旧待办ID>`，也列入，ID 同上规则沿用）。旧行与本次暂停待解除同键但来源不符时只续写旧行，不另写同键新行。
+- `阻塞待办ID` 非空、无重复，每个 ID 都在本 generation 的 `报告待办` 中；暂停与空上限都不放宽。新官方披露即新暂停记录 ID、新键。
 
 ## 报告分层：变化标记与周度研究（第 364 号 issue）
 
